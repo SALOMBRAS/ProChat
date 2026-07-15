@@ -1,0 +1,8 @@
+import type { ApiError, CreateSessionRequest, EventEnvelope, RequestContext, WhatsAppSession } from '@chatpro/contracts';
+export type WorkerCommand = { type: 'createSession'; sessionId: string; input: CreateSessionRequest } | { type: 'connectSession'; sessionId: string } | { type: 'disconnectSession'; sessionId: string } | { type: 'removeSession'; sessionId: string };
+export interface WhatsAppWorkerPort { execute(context: RequestContext, command: WorkerCommand): Promise<WhatsAppSession | void>; }
+export interface SessionRepositoryPort { /* persistence adapter to be implemented */ }
+export interface EventPublisherPort { publish(event: EventEnvelope): Promise<void>; }
+export interface CredentialStorePort { authDirectory(workspaceId: string, sessionId: string): string; prepareAuthDirectory(workspaceId: string, sessionId: string): Promise<string>; hasAuthDirectory(workspaceId: string, sessionId: string): Promise<boolean>; removeAuthDirectory(workspaceId: string, sessionId: string): Promise<void>; discoverSessions(): Promise<Array<{ workspaceId: string; sessionId: string }>>; }
+export class WorkerUnavailableError extends Error { readonly response: ApiError; constructor(correlationId: string) { super('WhatsApp worker adapter is not connected'); this.response = { error: { code: 'SERVICE_UNAVAILABLE', message: this.message, correlationId, details: {} } }; } }
+export class WorkerOperationError extends Error { readonly response: ApiError; constructor(code: ApiError['error']['code'], message: string, correlationId: string) { super(message); this.name = 'WorkerOperationError'; this.response = { error: { code, message, correlationId, details: {} } }; } }

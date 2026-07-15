@@ -1,0 +1,14 @@
+{
+  "RESELLER_CODE": null,
+  "LICENSE_SERVER": {
+    "base_url": "https://127.0.0.1",
+    "api_version": "api"
+  },
+  "APP_BRANDING": {
+    "show_reseller_info": false,
+    "custom_title": "ChatPro",
+    "splash_message": ""
+  },
+  "MASTER_ACCOUNT_MODE": true,
+  "MASTER_ACCOUNT_ID": null
+}
