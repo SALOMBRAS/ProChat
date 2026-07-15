@@ -1,0 +1,58 @@
+# Dependências e saídas de build
+node_modules/
+.next/
+dist/
+build/
+out/
+
+# Variáveis de ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# Logs e diagnósticos
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+
+# Temporários e caches
+tmp/
+temp/
+*.tmp
+*.temp
+.cache/
+
+# IDEs e editores
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Sessões e credenciais de conectores WhatsApp/Baileys
+sessions/
+.sessions/
+whatsapp-sessions/
+auth_info_baileys/
+baileys-auth/
+baileys_auth/
+*.session.json
+
+# Estado local do Supabase (migrations permanecem versionáveis)
+.supabase/
+supabase/.temp/
+supabase/.branches/
+
+# Testes
+coverage/
+test-results/
+playwright-report/
+.nyc_output/
+
+# Plataformas e sistema operacional
+.vercel/
+.DS_Store
+Thumbs.db
+Desktop.ini
