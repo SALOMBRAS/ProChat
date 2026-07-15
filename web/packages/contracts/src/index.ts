@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
 export const safeIdentifierSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/, 'Identifier must contain only letters, numbers, hyphens, and underscores');
-export const requestContextSchema = z.object({ userId: z.string().min(1), workspaceId: safeIdentifierSchema, correlationId: z.string().min(1) });
+export const requestContextSchema = z.object({ userId: z.string().min(1).optional(), workspaceId: safeIdentifierSchema, correlationId: z.string().min(1) });
 export type RequestContext = z.infer<typeof requestContextSchema>;
 
-export const errorCodes = ['VALIDATION_ERROR','UNAUTHORIZED','FORBIDDEN','NOT_FOUND','CONFLICT','SERVICE_UNAVAILABLE','NOT_IMPLEMENTED'] as const;
+export const errorCodes = ['VALIDATION_ERROR','UNAUTHORIZED','FORBIDDEN','NOT_FOUND','CONFLICT','SERVICE_UNAVAILABLE','NOT_IMPLEMENTED','TIMEOUT'] as const;
 export const apiErrorSchema = z.object({ error: z.object({ code: z.enum(errorCodes), message: z.string().min(1), correlationId: z.string().min(1), details: z.record(z.unknown()).default({}) }) });
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export const validationErrorSchema = apiErrorSchema.refine(value => value.error.code === 'VALIDATION_ERROR');
@@ -57,3 +57,17 @@ export function validateEventEnvelope(event: EventEnvelope): EventEnvelope {
   if (parsed.eventType === 'worker.error') workerErrorPayloadSchema.parse(parsed.payload);
   return parsed;
 }
+
+// Internal API-to-worker protocol. It exposes only controlled commands until a later session/QR phase.
+export const internalTransportTimeoutSchema = z.number().int().min(1).max(30_000);
+export const internalTransportPingCommandSchema = z.object({ type: z.literal('transport.ping'), payload: z.object({ message: z.string().min(1).max(120), delayMs: z.number().int().min(0).max(5_000).optional(), fail: z.boolean().optional() }) });
+export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema]);
+export type InternalTransportCommand = z.infer<typeof internalTransportCommandSchema>;
+export const internalTransportRequestSchema = z.object({ correlationId: z.string().min(1).max(128), workspaceId: safeIdentifierSchema, timeoutMs: internalTransportTimeoutSchema, command: internalTransportCommandSchema });
+export type InternalTransportRequest = z.infer<typeof internalTransportRequestSchema>;
+export const internalTransportErrorSchema = z.object({ code: z.enum(errorCodes), message: z.string().min(1).max(240), details: z.record(z.unknown()).default({}) });
+export type InternalTransportError = z.infer<typeof internalTransportErrorSchema>;
+export const internalTransportSuccessResponseSchema = z.object({ success: z.literal(true), correlationId: z.string().min(1), workspaceId: safeIdentifierSchema, data: z.object({ message: z.string().min(1).max(120) }) });
+export const internalTransportFailureResponseSchema = z.object({ success: z.literal(false), correlationId: z.string().min(1), workspaceId: safeIdentifierSchema, error: internalTransportErrorSchema });
+export const internalTransportResponseSchema = z.discriminatedUnion('success', [internalTransportSuccessResponseSchema, internalTransportFailureResponseSchema]);
+export type InternalTransportResponse = z.infer<typeof internalTransportResponseSchema>;

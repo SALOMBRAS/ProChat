@@ -7,6 +7,7 @@ export type WorkerConfig = {
   maxReconnectAttempts: number;
   reconnectBaseDelayMs: number;
   qrTtlMs: number;
+  internalTransportPort: number;
 };
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -27,5 +28,6 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     maxReconnectAttempts: positiveInteger(env.WHATSAPP_MAX_RECONNECT_ATTEMPTS, 5, 'WHATSAPP_MAX_RECONNECT_ATTEMPTS'),
     reconnectBaseDelayMs: positiveInteger(env.WHATSAPP_RECONNECT_BASE_DELAY_MS, 1_500, 'WHATSAPP_RECONNECT_BASE_DELAY_MS'),
     qrTtlMs: 120_000,
+    internalTransportPort: positiveInteger(env.WORKER_TRANSPORT_PORT, 3101, 'WORKER_TRANSPORT_PORT'),
   };
 }

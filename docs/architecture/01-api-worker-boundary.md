@@ -1,5 +1,13 @@
 # Limite entre API e worker
 
+## Transporte interno (15/07/2026)
+
+API e worker sao processos separados e usam HTTP interno em `127.0.0.1` (`POST /internal/transport`), nunca exposto publicamente. `@chatpro/contracts` define comando, resposta/erro, evento, `correlationId`, `workspaceId` e timeout. A API usa `InternalWorkerClient`; o worker usa `internal-transport-server` e o fecha antes do shutdown do gerenciador.
+
+O fluxo e API -> comando validado -> worker -> resposta com o mesmo `correlationId` e `workspaceId`. O timeout padrao e 2 s (`WORKER_TRANSPORT_TIMEOUT_MS`, maximo 30 s); timeout e indisponibilidade retornam erro tipado e o servidor impede resposta duplicada. O unico comando nesta fase e `transport.ping` controlado: ele nao inicia sessao, QR, auth state ou conexao WhatsApp.
+
+Nao ha autenticacao de usuario nesta fase; `workspaceId` e somente o limite preparatorio de isolamento. Login, licenca, pagamentos e Supabase nao fazem parte desta integracao. Operacoes reais de sessao/QR e entrega de eventos a API continuam fora de escopo.
+
 A aplicação legada é Electron: a interface compilada chama IPC, que concentra serviços Node, SQLite local, arquivos e a integração WhatsApp. Esta fundação não altera esses componentes.
 
 ```mermaid

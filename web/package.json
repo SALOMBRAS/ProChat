@@ -10,7 +10,8 @@
     "dev:worker": "npm run dev -w @chatpro/worker",
     "build": "npm run build -w @chatpro/contracts && npm run build -w @chatpro/api && npm run build -w @chatpro/worker",
     "typecheck": "npm run typecheck -w @chatpro/contracts && npm run typecheck -w @chatpro/api && npm run typecheck -w @chatpro/worker",
-    "test": "npm run test -w @chatpro/api && npm run test -w @chatpro/worker"
+    "test": "npm run test -w @chatpro/contracts && npm run test -w @chatpro/api && npm run test -w @chatpro/worker",
+    "smoke:transport": "tsx scripts/internal-transport-smoke.ts"
   },
   "devDependencies": {"@types/express":"^5.0.3","@types/node":"^22.15.30","@types/supertest":"^6.0.3","@types/ws":"^8.5.13","supertest":"^7.1.1","tsx":"^4.19.4","typescript":"^5.8.3","vitest":"^3.2.3"},
   "dependencies": {"express":"^5.1.0","ws":"^8.18.2","zod":"^3.24.4"}

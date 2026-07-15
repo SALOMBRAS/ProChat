@@ -53,7 +53,7 @@ describe('WhatsAppSessionManager', () => {
 
   beforeEach(async () => {
     dataDir = await mkdtemp(path.join(os.tmpdir(), 'chatpro-worker-'));
-    config = { name: 'test', dataDir, connectionEnabled: true, maxReconnectAttempts: 2, reconnectBaseDelayMs: 10, qrTtlMs: 100 };
+    config = { name: 'test', dataDir, connectionEnabled: true, maxReconnectAttempts: 2, reconnectBaseDelayMs: 10, qrTtlMs: 100, internalTransportPort: 3101 };
     store = new FileSystemCredentialStoreAdapter(dataDir);
     factory = new FakeFactory();
     publisher = new InMemoryEventPublisherAdapter();
