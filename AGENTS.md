@@ -39,4 +39,14 @@ Após implementar ou alterar comportamento relevante, atualize os documentos afe
 - Atualize a documentação após mudanças relevantes.
 - Mantenha commits do Main e do Cofre separados.
 
+## Kit-MCP
+
+- O Kit-MCP é uma ferramenta auxiliar do Codex e não uma dependência de runtime do ChatPro.
+- Consulte o catálogo antes de recriar padrões já disponíveis e use somente recursos relacionados à tarefa atual.
+- Priorize skills consultivas e agentes `leve`; respeite o `cost_tier` e justifique antes de acionar agentes ou orquestradores `pesado`.
+- O Kit-MCP não substitui decisões, restrições nem documentação do Cofre.
+- Não instale nem projete todos os packs. `core` é a seleção inicial; `supabase` fica reservado à fase Supabase; `ui`, à fase visual; os demais exigem necessidade expressa.
+- A configuração inicial permite somente o tool MCP consultivo `kit`; não habilite tools de escrita ou auto-install sem autorização e revisão prévias.
+- Para repetir a configuração local, use `scripts/setup-kit-mcp.ps1`; não versione `~/.codex/config.toml`, logs, caches, telemetria ou dados de sessão.
+
 Para contexto e decisões detalhadas, consulte o Cofre técnico.
