@@ -1,0 +1,44 @@
+{
+  "projectName": "ChatPro",
+  "entrypoints": [
+    {"path":"package.json:5","value":"build/electron.js","status":"Confirmado"},
+    {"path":"build/electron.js:1524","value":"app.whenReady bootstrap","status":"Confirmado"},
+    {"path":"build/index.html:1","value":"static/js/main.09f84bf6.js","status":"Confirmado"}
+  ],
+  "legacyBrandReferences": [
+    {"value":"LEADWAVE-2025-DEV-SECRET-CHANGE-IN-PRODUCTION","path":"build/config/security-config.js:83","type":"active license secret","status":"Confirmado"},
+    {"value":"LEADWAVE_LICENSE_SECRET / LEADWAVE_SECRET","path":"build/electron.js:229,1793","type":"active license signature","status":"Confirmado"},
+    {"value":"leadwave-backup.zip","path":"build/electron.js:540","type":"active default filename","status":"Confirmado"},
+    {"value":"Default LeadWave Logo","path":"build/assets/images/1213logo.svg:2","type":"documentation/art asset","status":"Confirmado"}
+  ],
+  "licenseComponents": [
+    {"name":"LocalLicenseService","path":"build/services/local-license-service.js","status":"active"},
+    {"name":"CloudLicenseService","path":"build/services/cloud-license-service.js","status":"active"},
+    {"name":"NewLicLicenseService","path":"build/services/newlic-license-service.js","status":"active"},
+    {"name":"license renderer screens","path":"build/static/js/main.09f84bf6.js:2","status":"active"}
+  ],
+  "electronDependencies": ["electron runtime","contextBridge/ipcRenderer","BrowserWindow","dialog","shell","electron-updater","app.getPath","fs","better-sqlite3 local file access"],
+  "ipcChannels": [
+    {"prefix":"whatsapp","count":52,"path":"build/electron.js:3540-4457","webEquivalent":"REST and WebSocket"},
+    {"prefix":"license/cloud-license/newlic-license","count":26,"path":"build/electron.js:1925-3355","webEquivalent":"server authorization API"},
+    {"prefix":"live-chat","count":20,"path":"build/electron.js:6151-6535","webEquivalent":"authenticated API"},
+    {"prefix":"proxy","count":16,"path":"build/electron.js:5855-6095","webEquivalent":"server integration API"},
+    {"prefix":"update","count":12,"path":"build/electron.js:6594-6755","webEquivalent":"CI/CD and admin API"},
+    {"prefix":"database/filesystem/shell","count":5,"path":"build/electron.js:4525,4855-4878,6770","webEquivalent":"specific APIs and uploads"},
+    {"prefix":"all handlers","count":215,"path":"build/electron.js","webEquivalent":"versioned API contract"}
+  ],
+  "frontendScreens": ["dashboard","devices","single-message","templates","contacts","bulk-messages","proxies","warmer","opt-out-management","auto-reply","chatbot","support-bot","ai-chatbot","call-responder","follow-up","recall-bot","live-chat","group-grabber","manage-group","reports","localization","settings"],
+  "services": ["app","database","whatsapp","campaign-scheduler","bulk-message-features","message-processor","opt-out","live-chat","followup-scheduler","recall-bot","warmer","ai","document","email","proxy","backup","translation","update"],
+  "databaseTables": ["whatsapp_sessions","message_templates","contacts","contact_groups","contact_group_members","bulk_campaigns","bulk_campaign_recipients","message_history","app_settings","activity_logs","communication_preferences","opt_out_keywords","opt_out_requests","compliance_audit_log","auto_reply_rules","chatbot_flows","chatbot_nodes","chatbot_conversations","ai_providers","ai_chatbots","ai_documents","live_chat_*","proxies","backup_history","email_settings","warmer_campaigns","translation_keys","poll_messages"],
+  "whatsappFeatures": ["multi-session","QR and pairing code","credential persistence","reconnection","individual and template sending","media and interactive messages","bulk campaigns","contacts/chats/history","groups","labels/blocking","polls","incoming events"],
+  "externalUrls": ["https://fonts.googleapis.com","https://fonts.gstatic.com","https://cdn.sheetjs.com","https://127.0.0.1/api"],
+  "webBlockers": [
+    {"name":"Compiled renderer coupled to Electron IPC","difficulty":"alta"},
+    {"name":"Baileys sessions and credentials on local disk","difficulty":"alta"},
+    {"name":"SQLite in Electron userData","difficulty":"alta"},
+    {"name":"Local filesystem, dialogs and shell","difficulty":"média"},
+    {"name":"Machine-bound licensing","difficulty":"alta"}
+  ],
+  "unknowns": ["Original React source repository","Runtime behavior of absent security/config modules","Applied SQLite schema and production data","Production licensing endpoint and credentials","Complete UI state-management library"],
+  "recommendedNextTask": {"title":"Define and scaffold the web API/worker boundary","reason":"The frontend bundle cannot run without Electron and the core stateful services must leave the desktop process first.","scope":["OpenAPI/WebSocket contract for sessions, contacts, templates and events","server authentication/tenancy decision","Node worker boundary for Baileys"],"status":"recommended"}
+}

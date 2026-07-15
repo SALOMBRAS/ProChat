@@ -1,61 +1,38 @@
-# Dependências e saídas de build
 node_modules/
-.next/
-dist/
-build/
-out/
+**/node_modules/
 
-# Variáveis de ambiente e segredos
 .env
-.env.*
-!.env.example
-!.env.waha.example
+.env.local
+.env.development
+.env.production
+.env.test
+.env.*.local
 
-# Logs e diagnósticos
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
-logs/
 
-# Temporários e caches
-tmp/
-temp/
-*.tmp
-*.temp
-*.tsbuildinfo
-.cache/
-
-# IDEs e editores
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Sessões e credenciais de conectores WhatsApp/Baileys
-sessions/
-.sessions/
-.waha/
-whatsapp-sessions/
-auth_info_baileys/
-baileys-auth/
-baileys_auth/
-*.session.json
-
-# Estado local do Supabase (migrations permanecem versionáveis)
-.supabase/
-supabase/.temp/
-supabase/.branches/
-
-# Testes
 coverage/
-test-results/
-playwright-report/
-.nyc_output/
+**/coverage/
 
-# Plataformas e sistema operacional
-.vercel/
+web/**/dist/
+web/.chatpro-data/
+web/runtime/
+web/temp/
+
+**/sessions/
+**/auth/
+**/auth-state/
+**/credentials/
+
+*.db
+*.sqlite
+*.sqlite3
+creds.json
+*.qr
+
 .DS_Store
 Thumbs.db
-Desktop.ini
+.vscode/
+.idea/

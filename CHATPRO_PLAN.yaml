@@ -1,0 +1,33 @@
+project:
+  name: ChatPro
+  repository: SALOMBRAS/ProChat
+  context: academic open-source modification authorized by the professor
+
+architecture:
+  migration: Electron to web platform
+  hosting: Vercel Free
+  persistence: Supabase Free
+  worker: Separate Baileys worker
+  cost_policy: Zero-cost services only; no paid external APIs
+
+current_state:
+  electron_application: Preserved as the reference implementation in build/
+  audit: Completed
+  web_foundation: Created
+  baileys_worker: Implemented
+  validations: 32 tests approved in the established project baseline
+  limitations:
+    - API returns 501 for real operations.
+    - API and worker do not yet have internal transport.
+    - Workspace metadata remains in memory.
+    - Local auth state is provisional and must not be committed.
+    - Message delivery and pairing code are not connected.
+    - The Baileys version has transitive dependency alerts.
+
+roadmap:
+  - Create internal API-to-worker transport without paid services.
+  - Persist approved metadata using the Supabase Free tier.
+  - Connect message delivery and pairing-code workflows.
+  - Harden operational observability while keeping credentials local.
+
+next_task: Create the internal API-worker transport.
