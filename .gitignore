@@ -9,6 +9,7 @@ out/
 .env
 .env.*
 !.env.example
+!.env.waha.example
 
 # Logs e diagnósticos
 *.log
@@ -35,6 +36,7 @@ temp/
 # Sessões e credenciais de conectores WhatsApp/Baileys
 sessions/
 .sessions/
+.waha/
 whatsapp-sessions/
 auth_info_baileys/
 baileys-auth/

@@ -1,0 +1,22 @@
+services:
+  waha:
+    image: devlikeapro/waha@sha256:f3c33e8e70a78eb37af4f4e2eb655849d42d8ffdc4b8254f9de38069e906a146
+    restart: unless-stopped
+    environment:
+      WAHA_API_KEY: ${WAHA_API_KEY:?Defina WAHA_API_KEY em .env.waha antes de iniciar o WAHA.}
+      WAHA_LOG_LEVEL: ${WAHA_LOG_LEVEL:-info}
+      WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME:?Defina WAHA_DASHBOARD_USERNAME em .env.waha.}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD:?Defina WAHA_DASHBOARD_PASSWORD em .env.waha.}
+      WHATSAPP_SWAGGER_USERNAME: ${WHATSAPP_SWAGGER_USERNAME:?Defina WHATSAPP_SWAGGER_USERNAME em .env.waha.}
+      WHATSAPP_SWAGGER_PASSWORD: ${WHATSAPP_SWAGGER_PASSWORD:?Defina WHATSAPP_SWAGGER_PASSWORD em .env.waha.}
+    ports:
+      - "127.0.0.1:${WAHA_PORT:-3000}:3000"
+    volumes:
+      - ./.waha/sessions:/app/.sessions
+    healthcheck:
+      test:
+        ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health', { headers: { 'X-Api-Key': process.env.WAHA_API_KEY } }).then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s

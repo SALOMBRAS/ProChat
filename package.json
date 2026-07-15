@@ -15,6 +15,10 @@
   "scripts": {
     "dev:web": "npm run dev --workspace @chatpro/web",
     "dev:connector": "npm run dev --workspace @chatpro/whatsapp-connector",
+    "waha:start": "docker compose --env-file .env.waha -f docker-compose.yml up -d waha",
+    "waha:stop": "docker compose --env-file .env.waha -f docker-compose.yml down",
+    "waha:status": "docker compose --env-file .env.waha -f docker-compose.yml ps",
+    "waha:logs": "docker compose --env-file .env.waha -f docker-compose.yml logs -f waha",
     "build:web": "npm run build --workspace @chatpro/web",
     "build:connector": "npm run build --workspace @chatpro/whatsapp-connector",
     "build": "npm run build:web && npm run build:connector",
