@@ -1,0 +1,25 @@
+{
+  "name": "chatpro",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.16.0",
+  "engines": {
+    "node": ">=24.16.0 <25",
+    "npm": ">=11.16.0 <12"
+  },
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace @chatpro/web",
+    "dev:connector": "npm run dev --workspace @chatpro/whatsapp-connector",
+    "build:web": "npm run build --workspace @chatpro/web",
+    "build:connector": "npm run build --workspace @chatpro/whatsapp-connector",
+    "build": "npm run build:web && npm run build:connector",
+    "lint": "npm run lint --workspace @chatpro/web",
+    "typecheck": "npm run typecheck --workspace @chatpro/web && npm run typecheck --workspace @chatpro/whatsapp-connector",
+    "check": "npm run lint && npm run typecheck && npm run build"
+  }
+}
