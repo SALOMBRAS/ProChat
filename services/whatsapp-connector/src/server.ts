@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { WhatsAppProviderError, type WhatsAppProvider } from "@chatpro/whatsapp-core";
 
 const INSTANCE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const ALLOWED_ORIGINS = new Set(["http://127.0.0.1:3000", "http://localhost:3000"]);
 function send(response: ServerResponse, status: number, body: unknown): void { response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); response.end(JSON.stringify(body)); }
 async function readJson(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []; let length = 0;
@@ -16,6 +17,10 @@ export function createConnectorServer(provider: WhatsAppProvider): Server {
   return createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://connector.local"); const parts = url.pathname.split("/").filter(Boolean);
     try {
+      const origin = request.headers.origin;
+      if (origin && !ALLOWED_ORIGINS.has(origin)) { send(response, 403, { error: { code: "not_found", message: "Rota não encontrada." } }); return; }
+      if (origin) { response.setHeader("Access-Control-Allow-Origin", origin); response.setHeader("Vary", "Origin"); }
+      if (request.method === "OPTIONS") { response.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }); response.end(); return; }
       if (request.method === "GET" && url.pathname === "/health") { await provider.health(); send(response, 200, { status: "ok", dependency: "waha" }); return; }
       if (request.method === "POST" && url.pathname === "/instances") { const body = await readJson(request); const id = instanceId(body && typeof body === "object" ? (body as Record<string, unknown>).id as string | undefined : undefined); send(response, 201, await provider.createInstance(id)); return; }
       const id = parts[1] ? instanceId(parts[1]) : undefined;

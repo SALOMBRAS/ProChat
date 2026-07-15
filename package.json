@@ -24,6 +24,7 @@
     "build": "npm run build:web && npm run build:connector",
     "lint": "npm run lint --workspace @chatpro/web",
     "typecheck": "npm run typecheck --workspace @chatpro/web && npm run typecheck --workspace @chatpro/whatsapp-core && npm run typecheck --workspace @chatpro/whatsapp-connector",
+    "test:connector-client": "node --import tsx --test apps/web/src/lib/whatsapp-connector/client.test.ts",
     "check": "npm run lint && npm run typecheck && npm run build"
   }
 }
