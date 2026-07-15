@@ -1,20 +1,18 @@
-const keepAlive = setInterval(() => undefined, 2_147_483_647);
+import { loadConfig } from "./config.js";
+import { createConnectorServer } from "./server.js";
+import { WahaClient } from "./waha-client.js";
+import { WahaProvider } from "./waha-provider.js";
+
+const config = loadConfig();
+const server = createConnectorServer(new WahaProvider(new WahaClient(config)));
 let shuttingDown = false;
 
 function shutdown(signal: NodeJS.Signals): void {
-  if (shuttingDown) {
-    return;
-  }
-
+  if (shuttingDown) return;
   shuttingDown = true;
-  clearInterval(keepAlive);
-  console.log(`[whatsapp-connector] Encerramento controlado por ${signal}.`);
-  process.exit(0);
+  server.close(() => { console.log(`[whatsapp-connector] Encerramento controlado por ${signal}.`); process.exit(0); });
 }
 
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));
-
-console.log(
-  "[whatsapp-connector] Conector ativo; integração com WhatsApp ainda não implementada.",
-);
+server.listen(config.port, config.host, () => console.log(`[whatsapp-connector] API local ativa em http://${config.host}:${config.port}.`));

@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node --env-file=../../.env.waha --import tsx --watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "node dist/index.js"
+    "test": "node --test dist/waha-mappers.test.js",
+    "start": "node --env-file=../../.env.waha dist/index.js"
+  },
+  "dependencies": {
+    "@chatpro/whatsapp-core": "*"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

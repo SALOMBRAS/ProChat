@@ -20,10 +20,10 @@
     "waha:status": "docker compose --env-file .env.waha -f docker-compose.yml ps",
     "waha:logs": "docker compose --env-file .env.waha -f docker-compose.yml logs -f waha",
     "build:web": "npm run build --workspace @chatpro/web",
-    "build:connector": "npm run build --workspace @chatpro/whatsapp-connector",
+    "build:connector": "npm run build --workspace @chatpro/whatsapp-core && npm run build --workspace @chatpro/whatsapp-connector",
     "build": "npm run build:web && npm run build:connector",
     "lint": "npm run lint --workspace @chatpro/web",
-    "typecheck": "npm run typecheck --workspace @chatpro/web && npm run typecheck --workspace @chatpro/whatsapp-connector",
+    "typecheck": "npm run typecheck --workspace @chatpro/web && npm run typecheck --workspace @chatpro/whatsapp-core && npm run typecheck --workspace @chatpro/whatsapp-connector",
     "check": "npm run lint && npm run typecheck && npm run build"
   }
 }
