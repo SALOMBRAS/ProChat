@@ -23,7 +23,20 @@ export function Devices({ api = sessionsApi }: { api?: SessionsApi }) {
   const { data = [], error, loading, refresh } = useResource(() => api.list());
   const [busy, setBusy] = useState<string>();
   const [actionError, setActionError] = useState('');
-  const [qr, setQr] = useState<{ name: string; value: string; expiresAt: string }>();
+  const [qr, setQr] = useState<{ sessionId: string; name: string; value: string; expiresAt: string }>();
+  useEffect(() => {
+    const session = data.find(item => item.status === 'waiting_qr');
+    if (!session) { setQr(undefined); return; }
+    if (qr?.sessionId === session.id) return;
+    let cancelled = false;
+    void api.qr(session.id).then(next => { if (!cancelled) setQr({ sessionId: session.id, name: session.name, value: next.qr, expiresAt: next.expiresAt }); }).catch(error => { if (!cancelled) setActionError(message(error)); });
+    return () => { cancelled = true; };
+  }, [api, data, qr?.sessionId]);
+  useEffect(() => {
+    if (!qr) return;
+    const timeout = window.setTimeout(() => setQr(undefined), Math.max(0, new Date(qr.expiresAt).getTime() - Date.now()));
+    return () => window.clearTimeout(timeout);
+  }, [qr]);
   const execute = async (key: string, action: () => Promise<void>) => {
     setBusy(key); setActionError('');
     try { await action(); await refresh(); } catch (e) { setActionError(message(e)); } finally { setBusy(undefined); }
@@ -31,7 +44,7 @@ export function Devices({ api = sessionsApi }: { api?: SessionsApi }) {
   const connect = async (id: string, name: string) => execute(`connect-${id}`, async () => {
     await api.connect(id);
     for (let attempt = 0; attempt < 12; attempt += 1) {
-      try { const next = await api.qr(id); setQr({ name, value: next.qr, expiresAt: next.expiresAt }); return; }
+      try { const next = await api.qr(id); setQr({ sessionId: id, name, value: next.qr, expiresAt: next.expiresAt }); return; }
       catch (e) { if (!(e instanceof ApiError) || e.code !== 'REQUEST_FAILED') throw e; await new Promise(resolve => window.setTimeout(resolve, 500)); }
     }
     throw new ApiError('REQUEST_FAILED', 'O QR real ainda não foi disponibilizado pelo worker. Atualize a sessão em instantes.');
