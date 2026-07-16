@@ -4,6 +4,7 @@ import { createPersistenceRepositories } from './repositories.js';
 import { createSupabasePersistenceRepositories } from './supabase-repositories.js';
 import { createSupabasePersistenceClient } from './supabase.js';
 import { createSqliteDomainRepository } from './sqlite-domain.repository.js';
+import { createSupabaseDomainRepository } from './supabase-domain.repository.js';
 import type { DomainRepository } from './domain.repository.js';
 
 /** Composition boundary for persistence. The current API bootstrap deliberately
@@ -23,6 +24,5 @@ export async function createDomainRepositoryForProvider(config: ApiConfig, sqlit
     if (!sqlite) throw new Error('A SQLite database is required when DATABASE_PROVIDER=sqlite');
     return createSqliteDomainRepository(sqlite);
   }
-  createSupabasePersistenceClient(config);
-  throw new Error('Supabase domain provider requires the versioned domain RPC package; remote CRUD is intentionally disabled until it is configured');
+  return createSupabaseDomainRepository(createSupabasePersistenceClient(config));
 }
