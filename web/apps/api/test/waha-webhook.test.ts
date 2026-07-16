@@ -5,12 +5,14 @@ import { tmpdir } from 'node:os';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
+import { createWorkerTransportHandler, listenInternalTransport } from '../../worker/src/internal-transport-server.js';
+import type { WhatsAppWorkerPort } from '../../worker/src/ports.js';
 
-const directories: string[] = []; const applications: Array<Awaited<ReturnType<typeof createApp>>> = [];
+const directories: string[] = []; const applications: Array<Awaited<ReturnType<typeof createApp>>> = []; const workerServers: Array<{ close: () => Promise<void> }> = [];
 const key = 'webhook-test-secret';
 const signed = (body: unknown) => { const raw = JSON.stringify(body); return { raw, hmac: createHmac('sha512', key).update(raw).digest('hex'), timestamp: String(Date.now()) }; };
-const appFor = async () => { const directory = mkdtempSync(join(tmpdir(), 'chatpro-waha-webhook-')); directories.push(directory); const app = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: 'http://127.0.0.1:1/internal/transport', workerTransportTimeoutMs: 20, databaseProvider: 'sqlite', databasePath: join(directory, 'api.sqlite'), wahaWebhookHmacKey: key, wahaWebhookWorkspaceId: 'workspace-a' }); applications.push(app); return app; };
-afterEach(() => { applications.splice(0).forEach(app => app.locals.persistenceDatabase?.close()); directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })); });
+const appFor = async (workerTransportUrl = 'http://127.0.0.1:1/internal/transport', workerTransportTimeoutMs = 20) => { const directory = mkdtempSync(join(tmpdir(), 'chatpro-waha-webhook-')); directories.push(directory); const app = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl, workerTransportTimeoutMs, databaseProvider: 'sqlite', databasePath: join(directory, 'api.sqlite'), wahaWebhookHmacKey: key, wahaWebhookWorkspaceId: 'workspace-a' }); applications.push(app); return app; };
+afterEach(async () => { applications.splice(0).forEach(app => app.locals.persistenceDatabase?.close()); directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })); await Promise.all(workerServers.splice(0).map(server => server.close())); });
 
 describe('WAHA webhook ingress', () => {
   it('authenticates, sanitizes and persists a message idempotently', async () => {
@@ -40,5 +42,15 @@ describe('WAHA webhook ingress', () => {
     await request(app).post(`/api/v1/inbox/conversations/${id}/read`).set('x-workspace-id', 'workspace-a').expect(204);
     await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body.items[0].unreadCount).toBe(0));
     await request(app).get(`/api/v1/inbox/conversations/${id}/messages`).set('x-workspace-id', 'workspace-b').expect(404);
+  });
+  it('sends through the linked WAHA session and persists one outbound message', async () => {
+    const worker: WhatsAppWorkerPort = { execute: async (_context, command) => { if (command.type === 'sendMessage') return { id: 'outbound-1', timestamp: '2026-07-16T18:00:00.000Z' }; throw new Error('unexpected command'); } };
+    const runtime = await listenInternalTransport({ host: '127.0.0.1', port: 0 }, createWorkerTransportHandler(worker)); workerServers.push(runtime); const address = runtime.server.address(); if (!address || typeof address === 'string') throw new Error('missing worker address');
+    const app = await appFor(`http://127.0.0.1:${address.port}/internal/transport`, 1_000); const event = { id: 'evt-send-source', timestamp: Date.now(), event: 'message', session: 'waha-a', payload: { id: 'source-1', chatId: '5511999990000@c.us', body: 'Oi' } }; const signedEvent = signed(event);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedEvent.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedEvent.timestamp).send(signedEvent.raw).expect(202);
+    const conversations = await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200); const id = conversations.body.items[0].id;
+    await request(app).post(`/api/v1/inbox/conversations/${id}/messages`).set('x-workspace-id', 'workspace-a').send({ text: 'Resposta real' }).expect(201).expect(response => expect(response.body).toMatchObject({ id: 'outbound-1', direction: 'outbound', content: 'Resposta real', status: 'sent' }));
+    expect(app.locals.persistenceDatabase.sqlite.prepare("SELECT count(*) AS total FROM whatsapp_messages WHERE direction = 'outbound'").get()).toMatchObject({ total: 1 });
+    await request(app).post(`/api/v1/inbox/conversations/${id}/messages`).set('x-workspace-id', 'workspace-b').send({ text: 'Não pode' }).expect(404);
   });
 });

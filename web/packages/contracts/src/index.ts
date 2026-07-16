@@ -85,7 +85,8 @@ export type SessionQr = z.infer<typeof sessionQrSchema>;
 export const internalListSessionsCommandSchema = z.object({ type: z.literal('session.list'), payload: z.object({}) });
 export const internalCreateSessionCommandSchema = z.object({ type: z.literal('session.create'), payload: z.object({ sessionId: sessionIdSchema, name: z.string().trim().min(1).max(120).optional() }) });
 export const internalSessionCommandSchema = z.object({ type: z.enum(['session.connect', 'session.status', 'session.qr', 'session.stop', 'session.logout', 'session.remove']), payload: z.object({ sessionId: sessionIdSchema }) });
-export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema]);
+export const internalSendMessageCommandSchema = z.object({ type: z.literal('message.send'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), chatId: z.string().trim().min(1).max(200), text: z.string().trim().min(1).max(4_096) }) });
+export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema, internalSendMessageCommandSchema]);
 export type InternalTransportCommand = z.infer<typeof internalTransportCommandSchema>;
 export const internalTransportRequestSchema = z.object({ correlationId: z.string().min(1).max(128), workspaceId: safeIdentifierSchema, timeoutMs: internalTransportTimeoutSchema, command: internalTransportCommandSchema });
 export type InternalTransportRequest = z.infer<typeof internalTransportRequestSchema>;
@@ -96,6 +97,7 @@ export const internalTransportDataSchema = z.union([
   z.object({ sessions: z.array(sessionSummarySchema) }),
   z.object({ session: whatsAppSessionSchema }),
   z.object({ qr: sessionQrSchema }),
+  z.object({ sentMessage: z.object({ id: z.string().min(1).max(200), timestamp: z.string().datetime() }) }),
   z.object({ removed: z.literal(true) }),
   z.object({ completed: z.literal(true) }),
 ]);
