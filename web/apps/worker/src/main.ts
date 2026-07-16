@@ -11,10 +11,10 @@ export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfi
     return { adapter, manager: undefined, restored: [], config, shutdown: () => adapter.shutdown() };
   }
   if (config.whatsAppProvider === 'waha') {
-    const [{ WahaHttpClient }, { WahaProvider }] = await Promise.all([import('./waha-client.js'), import('./waha-provider.js')]);
+    const [{ WahaHttpClient }, { WahaProvider }, { FileWahaSessionRegistry }] = await Promise.all([import('./waha-client.js'), import('./waha-provider.js'), import('./waha-session-registry.js')]);
     const client = new WahaHttpClient({ baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey, timeoutMs: config.wahaTimeoutMs });
     await client.health();
-    const adapter = new WahaProvider(client, config.qrTtlMs);
+    const adapter = new WahaProvider(client, config.qrTtlMs, new FileWahaSessionRegistry(config.dataDir));
     return { adapter, manager: undefined, restored: [], config, shutdown: () => adapter.shutdown() };
   }
   const [{ BaileysSocketFactory }, { BaileysWhatsAppWorkerAdapter }, { FileSystemCredentialStoreAdapter }, { WhatsAppSessionManager }] = await Promise.all([
