@@ -56,18 +56,27 @@ export class WhatsAppSessionManager {
     return [...this.sessions.values()].filter(session => session.workspaceId === workspaceId);
   }
 
+  getQr(context: RequestContext, sessionId: string): { sessionId: string; workspaceId: string; qr: string; expiresAt: string } {
+    const entry = this.requireEntry(context, sessionId);
+    if (!entry.qr || Date.parse(entry.qr.expiresAt) <= Date.now()) {
+      entry.qr = undefined;
+      throw new WorkerOperationError('NOT_FOUND', 'Temporary QR code not found', context.correlationId);
+    }
+    return { sessionId: entry.sessionId, workspaceId: entry.workspaceId, qr: entry.qr.value, expiresAt: entry.qr.expiresAt };
+  }
+
   getSession(workspaceId: string, sessionId: string): WhatsAppSession | undefined {
     return this.sessions.get(this.key(workspaceId, sessionId));
   }
 
-  async createSession(context: RequestContext, sessionId: string, input: { name: string }): Promise<WhatsAppSession> {
+  async createSession(context: RequestContext, sessionId: string, input: { name?: string }): Promise<WhatsAppSession> {
     const validContext = requestContextSchema.parse(context);
     const id = assertSafeIdentifier(sessionId, 'sessionId', context.correlationId);
     const body = createSessionRequestSchema.parse(input);
     const key = this.key(validContext.workspaceId, id);
     if (this.sessions.has(key) || await this.credentials.hasAuthDirectory(validContext.workspaceId, id)) throw new WorkerOperationError('CONFLICT', 'Session already exists', context.correlationId);
     const now = new Date().toISOString();
-    const session = whatsAppSessionSchema.parse({ id, workspaceId: validContext.workspaceId, name: body.name, status: 'disconnected', createdAt: now, updatedAt: now });
+    const session = whatsAppSessionSchema.parse({ id, workspaceId: validContext.workspaceId, name: body.name ?? id, status: 'disconnected', createdAt: now, updatedAt: now });
     this.sessions.set(key, session);
     this.registry.set({ workspaceId: validContext.workspaceId, sessionId: id, status: 'disconnected', reconnectAttempt: 0, createdAt: now, statusChangedAt: now, manualStop: false, explicitLogout: false });
     return session;
@@ -78,7 +87,7 @@ export class WhatsAppSessionManager {
     if (!this.config.connectionEnabled) throw new WorkerOperationError('SERVICE_UNAVAILABLE', 'WhatsApp connections are disabled', context.correlationId);
     if (!this.registry.begin(entry, 'connect')) throw new WorkerOperationError('CONFLICT', 'Another session operation is in progress', context.correlationId);
     try {
-      if (entry.socket || entry.status === 'connecting' || entry.status === 'connected' || entry.status === 'reconnecting') throw new WorkerOperationError('CONFLICT', 'Session is already connecting or connected', context.correlationId);
+      if (entry.socket || entry.status === 'connecting' || entry.status === 'connected') throw new WorkerOperationError('CONFLICT', 'Session is already connecting or connected', context.correlationId);
       entry.manualStop = false;
       entry.explicitLogout = false;
       entry.reconnectAttempt = 0;
@@ -101,6 +110,20 @@ export class WhatsAppSessionManager {
       if (socket) await socket.end(new Error('Local disconnect'));
       entry.socket = undefined;
       entry.reconnectAttempt = 0;
+      await this.setStatus(context, entry, 'stopped');
+    } finally { this.registry.finish(entry); }
+  }
+
+  async logoutSession(context: RequestContext, sessionId: string): Promise<void> {
+    const entry = this.requireEntry(context, sessionId);
+    if (!this.registry.begin(entry, 'logout')) throw new WorkerOperationError('CONFLICT', 'Another session operation is in progress', context.correlationId);
+    try {
+      entry.manualStop = true;
+      entry.explicitLogout = true;
+      this.registry.cancelTimers(entry);
+      if (entry.socket) await entry.socket.logout();
+      entry.socket = undefined;
+      await this.credentials.removeAuthDirectory(entry.workspaceId, entry.sessionId);
       await this.setStatus(context, entry, 'disconnected');
     } finally { this.registry.finish(entry); }
   }
@@ -120,7 +143,7 @@ export class WhatsAppSessionManager {
         try { await entry.socket.end(new Error('Session removed')); } catch { /* socket may already be closed by logout */ }
       }
       entry.socket = undefined;
-      await this.setStatus(context, entry, 'logged_out');
+      await this.setStatus(context, entry, 'disconnected');
       await this.credentials.removeAuthDirectory(entry.workspaceId, entry.sessionId);
       this.sessions.delete(this.key(entry.workspaceId, entry.sessionId));
       this.registry.delete(entry.workspaceId, entry.sessionId);
@@ -135,7 +158,7 @@ export class WhatsAppSessionManager {
         try { await entry.socket.end(new Error('Worker shutdown')); } catch { /* best-effort shutdown */ }
         entry.socket = undefined;
       }
-      if (entry.status !== 'logged_out') {
+      if (entry.status !== 'disconnected') {
         const context = { userId: 'worker', workspaceId: entry.workspaceId, correlationId: `shutdown-${randomUUID()}` };
         await this.setStatus(context, entry, 'disconnected');
       }
@@ -164,19 +187,21 @@ export class WhatsAppSessionManager {
   private async handleConnectionUpdate(context: RequestContext, entry: RuntimeEntry, socket: WhatsAppSocket, update: ConnectionUpdate): Promise<void> {
     if (entry.socket !== socket || entry.manualStop || entry.explicitLogout) return;
     if (update.qr) {
-      await this.setStatus(context, entry, 'qr_pending');
+      await this.setStatus(context, entry, 'waiting_qr');
       if (entry.qrExpiryTimer) clearTimeout(entry.qrExpiryTimer);
       const expiresAt = new Date(Date.now() + this.config.qrTtlMs).toISOString();
+      entry.qr = { value: update.qr, expiresAt };
       await this.publish(context, 'session.qr.updated', { sessionId: entry.sessionId, qr: update.qr, expiresAt });
-      entry.qrExpiryTimer = setTimeout(() => { entry.qrExpiryTimer = undefined; }, this.config.qrTtlMs);
+      entry.qrExpiryTimer = setTimeout(() => { entry.qrExpiryTimer = undefined; entry.qr = undefined; }, this.config.qrTtlMs);
     }
-    if (update.connection === 'connecting') await this.setStatus(context, entry, entry.reconnectAttempt > 0 ? 'reconnecting' : 'connecting', entry.reconnectAttempt || undefined);
+    if (update.connection === 'connecting') await this.setStatus(context, entry, 'connecting', entry.reconnectAttempt || undefined);
     if (update.connection === 'open') {
       entry.reconnectAttempt = 0;
       if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer);
       if (entry.qrExpiryTimer) clearTimeout(entry.qrExpiryTimer);
       entry.reconnectTimer = undefined;
       entry.qrExpiryTimer = undefined;
+      entry.qr = undefined;
       await this.setStatus(context, entry, 'connected');
     }
     if (update.connection === 'close') {
@@ -184,7 +209,7 @@ export class WhatsAppSessionManager {
       if (disconnectCode(update.lastDisconnect?.error) === LOGGED_OUT_REASON) {
         entry.explicitLogout = true;
         this.registry.cancelTimers(entry);
-        await this.setStatus(context, entry, 'logged_out');
+        await this.setStatus(context, entry, 'disconnected');
         return;
       }
       await this.scheduleReconnect(context, entry);
@@ -200,7 +225,7 @@ export class WhatsAppSessionManager {
       return;
     }
     entry.reconnectAttempt = attempt;
-    await this.setStatus(context, entry, 'reconnecting', attempt);
+    await this.setStatus(context, entry, 'connecting', attempt);
     const delay = this.config.reconnectBaseDelayMs * 2 ** (attempt - 1);
     entry.reconnectTimer = setTimeout(() => {
       entry.reconnectTimer = undefined;

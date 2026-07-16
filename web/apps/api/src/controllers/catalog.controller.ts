@@ -11,8 +11,10 @@ export class CatalogController {
   sessions: RequestHandler = async (req, res) => { res.json(await this.sessionsService.list(req.context!)); };
   createSession: RequestHandler = async (req, res) => { res.status(201).json(await this.sessionsService.create(req.context!, createSessionRequestSchema.parse(req.body))); };
   getSession: RequestHandler = async (req, res) => { res.json(await this.sessionsService.get(req.context!, routeId(req.params.sessionId, 'sessionId'))); };
+  qr: RequestHandler = async (req, res) => { res.json(await this.sessionsService.qr(req.context!, routeId(req.params.sessionId, 'sessionId'))); };
   connect: RequestHandler = async (req, res) => { await this.sessionsService.connect(req.context!, routeId(req.params.sessionId, 'sessionId'), connectSessionRequestSchema.parse(req.body ?? {}).forceQrRefresh); res.status(204).end(); };
   disconnect: RequestHandler = async (req, res) => { await this.sessionsService.disconnect(req.context!, routeId(req.params.sessionId, 'sessionId')); res.status(204).end(); };
+  logout: RequestHandler = async (req, res) => { await this.sessionsService.logout(req.context!, routeId(req.params.sessionId, 'sessionId')); res.status(204).end(); };
   removeSession: RequestHandler = async (req, res) => { await this.sessionsService.remove(req.context!, routeId(req.params.sessionId, 'sessionId')); res.status(204).end(); };
   contacts: RequestHandler = async (req, res) => { res.json(await this.contactsService.list(req.context!, contactListQuerySchema.parse(req.query))); };
   templates: RequestHandler = async (req, res) => { res.json(await this.templatesService.list(req.context!)); };

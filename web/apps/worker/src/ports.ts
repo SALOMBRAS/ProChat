@@ -1,6 +1,6 @@
 import type { ApiError, CreateSessionRequest, EventEnvelope, RequestContext, WhatsAppSession } from '@chatpro/contracts';
-export type WorkerCommand = { type: 'createSession'; sessionId: string; input: CreateSessionRequest } | { type: 'connectSession'; sessionId: string } | { type: 'disconnectSession'; sessionId: string } | { type: 'removeSession'; sessionId: string };
-export interface WhatsAppWorkerPort { execute(context: RequestContext, command: WorkerCommand): Promise<WhatsAppSession | void>; }
+export type WorkerCommand = { type: 'listSessions' } | { type: 'createSession'; sessionId: string; input: CreateSessionRequest } | { type: 'connectSession' | 'disconnectSession' | 'logoutSession' | 'removeSession'; sessionId: string } | { type: 'getSession' | 'getQr'; sessionId: string };
+export interface WhatsAppWorkerPort { execute(context: RequestContext, command: WorkerCommand): Promise<WhatsAppSession[] | WhatsAppSession | { sessionId: string; workspaceId: string; qr: string; expiresAt: string } | void>; }
 export interface SessionRepositoryPort { /* persistence adapter to be implemented */ }
 export interface EventPublisherPort { publish(event: EventEnvelope): Promise<void>; }
 export interface CredentialStorePort { authDirectory(workspaceId: string, sessionId: string): string; prepareAuthDirectory(workspaceId: string, sessionId: string): Promise<string>; hasAuthDirectory(workspaceId: string, sessionId: string): Promise<boolean>; removeAuthDirectory(workspaceId: string, sessionId: string): Promise<void>; discoverSessions(): Promise<Array<{ workspaceId: string; sessionId: string }>>; }

@@ -9,15 +9,20 @@ paths:
       responses:
         '200': { description: API available, content: { application/json: { schema: { type: object, required: [name, status, version], properties: { name: { type: string, example: ChatPro API }, status: { type: string, example: ok }, version: { type: string, example: 0.1.0 } } } } } }
   /api/v1/sessions:
-    get: { summary: List sessions, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}], responses: {'501': {$ref: '#/components/responses/NotImplemented'}} }
-    post: { summary: Create session, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionRequest'}}}}, responses: {'501': {$ref: '#/components/responses/NotImplemented'}, '400': {$ref: '#/components/responses/ValidationError'}} }
-  /api/v1/sessions/{sessionId}:
-    get: { summary: Get session, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}, {$ref: '#/components/parameters/SessionId'}], responses: {'501': {$ref: '#/components/responses/NotImplemented'}} }
-    delete: { summary: Remove session, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}, {$ref: '#/components/parameters/SessionId'}], responses: {'501': {$ref: '#/components/responses/NotImplemented'}} }
+    get: { summary: List workspace sessions, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}], responses: {'200': {description: Session summaries}, '503': {$ref: '#/components/responses/ServiceUnavailable'}} }
+    post: { summary: Create session, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionRequest'}}}}, responses: {'201': {description: Session created}, '400': {$ref: '#/components/responses/ValidationError'}, '409': {$ref: '#/components/responses/Conflict'}} }
   /api/v1/sessions/{sessionId}/connect:
-    post: { summary: Connect session, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}, {$ref: '#/components/parameters/SessionId'}], responses: {'501': {$ref: '#/components/responses/NotImplemented'}} }
-  /api/v1/sessions/{sessionId}/disconnect:
-    post: { summary: Disconnect session, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}, {$ref: '#/components/parameters/SessionId'}], responses: {'501': {$ref: '#/components/responses/NotImplemented'}} }
+    post: { summary: Start controlled connection, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}, {$ref: '#/components/parameters/SessionId'}], responses: {'204': {description: Connect started}, '503': {$ref: '#/components/responses/ServiceUnavailable'}} }
+  /api/v1/sessions/{sessionId}/status:
+    get: { summary: Get normalized status, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}, {$ref: '#/components/parameters/SessionId'}], responses: {'200': {description: Session status}, '404': {$ref: '#/components/responses/NotFound'}} }
+  /api/v1/sessions/{sessionId}/qr:
+    get: { summary: Get temporary QR (never persisted), parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}, {$ref: '#/components/parameters/SessionId'}], responses: {'200': {description: Temporary QR}, '404': {$ref: '#/components/responses/NotFound'}} }
+  /api/v1/sessions/{sessionId}/stop:
+    post: { summary: Stop locally and preserve credentials, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}, {$ref: '#/components/parameters/SessionId'}], responses: {'204': {description: Session stopped}} }
+  /api/v1/sessions/{sessionId}/logout:
+    post: { summary: Logout and invalidate credentials while keeping metadata, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}, {$ref: '#/components/parameters/SessionId'}], responses: {'204': {description: Session logged out}} }
+  /api/v1/sessions/{sessionId}:
+    delete: { summary: Remove session and credentials, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}, {$ref: '#/components/parameters/SessionId'}], responses: {'204': {description: Session removed}} }
   /api/v1/contacts:
     get: { summary: List contacts, parameters: [{$ref: '#/components/parameters/WorkspaceId'}, {$ref: '#/components/parameters/UserId'}], responses: {'501': {$ref: '#/components/responses/NotImplemented'}} }
   /api/v1/templates:
@@ -32,8 +37,11 @@ components:
     UserId: { name: x-user-id, in: header, required: true, schema: {type: string}, description: Temporary development context; not final authentication. }
     SessionId: { name: sessionId, in: path, required: true, schema: {type: string} }
   schemas:
-    CreateSessionRequest: { type: object, required: [name], properties: {name: {type: string, minLength: 1, maxLength: 120}} }
+    CreateSessionRequest: { type: object, properties: {name: {type: string, minLength: 1, maxLength: 120}} }
     Error: { type: object, required: [error], properties: {error: {type: object, required: [code, message, correlationId, details], properties: {code: {type: string}, message: {type: string}, correlationId: {type: string}, details: {type: object}}}} }
   responses:
     NotImplemented: { description: Legacy capability is not migrated, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}} }
     ValidationError: { description: Invalid parameters or body, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}} }
+    NotFound: { description: Session or temporary QR not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}} }
+    Conflict: { description: Conflicting session operation, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}} }
+    ServiceUnavailable: { description: Worker unavailable or WhatsApp connection disabled, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}} }

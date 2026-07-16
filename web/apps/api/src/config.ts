@@ -1,6 +1,22 @@
-export interface ApiConfig { port: number; nodeEnv: string; }
+export type DatabaseProvider = 'sqlite' | 'supabase';
+
+export interface ApiConfig {
+  port: number;
+  nodeEnv: string;
+  workerTransportUrl: string;
+  workerTransportTimeoutMs: number;
+  databasePath?: string;
+  databaseProvider?: DatabaseProvider;
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
+}
+
 export function loadConfig(env = process.env): ApiConfig {
   const port = Number(env.API_PORT ?? 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('API_PORT must be a valid TCP port');
-  return { port, nodeEnv: env.NODE_ENV ?? 'development' };
+  const workerTransportTimeoutMs = Number(env.WORKER_TRANSPORT_TIMEOUT_MS ?? 2_000);
+  if (!Number.isInteger(workerTransportTimeoutMs) || workerTransportTimeoutMs < 1 || workerTransportTimeoutMs > 30_000) throw new Error('WORKER_TRANSPORT_TIMEOUT_MS must be a valid timeout');
+  const databaseProvider = env.DATABASE_PROVIDER ?? 'sqlite';
+  if (databaseProvider !== 'sqlite' && databaseProvider !== 'supabase') throw new Error('DATABASE_PROVIDER must be either sqlite or supabase');
+  return { port, nodeEnv: env.NODE_ENV ?? 'development', workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY };
 }

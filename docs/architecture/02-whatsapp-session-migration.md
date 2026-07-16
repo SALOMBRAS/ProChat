@@ -1,5 +1,11 @@
 # Migração do ciclo de sessões WhatsApp
 
+## Integracao HTTP de sessoes (15/07/2026)
+
+O loopback interno agora ativa as rotas tecnicas de sessao. `stop` encerra localmente e preserva credenciais; `logout` invalida credenciais e preserva metadados; `remove` tambem remove metadados e credenciais. Estados expostos sao normalizados para `disconnected`, `connecting`, `waiting_qr`, `connected`, `stopped` e `error`.
+
+O QR temporario e associado a workspace/sessao, fica somente em memoria e e limpo ao expirar, conectar, parar, logout ou remover. WebSocket ainda nao recebe os eventos; login, licenca, Supabase e conexao real fora da feature flag continuam fora de escopo.
+
 Data: 15/07/2026. Esta etapa extrai o ciclo de vida de sessões para `web/apps/worker`, sem ligar API e worker, sem iniciar conexão real e sem acessar SQLite ou credenciais do Electron.
 
 ## Auditoria confirmada do legado
@@ -73,7 +79,7 @@ Arquivos consultados: `package.json`, pacote instalado `node_modules/@itsukichan
 - Metadados e status vivem somente em memória; nomes restaurados usam o `sessionId` até existir repositório persistente.
 - O filesystem local exige volume persistente, backup, criptografia/permissões e afinidade de worker no deploy. Múltiplas réplicas não devem compartilhar uma sessão sem coordenação distribuída.
 - `useMultiFileAuthState` é adequado à fase de desenvolvimento, mas a infraestrutura final deve avaliar um credential store/cofre persistente.
-- Não há transporte entre API e worker; rotas continuam 501 e WebSocket ainda não recebe estes eventos.
+- O transporte loopback ativa as rotas tecnicas de sessao; WebSocket ainda nao recebe estes eventos.
 - Pairing code, envio/recebimento de mensagens e auto-reconnect no bootstrap não estão conectados.
 - A árvore de produção da versão legada obrigatória apresenta 6 alertas no `npm audit` (1 moderado, 4 altos e 1 crítico), originados em dependências transitivas de Baileys; parte não possui correção compatível indicada. A revisão/upgrade controlado do fork deve preceder produção.
 

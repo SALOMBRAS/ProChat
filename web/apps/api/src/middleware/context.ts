@@ -9,9 +9,9 @@ export const correlationContext: RequestHandler = (req, _res, next) => {
   next();
 };
 export const workspaceContext: RequestHandler = (req, _res, next) => {
-  const candidate = { correlationId: req.context?.correlationId ?? randomUUID(), workspaceId: req.header('x-workspace-id') ?? '', userId: req.header('x-user-id') ?? '' };
+  const candidate = { correlationId: req.context?.correlationId ?? randomUUID(), workspaceId: req.header('x-workspace-id') ?? '', userId: req.header('x-user-id') || undefined };
   const parsed = requestContextSchema.safeParse(candidate);
-  if (!parsed.success) return next(new AppError(401, 'UNAUTHORIZED', 'Temporary development context headers x-workspace-id and x-user-id are required', parsed.error.flatten()));
+  if (!parsed.success) return next(new AppError(401, 'UNAUTHORIZED', 'Temporary development context header x-workspace-id is required', parsed.error.flatten()));
   req.context = parsed.data;
   next();
 };

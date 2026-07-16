@@ -1,7 +1,7 @@
 import type { SessionStatus } from '@chatpro/contracts';
 import type { WhatsAppSocket } from './whatsapp-socket.js';
 
-export type CriticalOperation = 'connect' | 'disconnect' | 'remove';
+export type CriticalOperation = 'connect' | 'disconnect' | 'logout' | 'remove';
 export type RuntimeEntry = {
   workspaceId: string;
   sessionId: string;
@@ -10,6 +10,7 @@ export type RuntimeEntry = {
   reconnectAttempt: number;
   reconnectTimer?: ReturnType<typeof setTimeout>;
   qrExpiryTimer?: ReturnType<typeof setTimeout>;
+  qr?: { value: string; expiresAt: string };
   createdAt: string;
   statusChangedAt: string;
   operation?: CriticalOperation;
@@ -31,5 +32,6 @@ export class SessionRuntimeRegistry {
     if (entry.qrExpiryTimer) clearTimeout(entry.qrExpiryTimer);
     entry.reconnectTimer = undefined;
     entry.qrExpiryTimer = undefined;
+    entry.qr = undefined;
   }
 }
