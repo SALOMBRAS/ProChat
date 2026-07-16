@@ -24,14 +24,31 @@ export function Devices({ api = sessionsApi }: { api?: SessionsApi }) {
   const [busy, setBusy] = useState<string>();
   const [actionError, setActionError] = useState('');
   const [qr, setQr] = useState<{ sessionId: string; name: string; value: string; expiresAt: string }>();
+  const [qrRequestedSessionId, setQrRequestedSessionId] = useState<string>();
   useEffect(() => {
     const session = data.find(item => item.status === 'waiting_qr');
-    if (!session) { setQr(undefined); return; }
-    if (qr?.sessionId === session.id) return;
-    let cancelled = false;
-    void api.qr(session.id).then(next => { if (!cancelled) setQr({ sessionId: session.id, name: session.name, value: next.qr, expiresAt: next.expiresAt }); }).catch(error => { if (!cancelled) setActionError(message(error)); });
-    return () => { cancelled = true; };
-  }, [api, data, qr?.sessionId]);
+    if (!session) { setQr(undefined); setQrRequestedSessionId(undefined); return; }
+    if (qr?.sessionId === session.id || qrRequestedSessionId === session.id) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const current = await api.status(session.id, controller.signal);
+        if (current.status !== 'waiting_qr') { if (!controller.signal.aborted) setQr(undefined); return; }
+        const next = await api.qr(session.id, controller.signal);
+        if (!controller.signal.aborted) { setQrRequestedSessionId(session.id); setQr({ sessionId: session.id, name: session.name, value: next.qr, expiresAt: next.expiresAt }); }
+      } catch (nextError) {
+        if (controller.signal.aborted) return;
+        if (nextError instanceof ApiError && nextError.code === 'REQUEST_FAILED' && (nextError.details.status === 404 || nextError.details.status === 409)) { setQr(undefined); setQrRequestedSessionId(session.id); void refresh(); return; }
+        setActionError(message(nextError));
+      }
+    })();
+    return () => controller.abort();
+  }, [api, data, qr?.sessionId, qrRequestedSessionId]);
+  useEffect(() => {
+    if (!data.some(session => session.status === 'waiting_qr' || session.status === 'connecting')) return;
+    const timer = window.setTimeout(() => void refresh(), 1_000);
+    return () => window.clearTimeout(timer);
+  }, [api, data]);
   useEffect(() => {
     if (!qr) return;
     const timeout = window.setTimeout(() => setQr(undefined), Math.max(0, new Date(qr.expiresAt).getTime() - Date.now()));
@@ -44,8 +61,10 @@ export function Devices({ api = sessionsApi }: { api?: SessionsApi }) {
   const connect = async (id: string, name: string) => execute(`connect-${id}`, async () => {
     await api.connect(id);
     for (let attempt = 0; attempt < 12; attempt += 1) {
-      try { const next = await api.qr(id); setQr({ sessionId: id, name, value: next.qr, expiresAt: next.expiresAt }); return; }
-      catch (e) { if (!(e instanceof ApiError) || e.code !== 'REQUEST_FAILED') throw e; await new Promise(resolve => window.setTimeout(resolve, 500)); }
+      const current = await api.status(id);
+      if (current.status !== 'waiting_qr') { if (current.status === 'connecting' || current.status === 'connected') { setQr(undefined); return; } await new Promise(resolve => window.setTimeout(resolve, 500)); continue; }
+      try { const next = await api.qr(id); setQrRequestedSessionId(id); setQr({ sessionId: id, name, value: next.qr, expiresAt: next.expiresAt }); return; }
+      catch (e) { if (e instanceof ApiError && e.code === 'REQUEST_FAILED' && (e.details.status === 404 || e.details.status === 409)) return; if (!(e instanceof ApiError) || e.code !== 'REQUEST_FAILED') throw e; await new Promise(resolve => window.setTimeout(resolve, 500)); }
     }
     throw new ApiError('REQUEST_FAILED', 'O QR real ainda não foi disponibilizado pelo worker. Atualize a sessão em instantes.');
   });
