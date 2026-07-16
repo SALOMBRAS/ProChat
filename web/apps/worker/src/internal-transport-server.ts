@@ -43,7 +43,7 @@ export function createWorkerTransportHandler(worker: WhatsAppWorkerPort): Intern
     } catch (error) {
       if (error instanceof WorkerOperationError || (typeof error === 'object' && error !== null && 'response' in error)) {
         const response = (error as WorkerOperationError).response;
-        return { success: false, correlationId: request.correlationId, workspaceId: request.workspaceId, error: { code: response.error.code, message: response.error.message, details: {} } };
+        return { success: false, correlationId: request.correlationId, workspaceId: request.workspaceId, error: { code: response.error.code, message: response.error.message, details: response.error.details } };
       }
       return { success: false, correlationId: request.correlationId, workspaceId: request.workspaceId, error: { code: 'SERVICE_UNAVAILABLE', message: 'Internal worker command failed', details: {} } };
     }

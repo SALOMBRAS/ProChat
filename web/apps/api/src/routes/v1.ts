@@ -2,11 +2,13 @@ import { Router } from 'express';
 import { CatalogController } from '../controllers/catalog.controller.js';
 import { workspaceContext } from '../middleware/context.js';
 import { DomainController } from '../controllers/domain.controller.js';
-export function createV1Router(controller: CatalogController, domain?: DomainController): Router {
+import { InboxController } from '../controllers/inbox.controller.js';
+export function createV1Router(controller: CatalogController, domain?: DomainController, inbox?: InboxController): Router {
   const router = Router(); router.use(workspaceContext);
   router.get('/sessions', controller.sessions); router.post('/sessions', controller.createSession); router.get('/sessions/:sessionId/status', controller.getSession); router.get('/sessions/:sessionId/qr', controller.qr); router.post('/sessions/:sessionId/connect', controller.connect); router.post('/sessions/:sessionId/stop', controller.disconnect); router.post('/sessions/:sessionId/logout', controller.logout); router.delete('/sessions/:sessionId', controller.removeSession);
   router.get('/contacts', controller.contacts);
   router.get('/templates', controller.templates); router.post('/templates', controller.createTemplate); router.put('/templates/:templateId', controller.updateTemplate); router.delete('/templates/:templateId', controller.removeTemplate);
+  if (inbox) { router.get('/inbox/conversations', inbox.listConversations); router.get('/inbox/conversations/:conversationId/messages', inbox.listMessages); router.post('/inbox/conversations/:conversationId/read', inbox.markRead); }
   if (domain) {
     router.get('/domain/contacts/export',domain.exportContacts); router.post('/domain/contacts/import',domain.importContacts); router.get('/domain/contacts',domain.contacts); router.post('/domain/contacts',domain.createContact); router.get('/domain/contacts/:contactId',domain.contact); router.patch('/domain/contacts/:contactId',domain.updateContact); router.delete('/domain/contacts/:contactId',domain.deleteContact);
     router.get('/domain/tags',domain.tags); router.post('/domain/tags',domain.createTag); router.patch('/domain/tags/:tagId',domain.updateTag); router.delete('/domain/tags/:tagId',domain.deleteTag);

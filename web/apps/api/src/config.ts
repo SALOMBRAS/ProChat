@@ -9,6 +9,8 @@ export interface ApiConfig {
   databaseProvider?: DatabaseProvider;
   supabaseUrl?: string;
   supabaseServiceRoleKey?: string;
+  wahaWebhookHmacKey?: string;
+  wahaWebhookWorkspaceId?: string;
 }
 
 export function loadConfig(env = process.env): ApiConfig {
@@ -18,5 +20,7 @@ export function loadConfig(env = process.env): ApiConfig {
   if (!Number.isInteger(workerTransportTimeoutMs) || workerTransportTimeoutMs < 1 || workerTransportTimeoutMs > 30_000) throw new Error('WORKER_TRANSPORT_TIMEOUT_MS must be a valid timeout');
   const databaseProvider = env.DATABASE_PROVIDER ?? 'sqlite';
   if (databaseProvider !== 'sqlite' && databaseProvider !== 'supabase') throw new Error('DATABASE_PROVIDER must be either sqlite or supabase');
-  return { port, nodeEnv: env.NODE_ENV ?? 'development', workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY };
+  const wahaWebhookWorkspaceId = env.WAHA_WEBHOOK_WORKSPACE_ID?.trim();
+  if (wahaWebhookWorkspaceId && !/^[A-Za-z0-9_-]{1,128}$/.test(wahaWebhookWorkspaceId)) throw new Error('WAHA_WEBHOOK_WORKSPACE_ID must be a safe identifier');
+  return { port, nodeEnv: env.NODE_ENV ?? 'development', workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, wahaWebhookHmacKey: env.WAHA_WEBHOOK_HMAC_KEY?.trim() || undefined, wahaWebhookWorkspaceId };
 }
