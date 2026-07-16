@@ -14,6 +14,7 @@ import { SqlitePersistenceDatabase } from './persistence/database.js';
 import { createDomainRepositoryForProvider } from './persistence/provider.js';
 import { createSupabasePersistenceClient } from './persistence/supabase.js';
 import { WahaWebhookController } from './controllers/waha-webhook.controller.js';
+import { InboxController } from './controllers/inbox.controller.js';
 import { SqliteWahaWebhookStore, SupabaseWahaWebhookStore } from './services/waha-webhook.service.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
@@ -54,7 +55,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite) : new SupabaseWahaWebhookStore(createSupabasePersistenceClient(config));
     app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }).receive);
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
-    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions))); app.use(errorHandler);
+    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore))); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }
   return app;
 }

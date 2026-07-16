@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { SqliteDatabase } from '../persistence/database.js';
@@ -10,6 +10,8 @@ export type WahaWebhookEvent = z.infer<typeof webhookSchema>;
 type StoredWebhook = { workspaceId: string; wahaSession: string; externalEventId: string; eventType: WahaWebhookEvent['event']; occurredAt: string; payload: Record<string, unknown>; receivedAt: string };
 type StoredMessage = StoredWebhook & { externalMessageId: string; chatId: string; direction: 'inbound' | 'outbound'; messageType: string; body: string | null };
 export interface WahaWebhookStore { ingest(event: StoredWebhook): Promise<{ duplicate: boolean }>; }
+export type ConversationSummary = { id: string; workspaceId: string; whatsappSessionId: string; chatId: string; contactId: string | null; status: 'open' | 'closed'; lastMessage: string | null; lastMessageAt: string; unreadCount: number; createdAt: string; updatedAt: string };
+export interface ConversationStore { listConversations(workspaceId: string, page: number, pageSize: number): Promise<{ items: ConversationSummary[]; page: number; pageSize: number; total: number }>; }
 export function parseWebhook(value: unknown): WahaWebhookEvent { return webhookSchema.parse(value); }
 
 export function verifyWahaWebhook(rawBody: Buffer, headers: { hmac?: string; algorithm?: string; timestamp?: string }, key?: string): void {
@@ -22,32 +24,37 @@ export function verifyWahaWebhook(rawBody: Buffer, headers: { hmac?: string; alg
 }
 export class WahaWebhookValidationError extends Error { constructor(readonly status: number, message: string) { super(message); this.name = 'WahaWebhookValidationError'; } }
 
-export class SqliteWahaWebhookStore implements WahaWebhookStore {
+export class SqliteWahaWebhookStore implements WahaWebhookStore, ConversationStore {
   constructor(private readonly database: SqliteDatabase) {}
   async ingest(event: StoredWebhook): Promise<{ duplicate: boolean }> {
     const payloadJson = JSON.stringify(sanitize(event.payload));
     try {
       this.database.transaction(() => {
         this.database.prepare('INSERT INTO waha_webhook_events (workspaceId, wahaSession, externalEventId, eventType, occurredAt, payloadJson, receivedAt) VALUES (?, ?, ?, ?, ?, ?, ?)').run(event.workspaceId, event.wahaSession, event.externalEventId, event.eventType, event.occurredAt, payloadJson, event.receivedAt);
-        const message = messageFrom(event); if (message) this.database.prepare('INSERT OR IGNORE INTO whatsapp_messages (workspaceId, wahaSession, externalMessageId, externalEventId, chatId, direction, messageType, body, occurredAt, payloadJson, receivedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(message.workspaceId, message.wahaSession, message.externalMessageId, message.externalEventId, message.chatId, message.direction, message.messageType, message.body, message.occurredAt, JSON.stringify(sanitize(message.payload)), message.receivedAt);
+        const message = messageFrom(event); if (message) { const result = this.database.prepare('INSERT OR IGNORE INTO whatsapp_messages (workspaceId, wahaSession, externalMessageId, externalEventId, chatId, direction, messageType, body, occurredAt, payloadJson, receivedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(message.workspaceId, message.wahaSession, message.externalMessageId, message.externalEventId, message.chatId, message.direction, message.messageType, message.body, message.occurredAt, JSON.stringify(sanitize(message.payload)), message.receivedAt); if (result.changes) this.upsertConversation(message); }
       })();
       return { duplicate: false };
     } catch (error) { if (isUniqueError(error)) return { duplicate: true }; throw error; }
   }
+  async listConversations(workspaceId: string, page: number, pageSize: number) { const total = (this.database.prepare('SELECT count(*) AS total FROM conversations WHERE workspaceId = ?').get(workspaceId) as { total: number }).total; const rows = this.database.prepare('SELECT id, workspaceId, wahaSession whatsappSessionId, chatId, contactId, status, lastMessage, lastMessageAt, unreadCount, createdAt, updatedAt FROM conversations WHERE workspaceId = ? ORDER BY lastMessageAt DESC LIMIT ? OFFSET ?').all(workspaceId, pageSize, (page - 1) * pageSize) as ConversationSummary[]; return { items: rows, page, pageSize, total }; }
+  private upsertConversation(message: StoredMessage): void { const contact = this.database.prepare("SELECT id FROM contacts WHERE workspaceId = ? AND phoneNumber = ?").get(message.workspaceId, phoneFromChat(message.chatId)) as { id?: string } | undefined; const now = message.receivedAt; this.database.prepare("INSERT INTO conversations (id, workspaceId, wahaSession, chatId, contactId, status, lastMessage, lastMessageAt, unreadCount, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?) ON CONFLICT(workspaceId, wahaSession, chatId) DO UPDATE SET contactId = COALESCE(conversations.contactId, excluded.contactId), lastMessage = excluded.lastMessage, lastMessageAt = excluded.lastMessageAt, unreadCount = conversations.unreadCount + excluded.unreadCount, updatedAt = excluded.updatedAt").run(randomUUID(), message.workspaceId, message.wahaSession, message.chatId, contact?.id ?? null, message.body, message.occurredAt, message.direction === 'inbound' ? 1 : 0, now, now); }
 }
-export class SupabaseWahaWebhookStore implements WahaWebhookStore {
+export class SupabaseWahaWebhookStore implements WahaWebhookStore, ConversationStore {
   constructor(private readonly client: SupabaseClient) {}
   async ingest(event: StoredWebhook): Promise<{ duplicate: boolean }> {
     const { error } = await this.client.from('waha_webhook_events').insert({ workspace_id: event.workspaceId, waha_session: event.wahaSession, external_event_id: event.externalEventId, event_type: event.eventType, occurred_at: event.occurredAt, payload_json: sanitize(event.payload), received_at: event.receivedAt });
     if (error) { if (error.code === '23505') return { duplicate: true }; throw error; }
     const message = messageFrom(event); if (!message) return { duplicate: false };
     const { error: messageError } = await this.client.from('whatsapp_messages').insert({ workspace_id: message.workspaceId, waha_session: message.wahaSession, external_message_id: message.externalMessageId, external_event_id: message.externalEventId, chat_id: message.chatId, direction: message.direction, message_type: message.messageType, body: message.body, occurred_at: message.occurredAt, payload_json: sanitize(message.payload), received_at: message.receivedAt });
-    if (messageError && messageError.code !== '23505') throw messageError; return { duplicate: false };
+    if (messageError && messageError.code !== '23505') throw messageError; if (!messageError) await this.upsertConversation(message); return { duplicate: false };
   }
+  async listConversations(workspaceId: string, page: number, pageSize: number) { const from = (page - 1) * pageSize; const { data, error, count } = await this.client.from('conversations').select('id, workspace_id, waha_session, chat_id, contact_id, status, last_message, last_message_at, unread_count, created_at, updated_at', { count: 'exact' }).eq('workspace_id', workspaceId).order('last_message_at', { ascending: false }).range(from, from + pageSize - 1); if (error) throw error; return { items: (data ?? []).map(row => ({ id: row.id, workspaceId: row.workspace_id, whatsappSessionId: row.waha_session, chatId: row.chat_id, contactId: row.contact_id, status: row.status, lastMessage: row.last_message, lastMessageAt: row.last_message_at, unreadCount: row.unread_count, createdAt: row.created_at, updatedAt: row.updated_at })) as ConversationSummary[], page, pageSize, total: count ?? 0 }; }
+  private async upsertConversation(message: StoredMessage): Promise<void> { const phone = phoneFromChat(message.chatId); const { data: contact, error: contactError } = await this.client.from('contacts').select('id').eq('workspace_id', message.workspaceId).eq('phone_number', phone).maybeSingle(); if (contactError) throw contactError; const { data: existing, error: existingError } = await this.client.from('conversations').select('id, contact_id, unread_count').eq('workspace_id', message.workspaceId).eq('waha_session', message.wahaSession).eq('chat_id', message.chatId).maybeSingle(); if (existingError) throw existingError; const row = { workspace_id: message.workspaceId, waha_session: message.wahaSession, chat_id: message.chatId, contact_id: existing?.contact_id ?? contact?.id ?? null, status: 'open', last_message: message.body, last_message_at: message.occurredAt, unread_count: (existing?.unread_count ?? 0) + (message.direction === 'inbound' ? 1 : 0), updated_at: message.receivedAt }; const result = existing ? await this.client.from('conversations').update(row).eq('workspace_id', message.workspaceId).eq('id', existing.id) : await this.client.from('conversations').insert({ ...row, id: randomUUID(), created_at: message.receivedAt }); if (result.error) throw result.error; }
 }
 export function webhookRecord(event: WahaWebhookEvent, workspaceId: string): StoredWebhook { return { workspaceId, wahaSession: event.session, externalEventId: event.id, eventType: event.event, occurredAt: new Date(event.timestamp).toISOString(), payload: event.payload, receivedAt: new Date().toISOString() }; }
 function messageFrom(event: StoredWebhook): StoredMessage | undefined { if (event.eventType !== 'message' && event.eventType !== 'message.any') return undefined; const value = event.payload; const id = text(value.id) ?? text(nested(value, 'key', 'id')); const chatId = text(value.chatId) ?? text(value.from) ?? text(nested(value, 'key', 'remoteJid')); if (!id || !chatId) return undefined; return { ...event, externalMessageId: id, chatId, direction: value.fromMe === true ? 'outbound' : 'inbound', messageType: text(value.type) ?? 'text', body: text(value.body) ?? text(value.text) ?? null }; }
 function nested(value: Record<string, unknown>, key: string, child: string): unknown { const parent = value[key]; return parent && typeof parent === 'object' ? (parent as Record<string, unknown>)[child] : undefined; }
 function text(value: unknown): string | undefined { return typeof value === 'string' && value.length > 0 ? value.slice(0, 20_000) : undefined; }
+function phoneFromChat(chatId: string): string { return chatId.split('@', 1)[0].replace(/\D/g, ''); }
 function isUniqueError(error: unknown): boolean { return error instanceof Error && /unique|constraint/i.test(error.message); }
 function sanitize(value: unknown, depth = 0): unknown { if (depth > 12) return '[TRUNCATED]'; if (typeof value === 'string') return value.length > 20_000 ? `${value.slice(0, 20_000)}[TRUNCATED]` : value; if (Array.isArray(value)) return value.slice(0, 200).map(item => sanitize(item, depth + 1)); if (!value || typeof value !== 'object') return value; return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, sensitiveKey.test(key) ? '[REDACTED]' : sanitize(item, depth + 1)])); }
