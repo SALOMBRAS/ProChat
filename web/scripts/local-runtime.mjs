@@ -6,9 +6,10 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const nodeModules = resolve(root, 'node_modules');
 const tsx = resolve(nodeModules, 'tsx', 'dist', 'cli.mjs');
 const vite = resolve(nodeModules, 'vite', 'bin', 'vite.js');
+const databaseProvider = process.env.DATABASE_PROVIDER ?? 'sqlite';
 const environment = {
   ...process.env,
-  DATABASE_PROVIDER: 'sqlite',
+  DATABASE_PROVIDER: databaseProvider,
   CHATPRO_DATA_DIR: resolve(root, '.chatpro-data'),
   CHATPRO_DATABASE_PATH: resolve(root, '.chatpro-data', 'backend.sqlite'),
   WHATSAPP_CONNECTION_ENABLED: 'false',
