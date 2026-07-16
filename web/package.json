@@ -6,6 +6,7 @@
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "npm run dev:api",
+    "dev:local": "node scripts/local-runtime.mjs",
     "dev:api": "npm run dev -w @chatpro/api",
     "dev:worker": "npm run dev -w @chatpro/worker",
     "build": "npm run build -w @chatpro/contracts && npm run build -w @chatpro/api && npm run build -w @chatpro/worker && npm run build -w @chatpro/dashboard",

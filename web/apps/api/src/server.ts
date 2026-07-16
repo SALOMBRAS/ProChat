@@ -7,5 +7,5 @@ const config = loadConfig();
 const app = await createApp(config); const server = createServer(app); const wss = attachWebSocket(server);
 server.listen(config.port, () => log('info', 'API listening', { port: config.port, environment: config.nodeEnv }));
 let closing = false;
-function shutdown(signal: string): void { if (closing) return; closing = true; log('info', 'API shutting down', { signal }); wss.close(() => server.close(() => process.exit(0))); setTimeout(() => process.exit(1), 10_000).unref(); }
+function shutdown(signal: string): void { if (closing) return; closing = true; log('info', 'API shutting down', { signal }); wss.close(() => server.close(() => { app.locals.persistenceDatabase?.close(); process.exit(0); })); setTimeout(() => process.exit(1), 10_000).unref(); }
 process.on('SIGINT', () => shutdown('SIGINT')); process.on('SIGTERM', () => shutdown('SIGTERM'));

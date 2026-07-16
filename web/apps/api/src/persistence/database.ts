@@ -1,6 +1,9 @@
 import Database from 'better-sqlite3';
 import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const defaultMigrationsDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../../migrations');
 
 export type SqliteDatabase = Database.Database;
 
@@ -12,7 +15,7 @@ export interface PersistenceDatabase {
 
 export class SqlitePersistenceDatabase implements PersistenceDatabase {
   readonly sqlite: SqliteDatabase;
-  constructor(private readonly filePath: string, private readonly migrationsDirectory = resolve(process.cwd(), 'migrations')) {
+  constructor(private readonly filePath: string, private readonly migrationsDirectory = defaultMigrationsDirectory) {
     if (filePath !== ':memory:') mkdirSync(dirname(filePath), { recursive: true });
     this.sqlite = new Database(filePath);
     this.sqlite.pragma('foreign_keys = ON');

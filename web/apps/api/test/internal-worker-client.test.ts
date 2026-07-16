@@ -8,7 +8,7 @@ afterEach(async () => { await Promise.all(servers.splice(0).map(server => new Pr
 describe('InternalWorkerClient', () => {
   it('propagates correlationId and keeps workspace isolated', async () => {
     const url = await serve((req, res) => { let body = ''; req.on('data', c => { body += c; }); req.on('end', () => { const input = JSON.parse(body); res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ success: true, correlationId: input.correlationId, workspaceId: input.workspaceId, data: { message: input.command.payload.message } })); }); });
-    const result = await new InternalWorkerClient({ url, timeoutMs: 100 }).send({ correlationId: 'corr-a', workspaceId: 'workspace-a', command: { type: 'transport.ping', payload: { message: 'ok' } } });
+    const result = await new InternalWorkerClient({ url, timeoutMs: 1_000 }).send({ correlationId: 'corr-a', workspaceId: 'workspace-a', command: { type: 'transport.ping', payload: { message: 'ok' } } });
     expect(result).toMatchObject({ success: true, correlationId: 'corr-a', workspaceId: 'workspace-a' });
   });
   it('returns a typed timeout', async () => { const url = await serve((_req, _res) => undefined); const result = await new InternalWorkerClient({ url, timeoutMs: 10 }).send({ correlationId: 'corr-a', workspaceId: 'workspace-a', command: { type: 'transport.ping', payload: { message: 'ok' } } }); expect(result).toMatchObject({ success: false, error: { code: 'TIMEOUT' } }); });

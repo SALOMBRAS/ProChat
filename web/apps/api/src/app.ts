@@ -13,7 +13,20 @@ import { DomainController } from './controllers/domain.controller.js';
 import { SqlitePersistenceDatabase } from './persistence/database.js';
 import { createDomainRepositoryForProvider } from './persistence/provider.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
-  const app = express(); app.use(express.json()); app.use(correlationContext);
+  const app = express();
+  const allowedOrigins = new Set(['http://127.0.0.1:5173', 'http://localhost:5173']);
+  app.use((req, res, next) => {
+    const origin = req.header('origin');
+    if (!origin) return next();
+    if (!allowedOrigins.has(origin)) return res.status(403).json({ error: { code: 'CORS_ORIGIN_DENIED', message: 'Origin is not allowed for the local API.' } });
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type, x-workspace-id, x-user-id, x-correlation-id');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
+  app.use(express.json()); app.use(correlationContext);
   // Controllers retain their public handler shapes while domain calls are now
   // promises. Resolve a returned value before serializing it.
   app.use((_req, res, next) => {
