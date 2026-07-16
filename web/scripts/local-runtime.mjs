@@ -3,24 +3,26 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const dashboard = resolve(root, 'apps', 'dashboard');
 const nodeModules = resolve(root, 'node_modules');
 const tsx = resolve(nodeModules, 'tsx', 'dist', 'cli.mjs');
 const vite = resolve(nodeModules, 'vite', 'bin', 'vite.js');
+const databaseProvider = process.env.DATABASE_PROVIDER ?? 'sqlite';
 const environment = {
   ...process.env,
-  DATABASE_PROVIDER: 'sqlite',
+  DATABASE_PROVIDER: databaseProvider,
   CHATPRO_DATA_DIR: resolve(root, '.chatpro-data'),
   CHATPRO_DATABASE_PATH: resolve(root, '.chatpro-data', 'backend.sqlite'),
-  WHATSAPP_CONNECTION_ENABLED: 'false',
-  WHATSAPP_DEMO_MODE: 'false',
+  WHATSAPP_CONNECTION_ENABLED: process.env.WHATSAPP_CONNECTION_ENABLED ?? 'false',
+  WHATSAPP_DEMO_MODE: process.env.WHATSAPP_DEMO_MODE ?? 'false',
   API_PORT: '3000',
   WORKER_TRANSPORT_PORT: '3101',
 };
 const children = [];
 let stopping = false;
 
-function run(command, args, name, env = environment) {
-  const child = spawn(command, args, { cwd: root, env, stdio: 'inherit' });
+function run(command, args, name, env = environment, cwd = root) {
+  const child = spawn(command, args, { cwd, env, stdio: 'inherit' });
   children.push(child);
   child.once('error', error => {
     if (!stopping) {
@@ -58,5 +60,5 @@ build.once('exit', code => {
   if (stopping) return;
   run(process.execPath, [tsx, 'apps/api/src/server.ts'], 'api');
   if (stopping) return;
-  run(process.execPath, [vite, '--host', '127.0.0.1', '--port', '5173', '--strictPort'], 'dashboard');
+  run(process.execPath, [vite, '--host', '127.0.0.1', '--port', '5173', '--strictPort'], 'dashboard', environment, dashboard);
 });

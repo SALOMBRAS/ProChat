@@ -23,11 +23,11 @@ Os repositories SQLite continuam em `repositories.ts`; os equivalentes Supabase 
 
 ### Estado remoto validado
 
-Em 2026-07-16, o projeto remoto `ChatPro` (`fdywcjkxxvyfkybcjgsu`, `sa-east-1`) foi vinculado e recebeu as migrations `20260715000100_chatpro_domain_rpcs.sql` e `20260716000100_grant_chatpro_service_role_table_access.sql`. A segunda corrige os privilegios de tabelas para `service_role`, preservando RLS e sem conceder acesso publico; tambem recarrega o schema do PostgREST.
+Em 2026-07-16, as migrations `20260715000000_initial_chatpro_persistence.sql`, `20260715000100_chatpro_domain_rpcs.sql`, `20260716000100_grant_chatpro_service_role_table_access.sql` e `20260716000200_grant_chatpro_workspace_guard_to_service_role.sql` foram aplicadas ao projeto oficial ChatPro (`vhfixhqfwusobczmubfu`, `sa-east-1`). A ultima concede a `service_role` acesso somente ao guard interno invocado pelas RPCs `security invoker`; `anon` e `authenticated` continuam sem acesso publico.
 
 A CLI foi executada via `npx --yes supabase@2.109.1`, sem instalacao global ou dependencia de runtime. Copie `web/.env.example` para o arquivo ignorado `web/.env.local` e preencha as variaveis somente localmente. `SUPABASE_SERVICE_ROLE_KEY` e exclusivamente de backend e nunca deve ser exposta ao frontend.
 
-O smoke remoto validou settings, tags, contatos e vinculos, templates, pipeline, leads, movimentacao, notas, opt-out, campanhas, calculo de destinatarios, dashboard, listagens e isolamento por `workspace_id`. Os dados artificiais `smoke-*` foram removidos ao fim. SQLite continua disponivel para testes e rollback temporario; o runtime Supabase nao cria banco SQLite.
+O comando `npm run dev:supabase` inicia API, worker interno em modo de demonstracao sem WhatsApp e dashboard com `DATABASE_PROVIDER=supabase`. O smoke remoto validou settings, tags, contatos e vinculos, templates, pipeline, leads, movimentacao, notas, opt-out, campanhas, calculo de destinatarios, dashboard, listagens e isolamento por `workspace_id`; os dados artificiais `smoke-supabase-*` foram removidos ao fim. SQLite continua disponivel para testes e rollback temporario; o runtime Supabase nao cria banco SQLite. A senha de banco usada na operacao deve ser rotacionada novamente.
 
 O paragrafo de preparacao historica abaixo descreve o estado anterior a esta validacao remota.
 
