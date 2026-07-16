@@ -10,7 +10,7 @@ const safeText = (value: unknown) => String(value ?? '').replace(/(authorization
 /** Single transport boundary for the dashboard. Components never call fetch directly. */
 export class ApiClient {
   private readonly baseUrl: string; private readonly workspaceId: string; private readonly timeoutMs: number; private readonly fetcher: typeof fetch;
-  constructor(options: ApiClientOptions = {}) { this.baseUrl = options.baseUrl ?? import.meta.env.VITE_API_URL ?? ''; this.workspaceId = options.workspaceId ?? import.meta.env.VITE_WORKSPACE_ID ?? 'default-workspace'; this.timeoutMs = options.timeoutMs ?? 8_000; this.fetcher = options.fetcher ?? fetch; }
+  constructor(options: ApiClientOptions = {}) { this.baseUrl = options.baseUrl ?? import.meta.env.VITE_API_URL ?? ''; this.workspaceId = options.workspaceId ?? import.meta.env.VITE_WORKSPACE_ID ?? 'default-workspace'; this.timeoutMs = options.timeoutMs ?? 8_000; this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis); }
   async request<T>(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<T> {
     const startedAt = performance.now(); const controller = new AbortController(); const timeout = window.setTimeout(() => controller.abort(), this.timeoutMs);
     const abort = () => controller.abort(); signal?.addEventListener('abort', abort, { once: true }); const method = init.method ?? 'GET';
