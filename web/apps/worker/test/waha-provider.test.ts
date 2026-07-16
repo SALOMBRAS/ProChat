@@ -1,0 +1,13 @@
+import { describe, expect, it } from 'vitest';
+import { WahaProvider } from '../src/waha-provider.js';
+import { WahaClientError, type WahaClientPort } from '../src/waha-client.js';
+
+const context = { workspaceId: 'workspace-a', correlationId: 'correlation-a' };
+class FakeWahaClient implements WahaClientPort {
+  status = 'STOPPED'; qr = 'temporary-real-qr'; calls: string[] = [];
+  async health() {} async listSessions() { return []; } async createSession(name: string) { this.calls.push('create'); return { name, status: this.status }; } async startSession() { this.calls.push('start'); this.status = 'SCAN_QR_CODE'; } async getSession(name: string) { return { name, status: this.status }; } async getQr() { this.calls.push('qr'); return this.qr; } async stopSession() { this.calls.push('stop'); this.status = 'STOPPED'; } async logoutSession() { this.calls.push('logout'); this.status = 'LOGGED_OUT'; } async removeSession() { this.calls.push('remove'); }
+}
+describe('WahaProvider', () => {
+  it('maps the WAHA lifecycle without leaking its wire responses', async () => { const client = new FakeWahaClient(); const provider = new WahaProvider(client, 60_000); const created = await provider.execute(context, { type: 'createSession', sessionId: 'session-a', input: { name: 'Primary' } }); expect(created).toMatchObject({ status: 'disconnected', name: 'Primary' }); await provider.execute(context, { type: 'connectSession', sessionId: 'session-a' }); expect(await provider.execute(context, { type: 'getSession', sessionId: 'session-a' })).toMatchObject({ status: 'waiting_qr' }); const qr = await provider.execute(context, { type: 'getQr', sessionId: 'session-a' }); expect(qr).toMatchObject({ sessionId: 'session-a', qr: 'temporary-real-qr' }); expect(JSON.stringify(qr)).not.toContain('SCAN_QR_CODE'); await provider.execute(context, { type: 'disconnectSession', sessionId: 'session-a' }); await provider.execute(context, { type: 'logoutSession', sessionId: 'session-a' }); await provider.execute(context, { type: 'removeSession', sessionId: 'session-a' }); expect(client.calls).toEqual(['create', 'start', 'qr', 'stop', 'logout', 'remove']); });
+  it('normalizes unavailable WAHA and does not disclose credentials', async () => { const client = new FakeWahaClient(); client.createSession = async () => { throw new WahaClientError('unavailable'); }; const provider = new WahaProvider(client, 60_000); await expect(provider.execute(context, { type: 'createSession', sessionId: 'session-a', input: { name: 'Primary' } })).rejects.toMatchObject({ response: { error: { code: 'SERVICE_UNAVAILABLE', message: 'WAHA provider is unavailable' } } }); });
+});

@@ -10,6 +10,13 @@ export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfi
     const adapter = new DemoWhatsAppWorkerAdapter();
     return { adapter, manager: undefined, restored: [], config, shutdown: () => adapter.shutdown() };
   }
+  if (config.whatsAppProvider === 'waha') {
+    const [{ WahaHttpClient }, { WahaProvider }] = await Promise.all([import('./waha-client.js'), import('./waha-provider.js')]);
+    const client = new WahaHttpClient({ baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey, timeoutMs: config.wahaTimeoutMs });
+    await client.health();
+    const adapter = new WahaProvider(client, config.qrTtlMs);
+    return { adapter, manager: undefined, restored: [], config, shutdown: () => adapter.shutdown() };
+  }
   const [{ BaileysSocketFactory }, { BaileysWhatsAppWorkerAdapter }, { FileSystemCredentialStoreAdapter }, { WhatsAppSessionManager }] = await Promise.all([
     import('./baileys-socket.factory.js'), import('./baileys-whatsapp-worker.adapter.js'), import('./file-system-credential-store.adapter.js'), import('./whatsapp-session-manager.js'),
   ]);
@@ -24,7 +31,7 @@ export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfi
 export async function runWorker(): Promise<void> {
   const runtime = await createWorkerRuntime();
   const transport = await listenInternalTransport({ host: '127.0.0.1', port: runtime.config.internalTransportPort }, createWorkerTransportHandler(runtime.adapter));
-  log('info', 'WhatsApp worker started', { name: runtime.config.name, connectionEnabled: runtime.config.connectionEnabled, demoMode: runtime.config.demoMode, restoredSessions: runtime.restored.length, dataDirConfigured: !runtime.config.demoMode });
+  log('info', 'WhatsApp worker started', { name: runtime.config.name, provider: runtime.config.whatsAppProvider, connectionEnabled: runtime.config.connectionEnabled, demoMode: runtime.config.demoMode, restoredSessions: runtime.restored.length, dataDirConfigured: !runtime.config.demoMode });
   let stopping = false;
   const keepAlive = setInterval(() => undefined, 60_000);
   const shutdown = async (signal: string) => {
