@@ -23,7 +23,7 @@ Os repositories SQLite continuam em `repositories.ts`; os equivalentes Supabase 
 
 ### Estado remoto validado
 
-Em 2026-07-16, o projeto remoto `ChatPro` (`fdywcjkxxvyfkybcjgsu`, `sa-east-1`) foi vinculado e recebeu as migrations `20260715000100_chatpro_domain_rpcs.sql` e `20260716000100_grant_chatpro_service_role_table_access.sql`. A segunda corrige os privilegios de tabelas para `service_role`, preservando RLS e sem conceder acesso publico; tambem recarrega o schema do PostgREST.
+Em 2026-07-16, as migrations `20260715000100_chatpro_domain_rpcs.sql` e `20260716000100_grant_chatpro_service_role_table_access.sql` foram aplicadas ao projeto que entao estava vinculado, `fdywcjkxxvyfkybcjgsu` (referencia legada que nao deve ser tratada como o projeto oficial atual do ChatPro). A segunda corrige os privilegios de tabelas para `service_role`, preservando RLS e sem conceder acesso publico; tambem recarrega o schema do PostgREST.
 
 A CLI foi executada via `npx --yes supabase@2.109.1`, sem instalacao global ou dependencia de runtime. Copie `web/.env.example` para o arquivo ignorado `web/.env.local` e preencha as variaveis somente localmente. `SUPABASE_SERVICE_ROLE_KEY` e exclusivamente de backend e nunca deve ser exposta ao frontend.
 
