@@ -3,7 +3,8 @@ import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { log } from './logging.js';
 import { attachWebSocket } from './websocket.js';
-const config = loadConfig(); const server = createServer(createApp()); const wss = attachWebSocket(server);
+const config = loadConfig();
+const app = await createApp(config); const server = createServer(app); const wss = attachWebSocket(server);
 server.listen(config.port, () => log('info', 'API listening', { port: config.port, environment: config.nodeEnv }));
 let closing = false;
 function shutdown(signal: string): void { if (closing) return; closing = true; log('info', 'API shutting down', { signal }); wss.close(() => server.close(() => process.exit(0))); setTimeout(() => process.exit(1), 10_000).unref(); }

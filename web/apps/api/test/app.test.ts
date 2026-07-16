@@ -28,8 +28,8 @@ class ControlledWorker implements WhatsAppWorkerPort {
 }
 
 describe('session API transport integration', () => {
-  let server: Server; let app: ReturnType<typeof createApp>; let worker: ControlledWorker;
-  beforeEach(async () => { worker = new ControlledWorker(); const runtime = await listenInternalTransport({ host: '127.0.0.1', port: 0 }, createWorkerTransportHandler(worker)); server = runtime.server; const address = server.address(); if (!address || typeof address === 'string') throw new Error('missing address'); app = createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: `http://127.0.0.1:${address.port}/internal/transport`, workerTransportTimeoutMs: 100 }); });
+  let server: Server; let app: Awaited<ReturnType<typeof createApp>>; let worker: ControlledWorker;
+  beforeEach(async () => { worker = new ControlledWorker(); const runtime = await listenInternalTransport({ host: '127.0.0.1', port: 0 }, createWorkerTransportHandler(worker)); server = runtime.server; const address = server.address(); if (!address || typeof address === 'string') throw new Error('missing address'); app = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: `http://127.0.0.1:${address.port}/internal/transport`, workerTransportTimeoutMs: 100 }); });
   afterEach(async () => { await new Promise<void>(resolve => server.close(() => resolve())); });
   const headers = { 'x-workspace-id': 'workspace-a', 'x-user-id': 'user-a' };
 
@@ -54,7 +54,7 @@ describe('session API transport integration', () => {
   });
 
   it('returns typed unavailability when the worker is offline', async () => {
-    const offline = createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: 'http://127.0.0.1:1/internal/transport', workerTransportTimeoutMs: 20 });
+    const offline = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: 'http://127.0.0.1:1/internal/transport', workerTransportTimeoutMs: 20 });
     await request(offline).get('/api/v1/sessions').set(headers).expect(503).expect(response => expect(response.body.error.code).toBe('SERVICE_UNAVAILABLE'));
   });
 });
