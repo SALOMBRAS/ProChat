@@ -12,8 +12,8 @@ const environment = {
   DATABASE_PROVIDER: databaseProvider,
   CHATPRO_DATA_DIR: resolve(root, '.chatpro-data'),
   CHATPRO_DATABASE_PATH: resolve(root, '.chatpro-data', 'backend.sqlite'),
-  WHATSAPP_CONNECTION_ENABLED: 'false',
-  WHATSAPP_DEMO_MODE: 'false',
+  WHATSAPP_CONNECTION_ENABLED: process.env.WHATSAPP_CONNECTION_ENABLED ?? 'false',
+  WHATSAPP_DEMO_MODE: process.env.WHATSAPP_DEMO_MODE ?? 'false',
   API_PORT: '3000',
   WORKER_TRANSPORT_PORT: '3101',
 };
