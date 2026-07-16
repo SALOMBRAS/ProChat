@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const dashboard = resolve(root, 'apps', 'dashboard');
 const nodeModules = resolve(root, 'node_modules');
 const tsx = resolve(nodeModules, 'tsx', 'dist', 'cli.mjs');
 const vite = resolve(nodeModules, 'vite', 'bin', 'vite.js');
@@ -20,8 +21,8 @@ const environment = {
 const children = [];
 let stopping = false;
 
-function run(command, args, name, env = environment) {
-  const child = spawn(command, args, { cwd: root, env, stdio: 'inherit' });
+function run(command, args, name, env = environment, cwd = root) {
+  const child = spawn(command, args, { cwd, env, stdio: 'inherit' });
   children.push(child);
   child.once('error', error => {
     if (!stopping) {
@@ -59,5 +60,5 @@ build.once('exit', code => {
   if (stopping) return;
   run(process.execPath, [tsx, 'apps/api/src/server.ts'], 'api');
   if (stopping) return;
-  run(process.execPath, [vite, '--host', '127.0.0.1', '--port', '5173', '--strictPort'], 'dashboard');
+  run(process.execPath, [vite, '--host', '127.0.0.1', '--port', '5173', '--strictPort'], 'dashboard', environment, dashboard);
 });
