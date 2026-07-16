@@ -42,6 +42,24 @@ export type UpdateTemplateRequest = z.infer<typeof updateTemplateRequestSchema>;
 export const templateListResponseSchema = z.object({ items: z.array(messageTemplateSchema), total: z.number().int().nonnegative() });
 export type TemplateListResponse = z.infer<typeof templateListResponseSchema>;
 
+// Persistence domain contracts. These are intentionally transport-agnostic: CRUD routes are a later phase.
+export const persistedEntitySchema = z.object({ id: z.string().uuid(), workspaceId: safeIdentifierSchema, createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
+export const normalizedPhoneNumberSchema = z.string().regex(/^\d{8,15}$/, 'Phone number must contain 8 to 15 normalized digits');
+export const persistenceContactSchema = persistedEntitySchema.extend({ displayName: z.string().trim().min(1).max(160), phoneNumber: normalizedPhoneNumberSchema, email: z.string().email().nullable(), company: z.string().trim().max(160).nullable() });
+export const tagSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(80), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable() });
+export const optOutHistorySchema = persistedEntitySchema.extend({ contactId: z.string().uuid(), source: z.string().trim().min(1).max(80), reason: z.string().trim().max(500).nullable(), occurredAt: z.string().datetime() });
+export const templateVariablesSchema = z.array(z.string().trim().min(1).max(80)).max(50).superRefine((variables, ctx) => { if (new Set(variables).size !== variables.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Template variables must be unique' }); });
+export const persistenceTemplateSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(120), content: z.string().min(1).max(10_000), variables: templateVariablesSchema });
+export const pipelineSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(120) });
+export const stageSchema = persistedEntitySchema.extend({ pipelineId: z.string().uuid(), name: z.string().trim().min(1).max(120), position: z.number().int().nonnegative() });
+export const leadSchema = persistedEntitySchema.extend({ stageId: z.string().uuid(), contactId: z.string().uuid().nullable(), title: z.string().trim().min(1).max(160) });
+export const leadNoteSchema = persistedEntitySchema.extend({ leadId: z.string().uuid(), body: z.string().trim().min(1).max(10_000) });
+export const activitySchema = persistedEntitySchema.extend({ leadId: z.string().uuid(), type: z.string().trim().min(1).max(80), details: z.record(z.unknown()), occurredAt: z.string().datetime() });
+export const campaignStatusSchema = z.enum(['draft', 'scheduled', 'ready', 'blocked', 'cancelled']);
+export const campaignSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(160), templateId: z.string().uuid().nullable(), status: campaignStatusSchema, scheduledAt: z.string().datetime().nullable() });
+export const workspaceSettingsSchema = persistedEntitySchema.extend({ settings: z.record(z.unknown()) });
+export type PersistenceContact = z.infer<typeof persistenceContactSchema>; export type Tag = z.infer<typeof tagSchema>; export type OptOutHistory = z.infer<typeof optOutHistorySchema>; export type PersistenceTemplate = z.infer<typeof persistenceTemplateSchema>; export type Pipeline = z.infer<typeof pipelineSchema>; export type Stage = z.infer<typeof stageSchema>; export type Lead = z.infer<typeof leadSchema>; export type LeadNote = z.infer<typeof leadNoteSchema>; export type Activity = z.infer<typeof activitySchema>; export type Campaign = z.infer<typeof campaignSchema>; export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
+
 export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.status.updated','worker.error'] as const;
 export const eventEnvelopeSchema = z.object({ eventId: z.string().min(1), eventType: z.enum(eventTypes), workspaceId: safeIdentifierSchema, timestamp: z.string().datetime(), correlationId: z.string().min(1), payload: z.record(z.unknown()) });
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
