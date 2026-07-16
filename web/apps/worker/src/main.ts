@@ -29,28 +29,59 @@ export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfi
 }
 
 export async function runWorker(): Promise<void> {
-  const runtime = await createWorkerRuntime();
-  const transport = await listenInternalTransport({ host: '127.0.0.1', port: runtime.config.internalTransportPort }, createWorkerTransportHandler(runtime.adapter));
-  log('info', 'WhatsApp worker started', { name: runtime.config.name, provider: runtime.config.whatsAppProvider, connectionEnabled: runtime.config.connectionEnabled, demoMode: runtime.config.demoMode, restoredSessions: runtime.restored.length, dataDirConfigured: !runtime.config.demoMode });
-  let stopping = false;
-  const keepAlive = setInterval(() => undefined, 60_000);
-  const shutdown = async (signal: string) => {
-    if (stopping) return;
-    stopping = true;
-    clearInterval(keepAlive);
-    log('info', 'WhatsApp worker stopping', { name: runtime.config.name, signal });
-    await transport.close();
-    await runtime.shutdown();
-    log('info', 'WhatsApp worker stopped', { name: runtime.config.name, signal });
+  let phase = 'configuration';
+  let startupConfig: WorkerConfig | undefined;
+  try {
+    startupConfig = loadWorkerConfig();
+    phase = 'provider_creation';
+    const runtime = await createWorkerRuntime(startupConfig);
+    phase = 'internal_transport_bind';
+    const transport = await listenInternalTransport({ host: '127.0.0.1', port: runtime.config.internalTransportPort }, createWorkerTransportHandler(runtime.adapter));
+    log('info', 'WhatsApp worker started', { name: runtime.config.name, provider: runtime.config.whatsAppProvider, connectionEnabled: runtime.config.connectionEnabled, demoMode: runtime.config.demoMode, restoredSessions: runtime.restored.length, dataDirConfigured: !runtime.config.demoMode });
+    let stopping = false;
+    const keepAlive = setInterval(() => undefined, 60_000);
+    const shutdown = async (signal: string) => {
+      if (stopping) return;
+      stopping = true;
+      clearInterval(keepAlive);
+      log('info', 'WhatsApp worker stopping', { name: runtime.config.name, signal });
+      await transport.close();
+      await runtime.shutdown();
+      log('info', 'WhatsApp worker stopped', { name: runtime.config.name, signal });
+    };
+    process.once('SIGINT', () => { void shutdown('SIGINT'); });
+    process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
+  } catch (error) {
+    const details = startupFailureDetails(error);
+    const context = { phase, provider: startupConfig?.whatsAppProvider, port: startupConfig?.internalTransportPort };
+    log('error', 'WhatsApp worker failed to start', process.env.NODE_ENV === 'production' ? { ...context, errorClass: details.errorClass } : { ...context, ...details });
+    throw error;
+  }
+}
+
+function startupFailureDetails(error: unknown): Record<string, unknown> {
+  const value = error instanceof Error ? error : new Error(String(error));
+  const cause = value.cause instanceof Error ? value.cause : undefined;
+  return {
+    errorClass: value.name,
+    reason: safeDiagnosticText(value.message),
+    code: typeof (value as NodeJS.ErrnoException).code === 'string' ? (value as NodeJS.ErrnoException).code : undefined,
+    stack: safeDiagnosticText(value.stack ?? ''),
+    causeClass: cause?.name,
+    causeReason: cause ? safeDiagnosticText(cause.message) : undefined,
+    causeCode: cause && typeof (cause as NodeJS.ErrnoException).code === 'string' ? (cause as NodeJS.ErrnoException).code : undefined,
   };
-  process.once('SIGINT', () => { void shutdown('SIGINT'); });
-  process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
+}
+
+function safeDiagnosticText(value: string): string {
+  return value
+    .replace(/(authorization|x-api-key|api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
+    .slice(0, 4_000);
 }
 
 const entrypoint = process.argv[1] ? pathToFileURL(process.argv[1]).href : '';
 if (import.meta.url === entrypoint) {
   runWorker().catch(error => {
-    log('error', 'WhatsApp worker failed to start', { errorClass: error instanceof Error ? error.name : 'UnknownError' });
     process.exitCode = 1;
   });
 }
