@@ -21,6 +21,16 @@ Os repositories SQLite continuam em `repositories.ts`; os equivalentes Supabase 
 
 ## Migrations Supabase
 
+### Estado remoto validado
+
+Em 2026-07-16, o projeto remoto `ChatPro` (`fdywcjkxxvyfkybcjgsu`, `sa-east-1`) foi vinculado e recebeu as migrations `20260715000100_chatpro_domain_rpcs.sql` e `20260716000100_grant_chatpro_service_role_table_access.sql`. A segunda corrige os privilegios de tabelas para `service_role`, preservando RLS e sem conceder acesso publico; tambem recarrega o schema do PostgREST.
+
+A CLI foi executada via `npx --yes supabase@2.109.1`, sem instalacao global ou dependencia de runtime. Copie `web/.env.example` para o arquivo ignorado `web/.env.local` e preencha as variaveis somente localmente. `SUPABASE_SERVICE_ROLE_KEY` e exclusivamente de backend e nunca deve ser exposta ao frontend.
+
+O smoke remoto validou settings, tags, contatos e vinculos, templates, pipeline, leads, movimentacao, notas, opt-out, campanhas, calculo de destinatarios, dashboard, listagens e isolamento por `workspace_id`. Os dados artificiais `smoke-*` foram removidos ao fim. SQLite continua disponivel para testes e rollback temporario; o runtime Supabase nao cria banco SQLite.
+
+O paragrafo de preparacao historica abaixo descreve o estado anterior a esta validacao remota.
+
 A migration PostgreSQL oficial está em `supabase/migrations/20260715000000_initial_chatpro_persistence.sql`. Ela preserva chaves compostas por `workspace_id`, FKs, índices, unicidade, constraints, timestamps e a tabela `campaign_recipients` do schema SQLite, além das tabelas de domínio. Aplique-a ao projeto Supabase existente em uma tarefa posterior, usando a CLI oficial vinculada ao projeto; esta preparação não executa link, push ou conexão remota.
 
 RLS está habilitada em todas as tabelas da migration e não há políticas públicas. As políticas finais devem ser definidas junto da futura autenticação e do modelo de acesso por workspace.

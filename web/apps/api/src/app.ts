@@ -30,11 +30,13 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     next();
   });
   app.get('/health', (_req, res) => res.json({ name: 'ChatPro API', status: 'ok', version: '0.1.0' }));
-  const sessions = new InternalSessionService(new InternalWorkerClient({ url: config.workerTransportUrl, timeoutMs: config.workerTransportTimeoutMs })); const database = config.databasePath ? new SqlitePersistenceDatabase(config.databasePath) : createDevelopmentDatabase(); database.migrate();
+  const sessions = new InternalSessionService(new InternalWorkerClient({ url: config.workerTransportUrl, timeoutMs: config.workerTransportTimeoutMs }));
+  const database = (config.databaseProvider ?? 'sqlite') === 'sqlite' ? (config.databasePath ? new SqlitePersistenceDatabase(config.databasePath) : createDevelopmentDatabase()) : undefined;
+  database?.migrate();
   app.locals.persistenceDatabase = database;
   try {
-    const repositories = await createDomainRepositoryForProvider(config, database.sqlite);
+    const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
     app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions))); app.use(errorHandler);
-  } catch (error) { database.close(); throw error; }
+  } catch (error) { database?.close(); throw error; }
   return app;
 }
