@@ -1,0 +1,1 @@
+-- Historical migration already applied on the linked Supabase project before this repository was aligned.
