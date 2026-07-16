@@ -60,7 +60,7 @@ export const campaignSchema = persistedEntitySchema.extend({ name: z.string().tr
 export const workspaceSettingsSchema = persistedEntitySchema.extend({ settings: z.record(z.unknown()) });
 export type PersistenceContact = z.infer<typeof persistenceContactSchema>; export type Tag = z.infer<typeof tagSchema>; export type OptOutHistory = z.infer<typeof optOutHistorySchema>; export type PersistenceTemplate = z.infer<typeof persistenceTemplateSchema>; export type Pipeline = z.infer<typeof pipelineSchema>; export type Stage = z.infer<typeof stageSchema>; export type Lead = z.infer<typeof leadSchema>; export type LeadNote = z.infer<typeof leadNoteSchema>; export type Activity = z.infer<typeof activitySchema>; export type Campaign = z.infer<typeof campaignSchema>; export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 
-export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.status.updated','worker.error'] as const;
+export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.sent','message.status.updated','conversation.updated','worker.error'] as const;
 export const eventEnvelopeSchema = z.object({ eventId: z.string().min(1), eventType: z.enum(eventTypes), workspaceId: safeIdentifierSchema, timestamp: z.string().datetime(), correlationId: z.string().min(1), payload: z.record(z.unknown()) });
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
 
