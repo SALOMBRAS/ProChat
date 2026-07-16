@@ -18,12 +18,32 @@ import { SessionRuntimeRegistry, type RuntimeEntry } from './session-runtime-reg
 import type { ConnectionUpdate, WhatsAppSocket, WhatsAppSocketFactory } from './whatsapp-socket.js';
 
 const LOGGED_OUT_REASON = 401;
+const PAIRING_REJECTED_REASON = 405;
 
 function disconnectCode(error: unknown): number | undefined {
   if (!error || typeof error !== 'object') return undefined;
   const value = error as { output?: { statusCode?: unknown }; data?: { statusCode?: unknown }; statusCode?: unknown };
   const code = value.output?.statusCode ?? value.data?.statusCode ?? value.statusCode;
   return typeof code === 'number' ? code : undefined;
+}
+
+function redactSensitiveText(value: string): string {
+  return value.replace(/(?:qr|credential|auth|token|secret|private(?:key)?|key|phone)\s*[:=]\s*\S+/gi, '[REDACTED]');
+}
+
+function normalizeError(error: unknown): { errorClass: string; code: string; message: string; stack?: string } {
+  const fallback = { errorClass: 'UnknownError', code: 'UNKNOWN', message: 'Unknown WhatsApp worker error' };
+  if (!(error instanceof Error)) return fallback;
+  const statusCode = disconnectCode(error);
+  const message = redactSensitiveText(error.message)
+    .replace(/[\r\n\t]+/g, ' ')
+    .slice(0, 240) || fallback.message;
+  return {
+    errorClass: error.name || 'Error',
+    code: statusCode === undefined ? (error.name || 'ERROR').toUpperCase().slice(0, 64) : `BAILEYS_${statusCode}`,
+    message,
+    ...(process.env.NODE_ENV !== 'production' && error.stack ? { stack: redactSensitiveText(error.stack).slice(0, 4_000) } : {}),
+  };
 }
 
 export class WhatsAppSessionManager {
@@ -212,16 +232,22 @@ export class WhatsAppSessionManager {
         await this.setStatus(context, entry, 'disconnected');
         return;
       }
-      await this.scheduleReconnect(context, entry);
+      if (disconnectCode(update.lastDisconnect?.error) === PAIRING_REJECTED_REASON) {
+        await this.setStatus(context, entry, 'error');
+        await this.publishError(context, entry, 'connect', update.lastDisconnect?.error);
+        return;
+      }
+      entry.lastConnectionError = update.lastDisconnect?.error;
+      await this.scheduleReconnect(context, entry, update.lastDisconnect?.error);
     }
   }
 
-  private async scheduleReconnect(context: RequestContext, entry: RuntimeEntry): Promise<void> {
+  private async scheduleReconnect(context: RequestContext, entry: RuntimeEntry, error?: unknown): Promise<void> {
     if (!this.config.connectionEnabled || entry.manualStop || entry.explicitLogout || entry.reconnectTimer) return;
     const attempt = entry.reconnectAttempt + 1;
     if (attempt > this.config.maxReconnectAttempts) {
       await this.setStatus(context, entry, 'error');
-      await this.publishError(context, entry, 'reconnect', new Error('Reconnect attempts exhausted'));
+      await this.publishError(context, entry, 'reconnect', error ?? entry.lastConnectionError ?? new Error('Reconnect attempts exhausted'));
       return;
     }
     entry.reconnectAttempt = attempt;
@@ -232,7 +258,7 @@ export class WhatsAppSessionManager {
       if (entry.manualStop || entry.explicitLogout || !this.config.connectionEnabled) return;
       void this.openSocket(context, entry).catch(async error => {
         this.logger('error', 'WhatsApp reconnect attempt failed', { workspaceId: entry.workspaceId, sessionId: entry.sessionId, operation: 'reconnect', attempt, errorClass: error instanceof Error ? error.name : 'UnknownError', correlationId: context.correlationId });
-        await this.scheduleReconnect(context, entry);
+        await this.scheduleReconnect(context, entry, error);
       });
     }, delay);
   }
@@ -253,7 +279,18 @@ export class WhatsAppSessionManager {
   }
 
   private async publishError(context: RequestContext, entry: RuntimeEntry, operation: string, error: unknown): Promise<void> {
-    const errorClass = error instanceof Error ? error.name : 'UnknownError';
-    await this.publish(context, 'worker.error', { sessionId: entry.sessionId, operation, code: errorClass, message: 'WhatsApp worker operation failed' });
+    const normalized = normalizeError(error);
+    this.logger('error', 'WhatsApp worker operation failed', {
+      workspaceId: entry.workspaceId,
+      sessionId: entry.sessionId,
+      phase: operation,
+      status: entry.status,
+      errorClass: normalized.errorClass,
+      errorCode: normalized.code,
+      reason: normalized.message,
+      correlationId: context.correlationId,
+      ...(normalized.stack ? { stack: normalized.stack } : {}),
+    });
+    await this.publish(context, 'worker.error', { sessionId: entry.sessionId, operation, code: normalized.code, message: normalized.message });
   }
 }
