@@ -11,6 +11,7 @@ export type RuntimeEntry = {
   reconnectTimer?: ReturnType<typeof setTimeout>;
   qrExpiryTimer?: ReturnType<typeof setTimeout>;
   qr?: { value: string; expiresAt: string };
+  lastConnectionError?: unknown;
   createdAt: string;
   statusChangedAt: string;
   operation?: CriticalOperation;

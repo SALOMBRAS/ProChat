@@ -9,6 +9,10 @@ export type WorkerConfig = {
   reconnectBaseDelayMs: number;
   qrTtlMs: number;
   internalTransportPort: number;
+  whatsAppProvider: 'baileys' | 'waha';
+  wahaBaseUrl: string;
+  wahaApiKey?: string;
+  wahaTimeoutMs: number;
 };
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -24,6 +28,8 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
   const demoMode = env.WHATSAPP_DEMO_MODE ?? 'false';
   if (demoMode !== 'true' && demoMode !== 'false') throw new Error('WHATSAPP_DEMO_MODE must be true or false');
   const configuredDataDir = env.CHATPRO_DATA_DIR?.trim();
+  const provider = env.WHATSAPP_PROVIDER ?? 'baileys';
+  if (provider !== 'baileys' && provider !== 'waha') throw new Error('WHATSAPP_PROVIDER must be baileys or waha');
   return {
     name: env.WORKER_NAME ?? 'chatpro-whatsapp-worker',
     dataDir: path.resolve(configuredDataDir || path.join(process.cwd(), '.chatpro-data')),
@@ -33,5 +39,9 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     reconnectBaseDelayMs: positiveInteger(env.WHATSAPP_RECONNECT_BASE_DELAY_MS, 1_500, 'WHATSAPP_RECONNECT_BASE_DELAY_MS'),
     qrTtlMs: 120_000,
     internalTransportPort: positiveInteger(env.WORKER_TRANSPORT_PORT, 3101, 'WORKER_TRANSPORT_PORT'),
+    whatsAppProvider: provider,
+    wahaBaseUrl: (env.WAHA_BASE_URL ?? 'http://127.0.0.1:3002').replace(/\/+$/, ''),
+    wahaApiKey: env.WAHA_API_KEY?.trim() || undefined,
+    wahaTimeoutMs: positiveInteger(env.WAHA_TIMEOUT_MS, 10_000, 'WAHA_TIMEOUT_MS'),
   };
 }

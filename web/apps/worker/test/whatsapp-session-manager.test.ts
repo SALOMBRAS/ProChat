@@ -20,6 +20,7 @@ class FakeSocket implements WhatsAppSocket {
       else this.credentialListeners.push(listener as () => void | Promise<void>);
     },
   } as WhatsAppSocket['ev'];
+  get connectionListenerCount(): number { return this.connectionListeners.length; }
   emit(update: ConnectionUpdate): void { this.connectionListeners.forEach(listener => listener(update)); }
   emitCreds(): void { this.credentialListeners.forEach(listener => void listener()); }
   async end(): Promise<void> { this.ended = true; }
@@ -30,10 +31,11 @@ class FakeFactory implements WhatsAppSocketFactory {
   sockets: FakeSocket[] = [];
   saveCount = 0;
   failures = 0;
+  failureError?: Error;
   gate?: Promise<void>;
   async create() {
     if (this.gate) await this.gate;
-    if (this.failures > 0) { this.failures -= 1; throw new Error('factory failure'); }
+    if (this.failures > 0) { this.failures -= 1; throw this.failureError ?? new Error('factory failure'); }
     const socket = new FakeSocket();
     this.sockets.push(socket);
     return { socket, saveCreds: async () => { this.saveCount += 1; } };
@@ -53,7 +55,7 @@ describe('WhatsAppSessionManager', () => {
 
   beforeEach(async () => {
     dataDir = await mkdtemp(path.join(os.tmpdir(), 'chatpro-worker-'));
-    config = { name: 'test', dataDir, connectionEnabled: true, demoMode: false, maxReconnectAttempts: 2, reconnectBaseDelayMs: 10, qrTtlMs: 100, internalTransportPort: 3101 };
+    config = { name: 'test', dataDir, connectionEnabled: true, demoMode: false, maxReconnectAttempts: 2, reconnectBaseDelayMs: 10, qrTtlMs: 100, internalTransportPort: 3101, whatsAppProvider: 'baileys', wahaBaseUrl: 'http://127.0.0.1:3002', wahaTimeoutMs: 1_000 };
     store = new FileSystemCredentialStoreAdapter(dataDir);
     factory = new FakeFactory();
     publisher = new InMemoryEventPublisherAdapter();
@@ -110,6 +112,13 @@ describe('WhatsAppSessionManager', () => {
     expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('waiting_qr');
     expect(publisher.events.find(event => event.eventType === 'session.qr.updated')?.payload).toMatchObject({ sessionId: 'session-a', qr: 'temporary-qr' });
     expect(manager.getQr(context, 'session-a')).toMatchObject({ qr: 'temporary-qr', workspaceId: 'workspace-a' });
+  });
+
+  it('creates a socket and registers connection listeners when connections are enabled', async () => {
+    const socket = await createAndConnect();
+    expect(factory.sockets).toEqual([socket]);
+    expect(socket.connectionListenerCount).toBe(1);
+    expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('connecting');
   });
 
   it('rejects duplicate session creation within the same workspace', async () => {
@@ -188,6 +197,28 @@ describe('WhatsAppSessionManager', () => {
     expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('disconnected');
   });
 
+  it('keeps a session after a recoverable failure before QR', async () => {
+    vi.useFakeTimers();
+    const socket = await createAndConnect();
+    socket.emit({ connection: 'close', lastDisconnect: { error: { output: { statusCode: 408 } } } });
+    await flush();
+    expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('connecting');
+    expect(manager.getSession(context.workspaceId, 'session-a')).toBeDefined();
+  });
+
+  it('reports a rejected pairing without removing the session or retrying it', async () => {
+    vi.useFakeTimers();
+    const socket = await createAndConnect();
+    const error = Object.assign(new Error('Connection Failure'), { output: { statusCode: 405 } });
+    socket.emit({ connection: 'close', lastDisconnect: { error } });
+    await flush();
+    expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('error');
+    expect(manager.getSession(context.workspaceId, 'session-a')).toBeDefined();
+    expect(publisher.events.find(item => item.eventType === 'worker.error')?.payload).toMatchObject({ code: 'BAILEYS_405', message: 'Connection Failure' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(factory.sockets).toHaveLength(1);
+  });
+
   it('limits reconnection attempts and publishes worker.error when exhausted', async () => {
     vi.useFakeTimers();
     const instantStore = {
@@ -233,6 +264,20 @@ describe('WhatsAppSessionManager', () => {
     factory.sockets[0]!.emit({ qr: 'super-secret-qr-value' });
     await flush();
     expect(JSON.stringify(records)).not.toContain('super-secret-qr-value');
+  });
+
+  it('publishes normalized, redacted diagnostics for failures', async () => {
+    const records: unknown[] = [];
+    const logs = (_level: 'info' | 'error', _message: string, fields?: Record<string, unknown>) => { records.push(fields); };
+    const safeManager = new WhatsAppSessionManager(config, store, factory, publisher, undefined, logs);
+    await safeManager.createSession(context, 'session-a', { name: 'Primary' });
+    factory.failures = 1;
+    factory.failureError = new Error('credential=super-secret-value');
+    await expect(safeManager.connectSession(context, 'session-a')).rejects.toMatchObject({ response: { error: { code: 'SERVICE_UNAVAILABLE' } } });
+    const event = publisher.events.find(item => item.eventType === 'worker.error');
+    expect(event?.payload).toMatchObject({ sessionId: 'session-a', operation: 'connect', code: 'ERROR', message: '[REDACTED]' });
+    expect(JSON.stringify(records)).toContain('[REDACTED]');
+    expect(JSON.stringify(records)).not.toContain('super-secret-value');
   });
 
   it('never publishes credentials in events', async () => {
