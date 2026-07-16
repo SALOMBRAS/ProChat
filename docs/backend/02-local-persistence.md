@@ -10,3 +10,17 @@ Os repositórios em `src/persistence/repositories.ts` expõem operações básic
 O modelo inclui contatos, tags, opt-out, templates, CRM, campanhas e configurações. As relações usam chaves compostas por workspace para impedir referências cruzadas. `initializeWorkspaceCrm` cria etapas padrão somente quando chamado explicitamente.
 
 A camada de domínio não depende de SQLite além dos adaptadores, permitindo implementar os mesmos contratos em PostgreSQL/Supabase depois. Ainda não há endpoints CRUD, autenticação, mensagens, envio, QR ou credenciais WhatsApp.
+
+## Providers de persistência
+
+O provider atual e padrão é `sqlite`. `DATABASE_PROVIDER` aceita somente `sqlite` ou `supabase`; se omitido, permanece `sqlite`. Esta configuração ainda não troca o runtime da API: a próxima tarefa deve adaptar o serviço de domínio e o bootstrap para consumir os contratos assíncronos dos repositories antes de habilitar o provider Supabase.
+
+O adapter Supabase está em `web/apps/api/src/persistence/supabase.ts` e `supabase-repositories.ts`; `provider.ts` é o ponto de composição que escolhe o adapter pela configuração. Ele usa `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` somente quando for explicitamente instanciado; nenhum valor real deve ser versionado. `SUPABASE_ANON_KEY` não é necessária neste backend, pois as operações de servidor usarão a chave de serviço quando a troca for aprovada.
+
+Os repositories SQLite continuam em `repositories.ts`; os equivalentes Supabase cobrem contacts, tags e relações, templates, pipelines, stages, leads, campaigns, workspace settings, opt-out history, lead notes e activities. O contrato `WorkspaceRepository` aceita implementações síncronas (SQLite) ou assíncronas (Supabase), para que services não dependam do driver.
+
+## Migrations Supabase
+
+A migration PostgreSQL oficial está em `supabase/migrations/20260715000000_initial_chatpro_persistence.sql`. Ela preserva chaves compostas por `workspace_id`, FKs, índices, unicidade, constraints, timestamps e a tabela `campaign_recipients` do schema SQLite, além das tabelas de domínio. Aplique-a ao projeto Supabase existente em uma tarefa posterior, usando a CLI oficial vinculada ao projeto; esta preparação não executa link, push ou conexão remota.
+
+RLS está habilitada em todas as tabelas da migration e não há políticas públicas. As políticas finais devem ser definidas junto da futura autenticação e do modelo de acesso por workspace.

@@ -3,11 +3,11 @@ import type { SqliteDatabase } from './database.js';
 
 export interface WorkspaceRecord { id: string; workspaceId: string; createdAt: string; updatedAt: string; }
 export interface WorkspaceRepository<T extends WorkspaceRecord, Create, Update> {
-  insert(workspaceId: string, input: Create): T;
-  findById(workspaceId: string, id: string): T | undefined;
-  list(workspaceId: string): T[];
-  update(workspaceId: string, id: string, input: Update): T | undefined;
-  delete(workspaceId: string, id: string): boolean;
+  insert(workspaceId: string, input: Create): T | Promise<T>;
+  findById(workspaceId: string, id: string): T | undefined | Promise<T | undefined>;
+  list(workspaceId: string): T[] | Promise<T[]>;
+  update(workspaceId: string, id: string, input: Update): T | undefined | Promise<T | undefined>;
+  delete(workspaceId: string, id: string): boolean | Promise<boolean>;
 }
 
 export type ContactRecord = WorkspaceRecord & { displayName: string; phoneNumber: string; email: string | null; company: string | null; };
@@ -18,6 +18,9 @@ export type StageRecord = WorkspaceRecord & { pipelineId: string; name: string; 
 export type LeadRecord = WorkspaceRecord & { stageId: string; contactId: string | null; title: string; };
 export type CampaignRecord = WorkspaceRecord & { name: string; templateId: string | null; status: 'draft' | 'scheduled' | 'ready' | 'blocked' | 'cancelled'; scheduledAt: string | null; };
 export type WorkspaceSettingsRecord = WorkspaceRecord & { settings: Record<string, unknown>; };
+export type OptOutHistoryRecord = WorkspaceRecord & { contactId: string; reason: string | null; source: string; occurredAt: string; };
+export type LeadNoteRecord = WorkspaceRecord & { leadId: string; body: string; };
+export type ActivityRecord = WorkspaceRecord & { leadId: string; type: string; details: Record<string, unknown>; occurredAt: string; };
 
 const timestamp = () => new Date().toISOString();
 const normalizePhone = (value: string) => {
