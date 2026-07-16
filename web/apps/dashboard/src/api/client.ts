@@ -21,12 +21,18 @@ export class ApiClient {
       const response = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: controller.signal, headers: { 'content-type': 'application/json', 'x-workspace-id': this.workspaceId, ...init.headers } });
       if (response.status === 204) return undefined as T;
       const body: unknown = await response.json().catch(() => null);
-      if (!response.ok) { const error = body as { error?: { message?: string; details?: Record<string, unknown> } } | null; throw new ApiError('REQUEST_FAILED', error?.error?.message ?? 'Não foi possível concluir a operação.', error?.error?.details ?? {}); }
+      if (!response.ok) {
+        const error = body as { error?: { message?: string; details?: Record<string, unknown> } } | null;
+        const safeMessage = error?.error?.message ?? 'Não foi possível concluir a operação.';
+        const diagnostic = import.meta.env.DEV ? ` [REQUEST_FAILED ${response.status} ${path}]` : '';
+        throw new ApiError('REQUEST_FAILED', `${safeMessage}${diagnostic}`, { ...error?.error?.details, endpoint: path, status: response.status });
+      }
       return body as T;
     } catch (error) {
       if (error instanceof ApiError) throw error;
-      if ((error as DOMException).name === 'AbortError') throw new ApiError(signal?.aborted ? 'REQUEST_FAILED' : 'TIMEOUT', signal?.aborted ? 'Solicitação cancelada.' : 'A API demorou para responder.');
-      throw new ApiError('API_UNAVAILABLE', 'A API está indisponível.');
+      if ((error as DOMException).name === 'AbortError') throw new ApiError(signal?.aborted ? 'REQUEST_FAILED' : 'TIMEOUT', signal?.aborted ? 'Solicitação cancelada.' : 'A API demorou para responder.', { endpoint: path });
+      const diagnostic = import.meta.env.DEV ? ` [API_UNAVAILABLE 0 ${path}]` : '';
+      throw new ApiError('API_UNAVAILABLE', `A API está indisponível.${diagnostic}`, { endpoint: path, status: 0 });
     } finally { window.clearTimeout(timeout); signal?.removeEventListener('abort', abort); }
   }
   get<T>(path: string, signal?: AbortSignal) { return this.request<T>(path, { method: 'GET' }, signal); }
