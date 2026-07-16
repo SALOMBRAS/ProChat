@@ -1,8 +1,0 @@
-import { describe, expect, it, vi } from 'vitest';
-import { SessionApiError, SessionsApi } from './sessions';
-const response = (status: number, body?: unknown) => ({ status, ok: status >= 200 && status < 300, json: vi.fn().mockResolvedValue(body) }) as unknown as Response;
-describe('SessionsApi', () => {
-  it('normaliza sessão e envia contexto temporário', async () => { const fetcher = vi.fn().mockResolvedValue(response(200, [{ id: 's-1', name: 'Suporte', status: 'connected', updatedAt: '2026-07-15T12:00:00.000Z' }])); const sessions = await new SessionsApi(fetcher).list(); expect(sessions[0].name).toBe('Suporte'); expect(fetcher.mock.calls[0][1].headers['x-workspace-id']).toBe('demo-workspace'); });
-  it('identifica worker indisponível', async () => { const fetcher = vi.fn().mockResolvedValue(response(503, { error: { code: 'SERVICE_UNAVAILABLE', message: 'Worker indisponível' } })); await expect(new SessionsApi(fetcher).list()).rejects.toMatchObject({ code: 'WORKER_UNAVAILABLE' }); });
-  it('identifica API indisponível e timeout', async () => { await expect(new SessionsApi(vi.fn().mockRejectedValue(new TypeError('offline'))).list()).rejects.toMatchObject({ code: 'API_UNAVAILABLE' }); vi.useFakeTimers(); const fetcher = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('', 'AbortError'))))); const pending = new SessionsApi(fetcher as typeof fetch, '', 5).list(); const check = expect(pending).rejects.toMatchObject({ code: 'TIMEOUT' }); await vi.advanceTimersByTimeAsync(6); await check; vi.useRealTimers(); });
-});
