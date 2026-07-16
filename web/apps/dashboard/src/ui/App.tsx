@@ -8,7 +8,8 @@ import { SessionsApi } from '../api/sessions';
 const domain = new DomainApi(); const sessionsApi = new SessionsApi();
 const routes = [['/dashboard', 'Dashboard'], ['/devices', 'Dispositivos'], ['/crm', 'CRM'], ['/contacts', 'Contatos'], ['/templates', 'Templates'], ['/campaigns', 'Campanhas'], ['/settings', 'Configurações']] as const;
 const message = (error: unknown) => error instanceof ApiError ? error.message : 'Ocorreu um erro inesperado.';
-function useResource<T>(load: () => Promise<T>, deps: unknown[] = []) { const [data, setData] = useState<T>(); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const refresh = async () => { setLoading(true); setError(''); try { setData(await load()); } catch (e) { setError(message(e)); } finally { setLoading(false); } }; useEffect(() => { void refresh(); }, deps); return { data, error, loading, refresh }; }
+const stableDependencies: unknown[] = [];
+function useResource<T>(load: () => Promise<T>, deps: unknown[] = stableDependencies) { const [data, setData] = useState<T>(); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const refresh = async () => { setLoading(true); setError(''); try { setData(await load()); } catch (e) { setError(message(e)); } finally { setLoading(false); } }; useEffect(() => { void refresh(); }, deps); return { data, error, loading, refresh }; }
 const ErrorNotice = ({ error }: { error: string }) => error ? <p className="alert" role="alert">{error}</p> : null;
 const Empty = ({ children }: { children: ReactNode }) => <div className="empty">{children}</div>;
 const Modal = ({ title, close, children }: { title: string; close: () => void; children: ReactNode }) => <div className="modal-backdrop"><section className="modal form-modal" role="dialog" aria-modal="true" aria-label={title}><button className="close" onClick={close} aria-label="Fechar">×</button><h2>{title}</h2>{children}</section></div>;
