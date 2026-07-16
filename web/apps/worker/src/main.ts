@@ -1,14 +1,18 @@
 import { pathToFileURL } from 'node:url';
-import { BaileysSocketFactory } from './baileys-socket.factory.js';
-import { BaileysWhatsAppWorkerAdapter } from './baileys-whatsapp-worker.adapter.js';
 import { loadWorkerConfig, type WorkerConfig } from './config.js';
+import { DemoWhatsAppWorkerAdapter } from './demo-whatsapp-worker.adapter.js';
 import { StructuredLogEventPublisherAdapter } from './event-publishers.js';
-import { FileSystemCredentialStoreAdapter } from './file-system-credential-store.adapter.js';
 import { log } from './logging.js';
 import { createWorkerTransportHandler, listenInternalTransport } from './internal-transport-server.js';
-import { WhatsAppSessionManager } from './whatsapp-session-manager.js';
 
 export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfig()) {
+  if (config.demoMode) {
+    const adapter = new DemoWhatsAppWorkerAdapter();
+    return { adapter, manager: undefined, restored: [], config, shutdown: () => adapter.shutdown() };
+  }
+  const [{ BaileysSocketFactory }, { BaileysWhatsAppWorkerAdapter }, { FileSystemCredentialStoreAdapter }, { WhatsAppSessionManager }] = await Promise.all([
+    import('./baileys-socket.factory.js'), import('./baileys-whatsapp-worker.adapter.js'), import('./file-system-credential-store.adapter.js'), import('./whatsapp-session-manager.js'),
+  ]);
   const credentials = new FileSystemCredentialStoreAdapter(config.dataDir);
   const publisher = new StructuredLogEventPublisherAdapter();
   const manager = new WhatsAppSessionManager(config, credentials, new BaileysSocketFactory(), publisher);
@@ -20,7 +24,7 @@ export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfi
 export async function runWorker(): Promise<void> {
   const runtime = await createWorkerRuntime();
   const transport = await listenInternalTransport({ host: '127.0.0.1', port: runtime.config.internalTransportPort }, createWorkerTransportHandler(runtime.adapter));
-  log('info', 'WhatsApp worker started', { name: runtime.config.name, connectionEnabled: runtime.config.connectionEnabled, restoredSessions: runtime.restored.length, dataDirConfigured: true });
+  log('info', 'WhatsApp worker started', { name: runtime.config.name, connectionEnabled: runtime.config.connectionEnabled, demoMode: runtime.config.demoMode, restoredSessions: runtime.restored.length, dataDirConfigured: !runtime.config.demoMode });
   let stopping = false;
   const keepAlive = setInterval(() => undefined, 60_000);
   const shutdown = async (signal: string) => {
