@@ -5,7 +5,7 @@ import { loadWorkerConfig, type WorkerConfig } from './config.js';
 import { StructuredLogEventPublisherAdapter } from './event-publishers.js';
 import { FileSystemCredentialStoreAdapter } from './file-system-credential-store.adapter.js';
 import { log } from './logging.js';
-import { listenInternalTransport } from './internal-transport-server.js';
+import { createWorkerTransportHandler, listenInternalTransport } from './internal-transport-server.js';
 import { WhatsAppSessionManager } from './whatsapp-session-manager.js';
 
 export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfig()) {
@@ -19,7 +19,7 @@ export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfi
 
 export async function runWorker(): Promise<void> {
   const runtime = await createWorkerRuntime();
-  const transport = await listenInternalTransport({ host: '127.0.0.1', port: runtime.config.internalTransportPort });
+  const transport = await listenInternalTransport({ host: '127.0.0.1', port: runtime.config.internalTransportPort }, createWorkerTransportHandler(runtime.adapter));
   log('info', 'WhatsApp worker started', { name: runtime.config.name, connectionEnabled: runtime.config.connectionEnabled, restoredSessions: runtime.restored.length, dataDirConfigured: true });
   let stopping = false;
   const keepAlive = setInterval(() => undefined, 60_000);

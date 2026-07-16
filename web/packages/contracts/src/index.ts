@@ -15,11 +15,11 @@ export const conflictErrorSchema = apiErrorSchema.refine(value => value.error.co
 export const serviceUnavailableErrorSchema = apiErrorSchema.refine(value => value.error.code === 'SERVICE_UNAVAILABLE');
 export const notImplementedErrorSchema = apiErrorSchema.refine(value => value.error.code === 'NOT_IMPLEMENTED');
 
-export const sessionStatusSchema = z.enum(['disconnected','connecting','qr_pending','connected','reconnecting','logged_out','error']);
+export const sessionStatusSchema = z.enum(['disconnected','connecting','waiting_qr','connected','stopped','error']);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 export const whatsAppSessionSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), name: z.string().min(1), status: sessionStatusSchema, createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
 export type WhatsAppSession = z.infer<typeof whatsAppSessionSchema>;
-export const createSessionRequestSchema = z.object({ name: z.string().trim().min(1).max(120) });
+export const createSessionRequestSchema = z.object({ name: z.string().trim().min(1).max(120).optional() });
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export const connectSessionRequestSchema = z.object({ forceQrRefresh: z.boolean().optional().default(false) });
 export type ConnectSessionRequest = z.infer<typeof connectSessionRequestSchema>;
@@ -61,13 +61,27 @@ export function validateEventEnvelope(event: EventEnvelope): EventEnvelope {
 // Internal API-to-worker protocol. It exposes only controlled commands until a later session/QR phase.
 export const internalTransportTimeoutSchema = z.number().int().min(1).max(30_000);
 export const internalTransportPingCommandSchema = z.object({ type: z.literal('transport.ping'), payload: z.object({ message: z.string().min(1).max(120), delayMs: z.number().int().min(0).max(5_000).optional(), fail: z.boolean().optional() }) });
-export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema]);
+export const sessionIdSchema = safeIdentifierSchema;
+export const sessionQrSchema = z.object({ sessionId: sessionIdSchema, workspaceId: safeIdentifierSchema, qr: z.string().min(1).max(8192), expiresAt: z.string().datetime() });
+export type SessionQr = z.infer<typeof sessionQrSchema>;
+export const internalListSessionsCommandSchema = z.object({ type: z.literal('session.list'), payload: z.object({}) });
+export const internalCreateSessionCommandSchema = z.object({ type: z.literal('session.create'), payload: z.object({ sessionId: sessionIdSchema, name: z.string().trim().min(1).max(120).optional() }) });
+export const internalSessionCommandSchema = z.object({ type: z.enum(['session.connect', 'session.status', 'session.qr', 'session.stop', 'session.logout', 'session.remove']), payload: z.object({ sessionId: sessionIdSchema }) });
+export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema]);
 export type InternalTransportCommand = z.infer<typeof internalTransportCommandSchema>;
 export const internalTransportRequestSchema = z.object({ correlationId: z.string().min(1).max(128), workspaceId: safeIdentifierSchema, timeoutMs: internalTransportTimeoutSchema, command: internalTransportCommandSchema });
 export type InternalTransportRequest = z.infer<typeof internalTransportRequestSchema>;
 export const internalTransportErrorSchema = z.object({ code: z.enum(errorCodes), message: z.string().min(1).max(240), details: z.record(z.unknown()).default({}) });
 export type InternalTransportError = z.infer<typeof internalTransportErrorSchema>;
-export const internalTransportSuccessResponseSchema = z.object({ success: z.literal(true), correlationId: z.string().min(1), workspaceId: safeIdentifierSchema, data: z.object({ message: z.string().min(1).max(120) }) });
+export const internalTransportDataSchema = z.union([
+  z.object({ message: z.string().min(1).max(120) }),
+  z.object({ sessions: z.array(sessionSummarySchema) }),
+  z.object({ session: whatsAppSessionSchema }),
+  z.object({ qr: sessionQrSchema }),
+  z.object({ removed: z.literal(true) }),
+  z.object({ completed: z.literal(true) }),
+]);
+export const internalTransportSuccessResponseSchema = z.object({ success: z.literal(true), correlationId: z.string().min(1), workspaceId: safeIdentifierSchema, data: internalTransportDataSchema });
 export const internalTransportFailureResponseSchema = z.object({ success: z.literal(false), correlationId: z.string().min(1), workspaceId: safeIdentifierSchema, error: internalTransportErrorSchema });
 export const internalTransportResponseSchema = z.discriminatedUnion('success', [internalTransportSuccessResponseSchema, internalTransportFailureResponseSchema]);
 export type InternalTransportResponse = z.infer<typeof internalTransportResponseSchema>;

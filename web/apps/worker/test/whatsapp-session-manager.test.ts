@@ -107,8 +107,28 @@ describe('WhatsAppSessionManager', () => {
     const socket = await createAndConnect();
     socket.emit({ qr: 'temporary-qr' });
     await flush();
-    expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('qr_pending');
+    expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('waiting_qr');
     expect(publisher.events.find(event => event.eventType === 'session.qr.updated')?.payload).toMatchObject({ sessionId: 'session-a', qr: 'temporary-qr' });
+    expect(manager.getQr(context, 'session-a')).toMatchObject({ qr: 'temporary-qr', workspaceId: 'workspace-a' });
+  });
+
+  it('rejects duplicate session creation within the same workspace', async () => {
+    await manager.createSession(context, 'session-a', { name: 'Primary' });
+    await expect(manager.createSession(context, 'session-a', { name: 'Duplicate' })).rejects.toMatchObject({ response: { error: { code: 'CONFLICT' } } });
+  });
+
+  it('clears the temporary QR after connection, stop, logout, and expiry', async () => {
+    vi.useFakeTimers();
+    const socket = await createAndConnect();
+    socket.emit({ qr: 'temporary-qr' }); await flush();
+    socket.emit({ connection: 'open' }); await flush();
+    expect(() => manager.getQr(context, 'session-a')).toThrow();
+    socket.emit({ qr: 'another-qr' }); await flush();
+    await manager.disconnectSession(context, 'session-a');
+    expect(() => manager.getQr(context, 'session-a')).toThrow();
+    await manager.connectSession(context, 'session-a'); factory.sockets[1]!.emit({ qr: 'expiring-qr' }); await flush();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(() => manager.getQr(context, 'session-a')).toThrow();
   });
 
   it('transitions connecting to connected without duplicate status events', async () => {
@@ -134,6 +154,15 @@ describe('WhatsAppSessionManager', () => {
     expect(socket.ended).toBe(true);
     expect(socket.loggedOut).toBe(false);
     expect(await store.hasAuthDirectory(context.workspaceId, 'session-a')).toBe(true);
+    expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('stopped');
+  });
+
+  it('logs out while preserving metadata and invalidating credentials', async () => {
+    const socket = await createAndConnect();
+    await manager.logoutSession(context, 'session-a');
+    expect(socket.loggedOut).toBe(true);
+    expect(await store.hasAuthDirectory(context.workspaceId, 'session-a')).toBe(false);
+    expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('disconnected');
   });
 
   it('removes credentials and performs logout', async () => {
@@ -156,7 +185,7 @@ describe('WhatsAppSessionManager', () => {
     await flush();
     await vi.advanceTimersByTimeAsync(1_000);
     expect(factory.sockets).toHaveLength(1);
-    expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('logged_out');
+    expect(manager.getSession(context.workspaceId, 'session-a')?.status).toBe('disconnected');
   });
 
   it('limits reconnection attempts and publishes worker.error when exhausted', async () => {
