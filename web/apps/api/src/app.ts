@@ -12,6 +12,9 @@ import { DomainService } from './services/domain.service.js';
 import { DomainController } from './controllers/domain.controller.js';
 import { SqlitePersistenceDatabase } from './persistence/database.js';
 import { createDomainRepositoryForProvider } from './persistence/provider.js';
+import { createSupabasePersistenceClient } from './persistence/supabase.js';
+import { WahaWebhookController } from './controllers/waha-webhook.controller.js';
+import { SqliteWahaWebhookStore, SupabaseWahaWebhookStore } from './services/waha-webhook.service.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
   const allowedOrigins = new Set(['http://127.0.0.1:5173', 'http://localhost:5173']);
@@ -26,7 +29,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
-  app.use(express.json()); app.use(correlationContext);
+  app.use(express.json({ limit: '256kb', verify: (req, _res, buffer) => { (req as { rawBody?: Buffer }).rawBody = Buffer.from(buffer); } })); app.use(correlationContext);
   // Controllers retain their public handler shapes while domain calls are now
   // promises. Resolve a returned value before serializing it.
   app.use((_req, res, next) => {
@@ -48,6 +51,8 @@ export async function createApp(config: ApiConfig = loadConfig()) {
   database?.migrate();
   app.locals.persistenceDatabase = database;
   try {
+    const webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite) : new SupabaseWahaWebhookStore(createSupabasePersistenceClient(config));
+    app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }).receive);
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
     app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions))); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }

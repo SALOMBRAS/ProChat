@@ -1,0 +1,12 @@
+import type { RequestHandler } from 'express';
+import { log } from '../logging.js';
+import { WahaWebhookValidationError, parseWebhook, verifyWahaWebhook, webhookRecord, type WahaWebhookStore } from '../services/waha-webhook.service.js';
+export class WahaWebhookController {
+  constructor(private readonly store: WahaWebhookStore, private readonly options: { hmacKey?: string; workspaceId?: string }) {}
+  receive: RequestHandler = async (req, res, next) => { try {
+    verifyWahaWebhook(req.rawBody ?? Buffer.alloc(0), { hmac: req.header('x-webhook-hmac') ?? undefined, algorithm: req.header('x-webhook-hmac-algorithm') ?? undefined, timestamp: req.header('x-webhook-timestamp') ?? undefined }, this.options.hmacKey);
+    if (!this.options.workspaceId) throw new WahaWebhookValidationError(503, 'WAHA webhook workspace is not configured');
+    const event = parseWebhook(req.body); const result = await this.store.ingest(webhookRecord(event, this.options.workspaceId));
+    log('info', 'WAHA webhook accepted', { eventType: event.event, session: event.session, duplicate: result.duplicate }); res.status(result.duplicate ? 200 : 202).json({ accepted: true, duplicate: result.duplicate });
+  } catch (error) { if (error instanceof WahaWebhookValidationError) return res.status(error.status).json({ error: { code: error.status === 401 ? 'UNAUTHORIZED' : 'SERVICE_UNAVAILABLE', message: error.message } }); next(error); } };
+}
