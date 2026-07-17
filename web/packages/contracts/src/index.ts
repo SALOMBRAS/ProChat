@@ -67,7 +67,7 @@ export const inboxMessageSchema = z.object({ id: z.string().min(1), direction: z
 export type InboxConversation = z.infer<typeof inboxConversationSchema>;
 export type InboxMessage = z.infer<typeof inboxMessageSchema>;
 
-export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.sent','message.status.updated','conversation.updated','worker.error'] as const;
+export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.sent','message.status.updated','conversation.updated','conversation.context.updated','worker.error'] as const;
 export const eventEnvelopeSchema = z.object({ eventId: z.string().min(1), eventType: z.enum(eventTypes), workspaceId: safeIdentifierSchema, timestamp: z.string().datetime(), correlationId: z.string().min(1), payload: z.record(z.unknown()) });
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
 

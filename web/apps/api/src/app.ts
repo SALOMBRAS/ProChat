@@ -19,6 +19,7 @@ import { SqliteWahaWebhookStore, SupabaseWahaWebhookStore } from './services/wah
 import { InternalInboxService } from './services/internal-inbox.service.js';
 import { RealtimeHub } from './realtime.js';
 import { SqliteWhatsAppIdentityStore, SupabaseWhatsAppIdentityStore, WhatsAppIdentitySyncService } from './services/whatsapp-identity-sync.service.js';
+import { ConversationContextService, SqliteConversationContextStore, SupabaseConversationContextStore } from './services/conversation-context.service.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
   const realtimeHub = new RealtimeHub(); app.locals.realtimeHub = realtimeHub;
@@ -59,12 +60,13 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const supabase = database ? undefined : createSupabasePersistenceClient(config);
     const webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite) : new SupabaseWahaWebhookStore(supabase!);
     const identityStore = database ? new SqliteWhatsAppIdentityStore(database.sqlite) : new SupabaseWhatsAppIdentityStore(supabase!);
+    const contextStore = database ? new SqliteConversationContextStore(database.sqlite) : new SupabaseConversationContextStore(supabase!);
     const workerClient = new InternalWorkerClient({ url: config.workerTransportUrl, timeoutMs: config.workerTransportTimeoutMs });
     const identitySync = new WhatsAppIdentitySyncService(workerClient, identityStore, target => realtimeHub.publish(target.workspaceId, 'conversation.updated', { wahaSession: target.wahaSession, chatId: target.chatId, identitySynchronized: true }));
     if (config.nodeEnv !== 'test') identitySync.enqueueBackfill();
     app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }, identitySync).receive);
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
-    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub)))); app.use(errorHandler);
+    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub), new ConversationContextService(webhookStore, contextStore, realtimeHub)))); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }
   return app;
 }
