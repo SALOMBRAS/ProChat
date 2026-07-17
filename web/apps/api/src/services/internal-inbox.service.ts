@@ -11,7 +11,7 @@ export class InternalInboxService {
   async send(context: RequestContext, conversationId: string, text: string): Promise<InboxMessage> {
     const conversation = await this.conversations.getConversation(context.workspaceId, conversationId);
     if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
-    const response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, command: { type: 'message.send', payload: { wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId, text } } });
+    const response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, command: { type: 'message.send', payload: { wahaSession: conversation.whatsappSessionId, chatId: conversation.deliveryChatId ?? conversation.chatId, text } } });
     if (!response.success) throw new AppError(statusFor(response.error.code), response.error.code, response.error.message, response.error.details);
     const sent = response.data as { sentMessage?: { id: string; timestamp: string } };
     if (!sent.sentMessage) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Internal worker returned an invalid response');

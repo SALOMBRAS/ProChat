@@ -1,8 +1,10 @@
 export type WahaSession = { name: string; status: string };
 export type WahaSentMessage = { id: string };
+export type WahaIdentity = { whatsappId: string; canonicalWhatsappId: string; phone: string | null; name: string | null; pushName: string | null; shortName: string | null; profilePictureUrl: string | null };
+export type WahaGroup = { chatId: string; name: string | null; pictureUrl: string | null; metadata: Record<string, unknown>; participants: Array<{ whatsappId: string; role: string | null }> };
 
 export class WahaClientError extends Error {
-  constructor(readonly kind: 'unavailable' | 'timeout' | 'response', readonly status?: number) {
+  constructor(readonly kind: 'unavailable' | 'timeout' | 'response', readonly status?: number, readonly providerMessage?: string) {
     super(kind === 'timeout' ? 'WAHA request timed out' : kind === 'unavailable' ? 'WAHA is unavailable' : 'WAHA returned an unexpected response');
     this.name = 'WahaClientError';
   }
@@ -19,6 +21,8 @@ export interface WahaClientPort {
   logoutSession(name: string): Promise<void>;
   removeSession(name: string): Promise<void>;
   sendText(session: string, chatId: string, text: string): Promise<WahaSentMessage>;
+  getIdentity(session: string, whatsappId: string): Promise<WahaIdentity>;
+  getGroup(session: string, chatId: string): Promise<WahaGroup>;
 }
 
 export class WahaHttpClient implements WahaClientPort {
@@ -44,14 +48,27 @@ export class WahaHttpClient implements WahaClientPort {
     if (!data || typeof data !== 'object' || typeof (data as { id?: unknown }).id !== 'string') throw new WahaClientError('response');
     return { id: (data as { id: string }).id };
   }
+  async getIdentity(session: string, whatsappId: string): Promise<WahaIdentity> {
+    const contact = object(await this.request(`/api/contacts?contactId=${encodeURIComponent(whatsappId)}&session=${encodeURIComponent(session)}`));
+    const picture = objectOrEmpty(await this.optionalRequest(`/api/contacts/profile-picture?contactId=${encodeURIComponent(whatsappId)}&session=${encodeURIComponent(session)}`));
+    const lid = whatsappId.endsWith('@lid') ? objectOrEmpty(await this.optionalRequest(`/api/${encodeURIComponent(session)}/lids/${encodeURIComponent(whatsappId)}`)) : {};
+    const canonicalWhatsappId = stringValue(lid.pn) ?? (whatsappId.endsWith('@c.us') ? whatsappId : stringValue(contact.id) ?? whatsappId);
+    return { whatsappId, canonicalWhatsappId, phone: stringValue(contact.number) ?? phoneFromChat(canonicalWhatsappId), name: stringValue(contact.name), pushName: stringValue(contact.pushname) ?? stringValue(contact.pushName), shortName: stringValue(contact.shortName), profilePictureUrl: stringValue(picture.profilePictureURL) ?? stringValue(picture.url) };
+  }
+  async getGroup(session: string, chatId: string): Promise<WahaGroup> {
+    const group = object(await this.request(`/api/${encodeURIComponent(session)}/groups/${encodeURIComponent(chatId)}`));
+    const picture = objectOrEmpty(await this.optionalRequest(`/api/${encodeURIComponent(session)}/groups/${encodeURIComponent(chatId)}/picture?refresh=false`));
+    const participants = await this.request(`/api/${encodeURIComponent(session)}/groups/${encodeURIComponent(chatId)}/participants/v2`);
+    return { chatId, name: stringValue(group.subject) ?? stringValue(group.name), pictureUrl: stringValue(picture.url), metadata: safeMetadata(group), participants: Array.isArray(participants) ? participants.flatMap(value => { const participant = object(value); const whatsappId = stringValue(participant.id); return whatsappId ? [{ whatsappId, role: stringValue(participant.role) }] : []; }) : [] };
+  }
 
   private async request(path: string, method = 'GET', body?: unknown, timeoutMs = this.options.timeoutMs): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await (this.options.fetchImpl ?? fetch)(`${this.options.baseUrl}${path}`, { method, headers: { accept: 'application/json', ...(this.options.apiKey ? { 'x-api-key': this.options.apiKey } : {}), ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: controller.signal });
-      if (!response.ok) throw new WahaClientError('response', response.status);
       const text = await response.text();
+      if (!response.ok) throw new WahaClientError('response', response.status, safeProviderMessage(text));
       return text ? JSON.parse(text) : undefined;
     } catch (error) {
       if (error instanceof WahaClientError) throw error;
@@ -59,5 +76,12 @@ export class WahaHttpClient implements WahaClientPort {
       throw new WahaClientError('unavailable');
     } finally { clearTimeout(timer); }
   }
+  private async optionalRequest(path: string): Promise<unknown> { try { return await this.request(path); } catch (error) { if (error instanceof WahaClientError && error.status === 404) return {}; throw error; } }
 }
 function session(value: unknown): WahaSession { if (!value || typeof value !== 'object' || typeof (value as { name?: unknown }).name !== 'string' || typeof (value as { status?: unknown }).status !== 'string') throw new WahaClientError('response'); return value as WahaSession; }
+function object(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new WahaClientError('response'); return value as Record<string, unknown>; }
+function objectOrEmpty(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+function stringValue(value: unknown): string | null { return typeof value === 'string' && value.trim() ? value.trim() : null; }
+function safeMetadata(value: Record<string, unknown>): Record<string, unknown> { const allowed = ['description', 'owner', 'creation', 'createdAt', 'isReadOnly', 'isAnnounce', 'isRestricted']; return Object.fromEntries(allowed.flatMap(key => value[key] === undefined ? [] : [[key, value[key]]])) as Record<string, unknown>; }
+function phoneFromChat(chatId: string): string | null { const phone = chatId.split('@', 1)[0].replace(/\D/g, ''); return phone.length >= 8 && phone.length <= 15 ? phone : null; }
+function safeProviderMessage(value: string): string | undefined { const trimmed = value.replace(/(api[_-]?key|authorization|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]').replace(/\s+/g, ' ').trim(); return trimmed ? trimmed.slice(0, 200) : undefined; }

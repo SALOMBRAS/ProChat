@@ -17,6 +17,7 @@ class ControlledWorker implements WhatsAppWorkerPort {
       const now = new Date().toISOString(); const session = { id: command.sessionId, workspaceId: context.workspaceId, name: command.input.name ?? command.sessionId, status: 'disconnected' as const, createdAt: now, updatedAt: now }; this.sessions.set(key(command.sessionId), session); return session;
     }
     if (command.type === 'sendMessage') return { id: 'controlled-message', timestamp: new Date().toISOString() };
+    if (command.type === 'syncIdentity') return { identity: null, group: null };
     const session = this.sessions.get(key(command.sessionId));
     if (!session) { const error = Object.assign(new Error('Session not found'), { response: { error: { code: 'NOT_FOUND', message: 'Session not found' } } }); throw error; }
     if (command.type === 'getSession') return session;
