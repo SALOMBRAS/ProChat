@@ -29,6 +29,17 @@ describe('WAHA webhook ingress', () => {
     for (const body of [{ ...base, id: 'evt-message', event: 'message' }, { ...base, id: 'evt-message-any', event: 'message.any' }]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
     const database = app.locals.persistenceDatabase.sqlite; expect(database.prepare('SELECT count(*) AS total FROM waha_webhook_events').get()).toMatchObject({ total: 2 }); expect(database.prepare('SELECT count(*) AS total FROM whatsapp_messages').get()).toMatchObject({ total: 1 });
   });
+  it('keeps a group as one conversation while storing each participant as the message author', async () => {
+    const app = await appFor(); const group = '120363363444637332@g.us';
+    const events = [
+      { id: 'evt-group-1', timestamp: Date.now() - 1_000, event: 'message' as const, session: 'waha-a', payload: { id: 'group-message-1', chatId: group, from: group, participant: '5511999990000@c.us', body: 'Primeira pessoa' } },
+      { id: 'evt-group-2', timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload: { id: 'group-message-2', chatId: group, from: group, participant: '5511888880000@c.us', body: 'Segunda pessoa' } },
+    ];
+    for (const body of events) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    const database = app.locals.persistenceDatabase.sqlite;
+    expect(database.prepare("SELECT count(*) AS total FROM conversations WHERE chatId = ? AND conversationType = 'group'").get(group)).toMatchObject({ total: 1 });
+    expect(database.prepare('SELECT senderWhatsappId FROM whatsapp_messages WHERE chatId = ? ORDER BY occurredAt ASC').all(group)).toEqual([{ senderWhatsappId: '5511999990000@c.us' }, { senderWhatsappId: '5511888880000@c.us' }]);
+  });
   it('creates and updates a conversation that is available through the diagnostic API', async () => {
     const app = await appFor(); const first = { id: 'evt-conversation-1', timestamp: Date.now() - 1_000, event: 'message', session: 'waha-a', payload: { id: 'message-conversation-1', chatId: '5511999990000@c.us', body: 'Primeira', type: 'text' } }; const second = { id: 'evt-conversation-2', timestamp: Date.now(), event: 'message.any', session: 'waha-a', payload: { id: 'message-conversation-2', chatId: '5511999990000@c.us', body: 'Resposta', type: 'text', fromMe: true } };
     for (const body of [first, second]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
