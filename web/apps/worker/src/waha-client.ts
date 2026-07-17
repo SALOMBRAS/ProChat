@@ -1,4 +1,5 @@
 export type WahaSession = { name: string; status: string };
+export type WahaSentMessage = { id: string };
 
 export class WahaClientError extends Error {
   constructor(readonly kind: 'unavailable' | 'timeout' | 'response', readonly status?: number) {
@@ -17,6 +18,7 @@ export interface WahaClientPort {
   stopSession(name: string): Promise<void>;
   logoutSession(name: string): Promise<void>;
   removeSession(name: string): Promise<void>;
+  sendText(session: string, chatId: string, text: string): Promise<WahaSentMessage>;
 }
 
 export class WahaHttpClient implements WahaClientPort {
@@ -37,6 +39,11 @@ export class WahaHttpClient implements WahaClientPort {
   async stopSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}/stop`, 'POST'); }
   async logoutSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}/logout`, 'POST'); }
   async removeSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}`, 'DELETE'); }
+  async sendText(session: string, chatId: string, text: string): Promise<WahaSentMessage> {
+    const data = await this.request('/api/sendText', 'POST', { session, chatId, text });
+    if (!data || typeof data !== 'object' || typeof (data as { id?: unknown }).id !== 'string') throw new WahaClientError('response');
+    return { id: (data as { id: string }).id };
+  }
 
   private async request(path: string, method = 'GET', body?: unknown, timeoutMs = this.options.timeoutMs): Promise<unknown> {
     const controller = new AbortController();

@@ -16,8 +16,11 @@ import { createSupabasePersistenceClient } from './persistence/supabase.js';
 import { WahaWebhookController } from './controllers/waha-webhook.controller.js';
 import { InboxController } from './controllers/inbox.controller.js';
 import { SqliteWahaWebhookStore, SupabaseWahaWebhookStore } from './services/waha-webhook.service.js';
+import { InternalInboxService } from './services/internal-inbox.service.js';
+import { RealtimeHub } from './realtime.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
+  const realtimeHub = new RealtimeHub(); app.locals.realtimeHub = realtimeHub;
   const allowedOrigins = new Set(['http://127.0.0.1:5173', 'http://localhost:5173']);
   app.use((req, res, next) => {
     const origin = req.header('origin');
@@ -53,9 +56,9 @@ export async function createApp(config: ApiConfig = loadConfig()) {
   app.locals.persistenceDatabase = database;
   try {
     const webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite) : new SupabaseWahaWebhookStore(createSupabasePersistenceClient(config));
-    app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }).receive);
+    app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }).receive);
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
-    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore))); app.use(errorHandler);
+    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(new InternalWorkerClient({ url: config.workerTransportUrl, timeoutMs: config.workerTransportTimeoutMs }), webhookStore, realtimeHub)))); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }
   return app;
 }

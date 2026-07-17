@@ -7,6 +7,7 @@ export class BaileysWhatsAppWorkerAdapter implements WhatsAppWorkerPort {
   async execute(context: RequestContext, command: WorkerCommand) {
     if (command.type === 'listSessions') return this.manager.listSessions(context.workspaceId);
     if (command.type === 'createSession') return this.manager.createSession(context, command.sessionId, command.input);
+    if (command.type === 'sendMessage') throw new WorkerOperationError('NOT_IMPLEMENTED', 'Manual messaging is available only for the WAHA provider', context.correlationId);
     if (command.type === 'connectSession') return this.manager.connectSession(context, command.sessionId);
     if (command.type === 'disconnectSession') return this.manager.disconnectSession(context, command.sessionId);
     if (command.type === 'logoutSession') return this.manager.logoutSession(context, command.sessionId);

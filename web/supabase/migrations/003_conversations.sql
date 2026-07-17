@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   workspace_id text NOT NULL,
   waha_session text NOT NULL,
   chat_id text NOT NULL,
-  contact_id uuid NULL,
+  contact_id text NULL,
   status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
   last_message text NULL,
   last_message_at timestamptz NOT NULL,

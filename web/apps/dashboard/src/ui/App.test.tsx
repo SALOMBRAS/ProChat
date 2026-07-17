@@ -40,6 +40,7 @@ describe('Inbox', () => {
     const api = {
       conversations: vi.fn().mockResolvedValue({ items: [{ id: 'conversation-a', whatsappSessionId: 'session-a', chatId: '5511999999999@c.us', contactId: null, status: 'open', lastMessage: 'Olá', lastMessageAt: '2026-07-16T18:00:00.000Z', unreadCount: 2 }], page: 1, pageSize: 50, total: 1 }),
       messages: vi.fn().mockResolvedValue({ items: [{ id: 'message-a', direction: 'inbound', content: 'Olá', timestamp: '2026-07-16T18:00:00.000Z', status: 'received', messageType: 'text', chatId: '5511999999999@c.us', metadata: {} }], page: 1, pageSize: 100, total: 1 }),
+      sendMessage: vi.fn().mockResolvedValue({ id: 'message-b', direction: 'outbound', content: 'Resposta', timestamp: '2026-07-16T18:01:00.000Z', status: 'sent', messageType: 'text', chatId: '5511999999999@c.us', metadata: {} }),
       markRead: vi.fn().mockResolvedValue(undefined),
     } as unknown as InboxApi;
     render(<Inbox api={api} />);
@@ -47,5 +48,8 @@ describe('Inbox', () => {
     expect(await screen.findByText(/Recebida/)).toBeInTheDocument();
     await waitFor(() => expect(api.markRead).toHaveBeenCalledWith('conversation-a'));
     expect(api.messages).toHaveBeenCalledWith('conversation-a');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Mensagem' }), { target: { value: 'Resposta' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledWith('conversation-a', 'Resposta'));
   });
 });
