@@ -60,7 +60,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite) : new SupabaseWahaWebhookStore(supabase!);
     const identityStore = database ? new SqliteWhatsAppIdentityStore(database.sqlite) : new SupabaseWhatsAppIdentityStore(supabase!);
     const workerClient = new InternalWorkerClient({ url: config.workerTransportUrl, timeoutMs: config.workerTransportTimeoutMs });
-    const identitySync = new WhatsAppIdentitySyncService(workerClient, identityStore);
+    const identitySync = new WhatsAppIdentitySyncService(workerClient, identityStore, target => realtimeHub.publish(target.workspaceId, 'conversation.updated', { wahaSession: target.wahaSession, chatId: target.chatId, identitySynchronized: true }));
     if (config.nodeEnv !== 'test') identitySync.enqueueBackfill();
     app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }, identitySync).receive);
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
