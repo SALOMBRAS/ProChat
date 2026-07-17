@@ -64,6 +64,12 @@ describe('WAHA webhook ingress', () => {
     expect(conversation).toMatchObject({ chatId: group, conversationType: 'group' });
     await request(app).get(`/api/v1/inbox/conversations/${conversation.id}/messages`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body.items.map((item: { senderWhatsappId?: string }) => item.senderWhatsappId)).toEqual(['5511999990000@c.us', '5511888880000@c.us']));
   });
+  it('persists media metadata from WAHA without downloading it in the webhook', async () => {
+    const app = await appFor(); const body = { id: 'evt-media', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'media-image-1', chatId: '5511999990000@c.us', body: 'Foto', type: 'image', hasMedia: true, media: { url: 'https://waha.example.test/api/files/photo.jpg', mimetype: 'image/jpeg', filename: 'photo.jpg', size: 1234 } } }; const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    const conversation = (await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200)).body.items[0];
+    await request(app).get(`/api/v1/inbox/conversations/${conversation.id}/messages`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body.items[0]).toMatchObject({ messageType: 'image', mediaUrl: 'https://waha.example.test/api/files/photo.jpg', mediaMimeType: 'image/jpeg', mediaFilename: 'photo.jpg', mediaSize: 1234 }));
+  });
   it('persists WAHA identity and group data after acknowledging the webhook', async () => {
     const worker: WhatsAppWorkerPort = { execute: async (_context, command) => {
       if (command.type !== 'syncIdentity') throw new Error('unexpected command');
