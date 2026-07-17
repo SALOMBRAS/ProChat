@@ -1,6 +1,7 @@
 import { ApiClient } from './client';
-export type InboxConversation = { id:string; whatsappSessionId:string; chatId:string; contactId:string|null; status:'open'|'closed'; lastMessage:string|null; lastMessageAt:string; unreadCount:number; };
-export type InboxMessage = { id:string; direction:'inbound'|'outbound'; content:string|null; timestamp:string; status:'received'|'sent'; messageType:string; chatId:string; metadata:Record<string,unknown>; };
+import type { InboxConversation as SharedInboxConversation, InboxMessage as SharedInboxMessage } from '@chatpro/contracts';
+export type InboxConversation = SharedInboxConversation;
+export type InboxMessage = SharedInboxMessage;
 export type Page<T> = { items:T[]; page:number; pageSize:number; total:number };
 export class InboxApi {
   constructor(private readonly http = new ApiClient()) {}

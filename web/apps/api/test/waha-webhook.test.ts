@@ -29,6 +29,55 @@ describe('WAHA webhook ingress', () => {
     for (const body of [{ ...base, id: 'evt-message', event: 'message' }, { ...base, id: 'evt-message-any', event: 'message.any' }]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
     const database = app.locals.persistenceDatabase.sqlite; expect(database.prepare('SELECT count(*) AS total FROM waha_webhook_events').get()).toMatchObject({ total: 2 }); expect(database.prepare('SELECT count(*) AS total FROM whatsapp_messages').get()).toMatchObject({ total: 1 });
   });
+  it('keeps an outbound WAHA confirmation in the recipient conversation when chatId differs', async () => {
+    const app = await appFor(); const contactA = '5511999990000@c.us'; const contactB = '5511888880000@c.us';
+    const inbound = { id: 'evt-contact-a', timestamp: Date.now() - 1_000, event: 'message' as const, session: 'waha-a', payload: { id: 'message-contact-a', chatId: contactA, body: 'Oi' } };
+    const outbound = { id: 'evt-outbound-a', timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload: { id: 'message-outbound-a', chatId: contactB, to: contactA, fromMe: true, body: 'Resposta para A' } };
+    for (const body of [inbound, outbound]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    const database = app.locals.persistenceDatabase.sqlite;
+    expect(database.prepare('SELECT chatId FROM whatsapp_messages WHERE externalMessageId = ?').get('message-outbound-a')).toEqual({ chatId: contactA });
+    expect(database.prepare('SELECT count(*) AS total FROM conversations WHERE chatId = ?').get(contactA)).toEqual({ total: 1 });
+    expect(database.prepare('SELECT count(*) AS total FROM conversations WHERE chatId = ?').get(contactB)).toEqual({ total: 0 });
+  });
+  it('merges a direct @lid alias into its @c.us canonical conversation and keeps outbound delivery there', async () => {
+    const lid = '100000000000001@lid'; const canonical = '5511999990000@c.us';
+    const worker: WhatsAppWorkerPort = { execute: async (_context, command) => { if (command.type !== 'syncIdentity') throw new Error('unexpected command'); return { identity: { whatsappId: lid, canonicalWhatsappId: canonical, phone: '5511999990000', name: 'Pessoa A', pushName: 'Pessoa A', shortName: 'A', profilePictureUrl: null }, group: null }; } };
+    const runtime = await listenInternalTransport({ host: '127.0.0.1', port: 0 }, createWorkerTransportHandler(worker)); workerServers.push(runtime); const address = runtime.server.address(); if (!address || typeof address === 'string') throw new Error('missing worker address'); const app = await appFor(`http://127.0.0.1:${address.port}/internal/transport`, 1_000);
+    for (const body of [{ id: 'evt-lid', timestamp: Date.now() - 1_000, event: 'message' as const, session: 'waha-a', payload: { id: 'message-lid', chatId: lid, body: 'Oi pelo LID' } }]) { const signedBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedBody.timestamp).send(signedBody.raw).expect(202); }
+    const database = app.locals.persistenceDatabase.sqlite; for (let attempt = 0; attempt < 30 && !(database.prepare('SELECT id FROM whatsapp_identities WHERE whatsappId = ?').get(lid)); attempt += 1) await new Promise(resolve => setTimeout(resolve, 10));
+    for (const body of [{ id: 'evt-canonical', timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload: { id: 'message-canonical', chatId: canonical, to: canonical, fromMe: true, body: 'Resposta pelo C.US' } }]) { const signedBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedBody.timestamp).send(signedBody.raw).expect(202); }
+    expect(database.prepare("SELECT count(*) AS total FROM conversations WHERE conversationType = 'direct'").get()).toEqual({ total: 1 });
+    expect(database.prepare('SELECT chatId, deliveryChatId FROM conversations').get()).toEqual({ chatId: canonical, deliveryChatId: canonical });
+    expect(database.prepare('SELECT chatId FROM whatsapp_messages ORDER BY occurredAt ASC').all()).toEqual([{ chatId: canonical }, { chatId: canonical }]);
+  });
+  it('keeps a group as one conversation while storing each participant as the message author', async () => {
+    const app = await appFor(); const group = '120363363444637332@g.us';
+    const events = [
+      { id: 'evt-group-1', timestamp: Date.now() - 1_000, event: 'message' as const, session: 'waha-a', payload: { id: 'group-message-1', chatId: group, from: group, participant: '5511999990000@c.us', body: 'Primeira pessoa' } },
+      { id: 'evt-group-2', timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload: { id: 'group-message-2', chatId: group, from: group, participant: '5511888880000@c.us', body: 'Segunda pessoa' } },
+    ];
+    for (const body of events) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    const database = app.locals.persistenceDatabase.sqlite;
+    expect(database.prepare("SELECT count(*) AS total FROM conversations WHERE chatId = ? AND conversationType = 'group'").get(group)).toMatchObject({ total: 1 });
+    expect(database.prepare('SELECT senderWhatsappId FROM whatsapp_messages WHERE chatId = ? ORDER BY occurredAt ASC').all(group)).toEqual([{ senderWhatsappId: '5511999990000@c.us' }, { senderWhatsappId: '5511888880000@c.us' }]);
+    const conversations = await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200); const conversation = conversations.body.items[0];
+    expect(conversation).toMatchObject({ chatId: group, conversationType: 'group' });
+    await request(app).get(`/api/v1/inbox/conversations/${conversation.id}/messages`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body.items.map((item: { senderWhatsappId?: string }) => item.senderWhatsappId)).toEqual(['5511999990000@c.us', '5511888880000@c.us']));
+  });
+  it('persists WAHA identity and group data after acknowledging the webhook', async () => {
+    const worker: WhatsAppWorkerPort = { execute: async (_context, command) => {
+      if (command.type !== 'syncIdentity') throw new Error('unexpected command');
+      return { identity: { whatsappId: '5511999990000@c.us', canonicalWhatsappId: '5511999990000@c.us', phone: '5511999990000', name: 'João', pushName: 'João Silva', shortName: 'João', profilePictureUrl: null }, group: { chatId: '120363363444637332@g.us', name: 'Família', pictureUrl: null, metadata: { description: 'Casa' }, participants: [{ whatsappId: '5511999990000@c.us', role: 'admin' }] } };
+    } };
+    const runtime = await listenInternalTransport({ host: '127.0.0.1', port: 0 }, createWorkerTransportHandler(worker)); workerServers.push(runtime); const address = runtime.server.address(); if (!address || typeof address === 'string') throw new Error('missing worker address');
+    const app = await appFor(`http://127.0.0.1:${address.port}/internal/transport`, 1_000); const body = { id: 'evt-enrich', timestamp: Date.now(), event: 'message', session: 'waha-a', payload: { id: 'message-enrich', chatId: '120363363444637332@g.us', participant: '5511999990000@c.us', body: 'Oi' } }; const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    const database = app.locals.persistenceDatabase.sqlite;
+    for (let attempt = 0; attempt < 20 && !(database.prepare('SELECT id FROM whatsapp_groups').get()); attempt += 1) await new Promise(resolve => setTimeout(resolve, 10));
+    expect(database.prepare('SELECT whatsappId, name, pushName FROM whatsapp_identities').get()).toMatchObject({ whatsappId: '5511999990000@c.us', name: 'João', pushName: 'João Silva' });
+    expect(database.prepare('SELECT chatId, name FROM whatsapp_groups').get()).toMatchObject({ chatId: '120363363444637332@g.us', name: 'Família' });
+    expect(database.prepare('SELECT participantWhatsappId, role FROM whatsapp_group_participants').get()).toMatchObject({ participantWhatsappId: '5511999990000@c.us', role: 'admin' });
+  });
   it('creates and updates a conversation that is available through the diagnostic API', async () => {
     const app = await appFor(); const first = { id: 'evt-conversation-1', timestamp: Date.now() - 1_000, event: 'message', session: 'waha-a', payload: { id: 'message-conversation-1', chatId: '5511999990000@c.us', body: 'Primeira', type: 'text' } }; const second = { id: 'evt-conversation-2', timestamp: Date.now(), event: 'message.any', session: 'waha-a', payload: { id: 'message-conversation-2', chatId: '5511999990000@c.us', body: 'Resposta', type: 'text', fromMe: true } };
     for (const body of [first, second]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }

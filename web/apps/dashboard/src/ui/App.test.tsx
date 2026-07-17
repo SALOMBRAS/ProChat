@@ -52,4 +52,16 @@ describe('Inbox', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledWith('conversation-a', 'Resposta'));
   });
+  it('labels a group and shows each message author', async () => {
+    const api = {
+      conversations: vi.fn().mockResolvedValue({ items: [{ id: 'conversation-group', whatsappSessionId: 'session-a', chatId: '120363363444637332@g.us', contactId: null, conversationType: 'group', status: 'open', lastMessage: 'Vamos sair?', lastMessageAt: '2026-07-16T18:00:00.000Z', unreadCount: 0, createdAt: '2026-07-16T18:00:00.000Z', updatedAt: '2026-07-16T18:00:00.000Z' }], page: 1, pageSize: 50, total: 1 }),
+      messages: vi.fn().mockResolvedValue({ items: [{ id: 'group-message-a', direction: 'inbound', content: 'Bom dia', timestamp: '2026-07-16T18:00:00.000Z', status: 'received', messageType: 'text', chatId: '120363363444637332@g.us', senderWhatsappId: '5511999999999@c.us', metadata: {} }, { id: 'group-message-b', direction: 'inbound', content: 'Vamos sair?', timestamp: '2026-07-16T18:01:00.000Z', status: 'received', messageType: 'text', chatId: '120363363444637332@g.us', senderWhatsappId: '5511888888888@c.us', metadata: {} }], page: 1, pageSize: 100, total: 2 }),
+      sendMessage: vi.fn(), markRead: vi.fn(),
+    } as unknown as InboxApi;
+    render(<Inbox api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Abrir conversa 120363363444637332@g.us' }));
+    expect(await screen.findByRole('heading', { name: 'Grupo WhatsApp', level: 2 })).toBeInTheDocument();
+    expect(screen.getByText('5511999999999:')).toBeInTheDocument();
+    expect(screen.getByText('5511888888888:')).toBeInTheDocument();
+  });
 });
