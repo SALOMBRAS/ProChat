@@ -15,6 +15,9 @@ services:
       WHATSAPP_API_KEY_EXCLUDE_PATH: health
       WAHA_DASHBOARD_ENABLED: "false"
       WHATSAPP_SWAGGER_ENABLED: "false"
+      WHATSAPP_HOOK_URL: http://host.docker.internal:3000/api/v1/webhooks/waha
+      WHATSAPP_HOOK_EVENTS: message,message.any,session.status
+      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_HMAC_KEY}
     volumes:
       - ./.waha-sessions:/app/.sessions
     healthcheck:
