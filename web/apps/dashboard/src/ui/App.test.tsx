@@ -47,7 +47,7 @@ describe('Inbox', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Abrir conversa 5511999999999@c.us' }));
     expect(await screen.findByText(/Recebida/)).toBeInTheDocument();
     await waitFor(() => expect(api.markRead).toHaveBeenCalledWith('conversation-a'));
-    expect(api.messages).toHaveBeenCalledWith('conversation-a');
+    expect(api.messages).toHaveBeenCalledWith('conversation-a', 1, 50);
     fireEvent.change(screen.getByRole('textbox', { name: 'Mensagem' }), { target: { value: 'Resposta' } });
     fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledWith('conversation-a', 'Resposta'));
