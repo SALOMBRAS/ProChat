@@ -29,6 +29,16 @@ describe('WAHA webhook ingress', () => {
     for (const body of [{ ...base, id: 'evt-message', event: 'message' }, { ...base, id: 'evt-message-any', event: 'message.any' }]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
     const database = app.locals.persistenceDatabase.sqlite; expect(database.prepare('SELECT count(*) AS total FROM waha_webhook_events').get()).toMatchObject({ total: 2 }); expect(database.prepare('SELECT count(*) AS total FROM whatsapp_messages').get()).toMatchObject({ total: 1 });
   });
+  it('keeps an outbound WAHA confirmation in the recipient conversation when chatId differs', async () => {
+    const app = await appFor(); const contactA = '5511999990000@c.us'; const contactB = '5511888880000@c.us';
+    const inbound = { id: 'evt-contact-a', timestamp: Date.now() - 1_000, event: 'message' as const, session: 'waha-a', payload: { id: 'message-contact-a', chatId: contactA, body: 'Oi' } };
+    const outbound = { id: 'evt-outbound-a', timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload: { id: 'message-outbound-a', chatId: contactB, to: contactA, fromMe: true, body: 'Resposta para A' } };
+    for (const body of [inbound, outbound]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    const database = app.locals.persistenceDatabase.sqlite;
+    expect(database.prepare('SELECT chatId FROM whatsapp_messages WHERE externalMessageId = ?').get('message-outbound-a')).toEqual({ chatId: contactA });
+    expect(database.prepare('SELECT count(*) AS total FROM conversations WHERE chatId = ?').get(contactA)).toEqual({ total: 1 });
+    expect(database.prepare('SELECT count(*) AS total FROM conversations WHERE chatId = ?').get(contactB)).toEqual({ total: 0 });
+  });
   it('keeps a group as one conversation while storing each participant as the message author', async () => {
     const app = await appFor(); const group = '120363363444637332@g.us';
     const events = [
