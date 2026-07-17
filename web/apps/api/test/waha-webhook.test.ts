@@ -102,4 +102,13 @@ describe('WAHA webhook ingress', () => {
     expect(app.locals.persistenceDatabase.sqlite.prepare("SELECT count(*) AS total FROM whatsapp_messages WHERE direction = 'outbound'").get()).toMatchObject({ total: 1 });
     await request(app).post(`/api/v1/inbox/conversations/${id}/messages`).set('x-workspace-id', 'workspace-b').send({ text: 'Não pode' }).expect(404);
   });
+  it('keeps one outbound message when manual send and message.any overlap', async () => {
+    const worker: WhatsAppWorkerPort = { execute: async (_context, command) => { if (command.type === 'sendMessage') return { id: 'outbound-race', timestamp: '2026-07-16T18:00:00.000Z' }; throw new Error('unexpected command'); } };
+    const runtime = await listenInternalTransport({ host: '127.0.0.1', port: 0 }, createWorkerTransportHandler(worker)); workerServers.push(runtime); const address = runtime.server.address(); if (!address || typeof address === 'string') throw new Error('missing worker address'); const app = await appFor(`http://127.0.0.1:${address.port}/internal/transport`, 1_000);
+    const source = { id: 'evt-race-source', timestamp: Date.now() - 1_000, event: 'message' as const, session: 'waha-a', payload: { id: 'source-race', chatId: '5511999990000@c.us', body: 'Oi' } }; const signedSource = signed(source);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedSource.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedSource.timestamp).send(signedSource.raw).expect(202);
+    const conversation = (await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200)).body.items[0]; const webhook = { id: 'evt-race-outbound', timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload: { id: 'outbound-race', to: '5511999990000@c.us', fromMe: true, body: 'Resposta' } }; const signedWebhook = signed(webhook);
+    await Promise.all([request(app).post(`/api/v1/inbox/conversations/${conversation.id}/messages`).set('x-workspace-id', 'workspace-a').send({ text: 'Resposta' }).expect(201), request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedWebhook.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedWebhook.timestamp).send(signedWebhook.raw).expect(202)]);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS total FROM whatsapp_messages WHERE externalMessageId = ?').get('outbound-race')).toEqual({ total: 1 });
+  });
 });

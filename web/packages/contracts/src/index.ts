@@ -4,7 +4,7 @@ export const safeIdentifierSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-
 export const requestContextSchema = z.object({ userId: z.string().min(1).optional(), workspaceId: safeIdentifierSchema, correlationId: z.string().min(1) });
 export type RequestContext = z.infer<typeof requestContextSchema>;
 
-export const errorCodes = ['VALIDATION_ERROR','UNAUTHORIZED','FORBIDDEN','NOT_FOUND','CONFLICT','SERVICE_UNAVAILABLE','NOT_IMPLEMENTED','TIMEOUT'] as const;
+export const errorCodes = ['VALIDATION_ERROR','UNAUTHORIZED','FORBIDDEN','NOT_FOUND','CONFLICT','SERVICE_UNAVAILABLE','PROVIDER_CONTRACT_ERROR','NOT_IMPLEMENTED','TIMEOUT'] as const;
 export const apiErrorSchema = z.object({ error: z.object({ code: z.enum(errorCodes), message: z.string().min(1), correlationId: z.string().min(1), details: z.record(z.unknown()).default({}) }) });
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export const validationErrorSchema = apiErrorSchema.refine(value => value.error.code === 'VALIDATION_ERROR');
@@ -106,7 +106,7 @@ export const internalTransportDataSchema = z.union([
   z.object({ sessions: z.array(sessionSummarySchema) }),
   z.object({ session: whatsAppSessionSchema }),
   z.object({ qr: sessionQrSchema }),
-  z.object({ sentMessage: z.object({ id: z.string().min(1).max(200), timestamp: z.string().datetime() }) }),
+  z.object({ sentMessage: z.object({ id: z.string().min(1).max(200).optional(), timestamp: z.string().datetime(), pending: z.boolean().optional() }) }),
   z.object({ identitySync: z.object({ identity: whatsappIdentitySnapshotSchema.nullable(), group: whatsappGroupSnapshotSchema.nullable() }) }),
   z.object({ removed: z.literal(true) }),
   z.object({ completed: z.literal(true) }),
