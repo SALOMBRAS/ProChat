@@ -1,13 +1,11 @@
-import { log } from './logging.js';
-
 export type WahaSession = { name: string; status: string };
-export type WahaSentMessage = { id?: string; pending: boolean };
+export type WahaSentMessage = { id: string };
 export type WahaIdentity = { whatsappId: string; canonicalWhatsappId: string; phone: string | null; name: string | null; pushName: string | null; shortName: string | null; profilePictureUrl: string | null };
 export type WahaGroup = { chatId: string; name: string | null; pictureUrl: string | null; metadata: Record<string, unknown>; participants: Array<{ whatsappId: string; role: string | null }> };
 
 export class WahaClientError extends Error {
-  constructor(readonly kind: 'unavailable' | 'timeout' | 'response' | 'contract', readonly status?: number, readonly providerMessage?: string, readonly details: Record<string, unknown> = {}) {
-    super(kind === 'timeout' ? 'WAHA request timed out' : kind === 'unavailable' ? 'WAHA is unavailable' : kind === 'contract' ? 'WAHA returned an unsupported response contract' : 'WAHA returned an unexpected response');
+  constructor(readonly kind: 'unavailable' | 'timeout' | 'response', readonly status?: number, readonly providerMessage?: string) {
+    super(kind === 'timeout' ? 'WAHA request timed out' : kind === 'unavailable' ? 'WAHA is unavailable' : 'WAHA returned an unexpected response');
     this.name = 'WahaClientError';
   }
 }
@@ -46,10 +44,9 @@ export class WahaHttpClient implements WahaClientPort {
   async logoutSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}/logout`, 'POST'); }
   async removeSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}`, 'DELETE'); }
   async sendText(session: string, chatId: string, text: string): Promise<WahaSentMessage> {
-    const response = await this.requestResponse('/api/sendText', 'POST', { session, chatId, text });
-    const id = messageId(response.data);
-    log('info', 'WAHA sendText accepted', { providerStatus: response.status, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
-    return id ? { id, pending: false } : { pending: true };
+    const data = await this.request('/api/sendText', 'POST', { session, chatId, text });
+    if (!data || typeof data !== 'object' || typeof (data as { id?: unknown }).id !== 'string') throw new WahaClientError('response');
+    return { id: (data as { id: string }).id };
   }
   async getIdentity(session: string, whatsappId: string): Promise<WahaIdentity> {
     const contact = object(await this.request(`/api/contacts?contactId=${encodeURIComponent(whatsappId)}&session=${encodeURIComponent(session)}`));
@@ -65,16 +62,14 @@ export class WahaHttpClient implements WahaClientPort {
     return { chatId, name: stringValue(group.subject) ?? stringValue(group.name), pictureUrl: stringValue(picture.url), metadata: safeMetadata(group), participants: Array.isArray(participants) ? participants.flatMap(value => { const participant = object(value); const whatsappId = stringValue(participant.id); return whatsappId ? [{ whatsappId, role: stringValue(participant.role) }] : []; }) : [] };
   }
 
-  private async request(path: string, method = 'GET', body?: unknown, timeoutMs = this.options.timeoutMs): Promise<unknown> { return (await this.requestResponse(path, method, body, timeoutMs)).data; }
-  private async requestResponse(path: string, method = 'GET', body?: unknown, timeoutMs = this.options.timeoutMs): Promise<{ data: unknown; status: number }> {
+  private async request(path: string, method = 'GET', body?: unknown, timeoutMs = this.options.timeoutMs): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await (this.options.fetchImpl ?? fetch)(`${this.options.baseUrl}${path}`, { method, headers: { accept: 'application/json', ...(this.options.apiKey ? { 'x-api-key': this.options.apiKey } : {}), ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: controller.signal });
       const text = await response.text();
       if (!response.ok) throw new WahaClientError('response', response.status, safeProviderMessage(text));
-      if (!text) return { data: undefined, status: response.status };
-      try { return { data: JSON.parse(text), status: response.status }; } catch { return { data: undefined, status: response.status }; }
+      return text ? JSON.parse(text) : undefined;
     } catch (error) {
       if (error instanceof WahaClientError) throw error;
       if (error instanceof DOMException && error.name === 'AbortError') throw new WahaClientError('timeout');
@@ -90,6 +85,3 @@ function stringValue(value: unknown): string | null { return typeof value === 's
 function safeMetadata(value: Record<string, unknown>): Record<string, unknown> { const allowed = ['description', 'owner', 'creation', 'createdAt', 'isReadOnly', 'isAnnounce', 'isRestricted']; return Object.fromEntries(allowed.flatMap(key => value[key] === undefined ? [] : [[key, value[key]]])) as Record<string, unknown>; }
 function phoneFromChat(chatId: string): string | null { const phone = chatId.split('@', 1)[0].replace(/\D/g, ''); return phone.length >= 8 && phone.length <= 15 ? phone : null; }
 function safeProviderMessage(value: string): string | undefined { const trimmed = value.replace(/(api[_-]?key|authorization|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]').replace(/\s+/g, ' ').trim(); return trimmed ? trimmed.slice(0, 200) : undefined; }
-function messageId(value: unknown): string | undefined { if (typeof value === 'string' && value.trim()) return value.trim(); if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined; const data = value as Record<string, unknown>; return stringValue(data.id) ?? stringValue(data.messageId) ?? stringValue(data.message_id) ?? (data.id && typeof data.id === 'object' ? stringValue((data.id as Record<string, unknown>)._serialized) : null) ?? (data.message && typeof data.message === 'object' ? messageId(data.message) : undefined) ?? undefined; }
-function responseType(value: unknown): string { return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value; }
-function responseKeys(value: unknown): string[] { return value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value as Record<string, unknown>).slice(0, 20).sort() : []; }
