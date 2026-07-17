@@ -4,7 +4,7 @@ export const safeIdentifierSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-
 export const requestContextSchema = z.object({ userId: z.string().min(1).optional(), workspaceId: safeIdentifierSchema, correlationId: z.string().min(1) });
 export type RequestContext = z.infer<typeof requestContextSchema>;
 
-export const errorCodes = ['VALIDATION_ERROR','UNAUTHORIZED','FORBIDDEN','NOT_FOUND','CONFLICT','SERVICE_UNAVAILABLE','PROVIDER_CONTRACT_ERROR','NOT_IMPLEMENTED','TIMEOUT'] as const;
+export const errorCodes = ['VALIDATION_ERROR','UNAUTHORIZED','FORBIDDEN','NOT_FOUND','CONFLICT','SERVICE_UNAVAILABLE','NOT_IMPLEMENTED','TIMEOUT'] as const;
 export const apiErrorSchema = z.object({ error: z.object({ code: z.enum(errorCodes), message: z.string().min(1), correlationId: z.string().min(1), details: z.record(z.unknown()).default({}) }) });
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export const validationErrorSchema = apiErrorSchema.refine(value => value.error.code === 'VALIDATION_ERROR');
@@ -61,13 +61,12 @@ export const workspaceSettingsSchema = persistedEntitySchema.extend({ settings: 
 export type PersistenceContact = z.infer<typeof persistenceContactSchema>; export type Tag = z.infer<typeof tagSchema>; export type OptOutHistory = z.infer<typeof optOutHistorySchema>; export type PersistenceTemplate = z.infer<typeof persistenceTemplateSchema>; export type Pipeline = z.infer<typeof pipelineSchema>; export type Stage = z.infer<typeof stageSchema>; export type Lead = z.infer<typeof leadSchema>; export type LeadNote = z.infer<typeof leadNoteSchema>; export type Activity = z.infer<typeof activitySchema>; export type Campaign = z.infer<typeof campaignSchema>; export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 
 export const inboxConversationTypeSchema = z.enum(['direct', 'group']);
-export const inboxIdentitySchema = z.object({ displayName: z.string().nullable(), phone: z.string().nullable(), pushName: z.string().nullable(), profileName: z.string().nullable(), avatarUrl: z.string().url().nullable(), lastSyncAt: z.string().datetime().nullable(), syncStatus: z.enum(['pending', 'synced']), knownContact: z.boolean() });
-export const inboxConversationSchema = z.object({ id: z.string().uuid(), whatsappSessionId: z.string().min(1), chatId: z.string().min(1), contactId: z.string().uuid().nullable(), conversationType: inboxConversationTypeSchema.default('direct'), status: z.enum(['open', 'closed']), lastMessage: z.string().nullable(), lastMessageAt: z.string().datetime(), unreadCount: z.number().int().nonnegative(), createdAt: z.string().datetime(), updatedAt: z.string().datetime(), identity: inboxIdentitySchema });
-export const inboxMessageSchema = z.object({ id: z.string().min(1), direction: z.enum(['inbound', 'outbound']), content: z.string().nullable(), timestamp: z.string().datetime(), status: z.enum(['sending', 'received', 'sent', 'delivered', 'read', 'failed']), messageType: z.string().min(1), chatId: z.string().min(1), senderWhatsappId: z.string().min(1).nullable().optional(), mediaUrl: z.string().url().nullable().optional(), mediaMimeType: z.string().nullable().optional(), mediaFilename: z.string().nullable().optional(), mediaSize: z.number().int().nonnegative().nullable().optional(), thumbnailUrl: z.string().url().nullable().optional(), duration: z.number().int().nonnegative().nullable().optional(), quotedMessageId: z.string().nullable().optional(), metadata: z.record(z.unknown()) });
+export const inboxConversationSchema = z.object({ id: z.string().uuid(), whatsappSessionId: z.string().min(1), chatId: z.string().min(1), contactId: z.string().uuid().nullable(), conversationType: inboxConversationTypeSchema.default('direct'), status: z.enum(['open', 'closed']), lastMessage: z.string().nullable(), lastMessageAt: z.string().datetime(), unreadCount: z.number().int().nonnegative(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
+export const inboxMessageSchema = z.object({ id: z.string().min(1), direction: z.enum(['inbound', 'outbound']), content: z.string().nullable(), timestamp: z.string().datetime(), status: z.enum(['received', 'sent']), messageType: z.string().min(1), chatId: z.string().min(1), senderWhatsappId: z.string().min(1).nullable().optional(), metadata: z.record(z.unknown()) });
 export type InboxConversation = z.infer<typeof inboxConversationSchema>;
 export type InboxMessage = z.infer<typeof inboxMessageSchema>;
 
-export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.sent','message.status.updated','conversation.updated','conversation.context.updated','worker.error'] as const;
+export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.sent','message.status.updated','conversation.updated','worker.error'] as const;
 export const eventEnvelopeSchema = z.object({ eventId: z.string().min(1), eventType: z.enum(eventTypes), workspaceId: safeIdentifierSchema, timestamp: z.string().datetime(), correlationId: z.string().min(1), payload: z.record(z.unknown()) });
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
 
@@ -107,7 +106,7 @@ export const internalTransportDataSchema = z.union([
   z.object({ sessions: z.array(sessionSummarySchema) }),
   z.object({ session: whatsAppSessionSchema }),
   z.object({ qr: sessionQrSchema }),
-  z.object({ sentMessage: z.object({ id: z.string().min(1).max(200).optional(), timestamp: z.string().datetime(), pending: z.boolean().optional() }) }),
+  z.object({ sentMessage: z.object({ id: z.string().min(1).max(200), timestamp: z.string().datetime() }) }),
   z.object({ identitySync: z.object({ identity: whatsappIdentitySnapshotSchema.nullable(), group: whatsappGroupSnapshotSchema.nullable() }) }),
   z.object({ removed: z.literal(true) }),
   z.object({ completed: z.literal(true) }),
