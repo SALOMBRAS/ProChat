@@ -14,6 +14,8 @@ const senderName = (value?: string | null) => value ? value.replace(/@.+$/, '') 
 const dateLabel = (value: string) => new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(value));
 const chatLayoutCss = `.chat-inbox .inbox-layout{height:calc(100vh - 145px);min-height:0}.chat-inbox .inbox-list,.chat-inbox .customer-panel{min-height:0;overflow-y:auto}.chat-inbox .inbox-history{height:100%;min-height:0;overflow:hidden}.chat-inbox .message-list{min-height:0;overflow-y:auto;overscroll-behavior:contain}.chat-inbox .message-composer{flex:0 0 auto}.chat-inbox .message-row{display:flex;flex-direction:column;gap:7px}.chat-inbox .history-loading,.chat-inbox .history-hint{align-self:center;margin:0;color:#938da0;font-size:10px}.chat-inbox .message-author{display:block;margin-bottom:5px;color:#d9bdff;font-size:10px}@media(max-width:760px){.chat-inbox .inbox-layout{height:auto}.chat-inbox .inbox-history{height:calc(100vh - 190px);min-height:420px}}`;
 
+const chatScrollPolishCss = `.chat-inbox{min-height:0}.chat-inbox .inbox-layout{overflow:hidden}.chat-inbox .inbox-list,.chat-inbox .customer-panel,.chat-inbox .message-list{scrollbar-width:thin;scrollbar-color:#8b5cf655 transparent}.chat-inbox .inbox-list::-webkit-scrollbar,.chat-inbox .customer-panel::-webkit-scrollbar,.chat-inbox .message-list::-webkit-scrollbar{width:6px}.chat-inbox .inbox-list::-webkit-scrollbar-thumb,.chat-inbox .customer-panel::-webkit-scrollbar-thumb,.chat-inbox .message-list::-webkit-scrollbar-thumb{border-radius:999px;background:#8b5cf655}.chat-inbox .inbox-list::-webkit-scrollbar-track,.chat-inbox .customer-panel::-webkit-scrollbar-track,.chat-inbox .message-list::-webkit-scrollbar-track{background:transparent}.chat-inbox .inbox-history{display:flex;flex-direction:column}.chat-inbox .message-list{flex:1 1 auto}.chat-inbox .customer-panel{overscroll-behavior:contain}@media(min-width:761px){.chat-inbox .inbox-list,.chat-inbox .customer-panel{height:100%}}`;
+
 export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [conversationPage, setConversationPage] = useState<Page<InboxConversation>>({ items: [], page: 1, pageSize: 50, total: 0 });
   const [selected, setSelected] = useState<InboxConversation>();
@@ -56,6 +58,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   };
 
   useEffect(() => { void refreshConversations(); }, [api]);
+  useEffect(() => { const style = document.createElement('style'); style.dataset.chatproInboxScroll = 'polish'; style.textContent = chatScrollPolishCss; document.head.append(style); document.querySelector('.chat-inbox .send-button')?.setAttribute('aria-label', 'Enviar'); return () => style.remove(); }, [selected?.id]);
   useEffect(() => { if (scrollAfterRender.current) { scrollAfterRender.current = false; requestAnimationFrame(scrollToEnd); } }, [messages]);
   useEffect(() => connectRealtime(event => {
     if (event.eventType !== 'message.received' && event.eventType !== 'message.sent' && event.eventType !== 'conversation.updated') return;
