@@ -60,6 +60,12 @@ export const campaignSchema = persistedEntitySchema.extend({ name: z.string().tr
 export const workspaceSettingsSchema = persistedEntitySchema.extend({ settings: z.record(z.unknown()) });
 export type PersistenceContact = z.infer<typeof persistenceContactSchema>; export type Tag = z.infer<typeof tagSchema>; export type OptOutHistory = z.infer<typeof optOutHistorySchema>; export type PersistenceTemplate = z.infer<typeof persistenceTemplateSchema>; export type Pipeline = z.infer<typeof pipelineSchema>; export type Stage = z.infer<typeof stageSchema>; export type Lead = z.infer<typeof leadSchema>; export type LeadNote = z.infer<typeof leadNoteSchema>; export type Activity = z.infer<typeof activitySchema>; export type Campaign = z.infer<typeof campaignSchema>; export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 
+export const inboxConversationTypeSchema = z.enum(['direct', 'group']);
+export const inboxConversationSchema = z.object({ id: z.string().uuid(), whatsappSessionId: z.string().min(1), chatId: z.string().min(1), contactId: z.string().uuid().nullable(), conversationType: inboxConversationTypeSchema.default('direct'), status: z.enum(['open', 'closed']), lastMessage: z.string().nullable(), lastMessageAt: z.string().datetime(), unreadCount: z.number().int().nonnegative(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
+export const inboxMessageSchema = z.object({ id: z.string().min(1), direction: z.enum(['inbound', 'outbound']), content: z.string().nullable(), timestamp: z.string().datetime(), status: z.enum(['received', 'sent']), messageType: z.string().min(1), chatId: z.string().min(1), senderWhatsappId: z.string().min(1).nullable().optional(), metadata: z.record(z.unknown()) });
+export type InboxConversation = z.infer<typeof inboxConversationSchema>;
+export type InboxMessage = z.infer<typeof inboxMessageSchema>;
+
 export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.sent','message.status.updated','conversation.updated','worker.error'] as const;
 export const eventEnvelopeSchema = z.object({ eventId: z.string().min(1), eventType: z.enum(eventTypes), workspaceId: safeIdentifierSchema, timestamp: z.string().datetime(), correlationId: z.string().min(1), payload: z.record(z.unknown()) });
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
