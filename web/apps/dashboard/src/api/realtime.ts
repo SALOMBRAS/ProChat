@@ -1,4 +1,4 @@
-export type RealtimeEvent = { eventType: 'system.connected' | 'session.status.changed' | 'message.received' | 'message.sent' | 'conversation.updated' | 'conversation.context.updated'; workspaceId: string; payload: Record<string, unknown> };
+export type RealtimeEvent = { eventType: 'system.connected' | 'session.status.changed' | 'message.received' | 'message.sent' | 'conversation.updated' | 'conversation.context.updated' | 'conversation.sync.updated'; workspaceId: string; payload: Record<string, unknown> };
 export function connectRealtime(onEvent: (event: RealtimeEvent) => void): () => void {
   if (typeof WebSocket === 'undefined') return () => undefined;
   const apiUrl = import.meta.env.VITE_API_URL || `${location.protocol}//${location.hostname}:3000`;

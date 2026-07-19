@@ -67,7 +67,7 @@ export const inboxMessageSchema = z.object({ id: z.string().min(1), direction: z
 export type InboxConversation = z.infer<typeof inboxConversationSchema>;
 export type InboxMessage = z.infer<typeof inboxMessageSchema>;
 
-export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.sent','message.status.updated','conversation.updated','conversation.context.updated','worker.error'] as const;
+export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.sent','message.status.updated','conversation.updated','conversation.context.updated','conversation.sync.updated','worker.error'] as const;
 export const eventEnvelopeSchema = z.object({ eventId: z.string().min(1), eventType: z.enum(eventTypes), workspaceId: safeIdentifierSchema, timestamp: z.string().datetime(), correlationId: z.string().min(1), payload: z.record(z.unknown()) });
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
 
@@ -96,7 +96,8 @@ export const internalSendMessageCommandSchema = z.object({ type: z.literal('mess
 const whatsappIdentitySnapshotSchema = z.object({ whatsappId: z.string().min(1).max(200), canonicalWhatsappId: z.string().min(1).max(200), phone: z.string().min(1).max(32).nullable(), name: z.string().min(1).max(240).nullable(), pushName: z.string().min(1).max(240).nullable(), shortName: z.string().min(1).max(240).nullable(), profilePictureUrl: z.string().url().max(2_048).nullable() });
 const whatsappGroupSnapshotSchema = z.object({ chatId: z.string().min(1).max(200), name: z.string().min(1).max(240).nullable(), pictureUrl: z.string().url().max(2_048).nullable(), metadata: z.record(z.unknown()), participants: z.array(z.object({ whatsappId: z.string().min(1).max(200), role: z.string().min(1).max(64).nullable() })).max(2_000) });
 export const internalIdentitySyncCommandSchema = z.object({ type: z.literal('identity.sync'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), chatId: z.string().trim().min(1).max(200), senderWhatsappId: z.string().trim().min(1).max(200).optional(), refreshIdentity: z.boolean(), refreshGroup: z.boolean() }) });
-export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema, internalSendMessageCommandSchema, internalIdentitySyncCommandSchema]);
+export const internalHistoryPageCommandSchema = z.object({ type: z.literal('history.page'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), chatId: z.string().trim().min(1).max(200).optional(), offset: z.number().int().nonnegative(), limit: z.number().int().positive().max(100) }) });
+export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema, internalSendMessageCommandSchema, internalIdentitySyncCommandSchema, internalHistoryPageCommandSchema]);
 export type InternalTransportCommand = z.infer<typeof internalTransportCommandSchema>;
 export const internalTransportRequestSchema = z.object({ correlationId: z.string().min(1).max(128), workspaceId: safeIdentifierSchema, timeoutMs: internalTransportTimeoutSchema, command: internalTransportCommandSchema });
 export type InternalTransportRequest = z.infer<typeof internalTransportRequestSchema>;
@@ -109,6 +110,7 @@ export const internalTransportDataSchema = z.union([
   z.object({ qr: sessionQrSchema }),
   z.object({ sentMessage: z.object({ id: z.string().min(1).max(200).optional(), timestamp: z.string().datetime(), pending: z.boolean().optional() }) }),
   z.object({ identitySync: z.object({ identity: whatsappIdentitySnapshotSchema.nullable(), group: whatsappGroupSnapshotSchema.nullable() }) }),
+  z.object({ historyPage: z.object({ kind: z.enum(['chats','messages']), items: z.array(z.record(z.unknown())), unsupported: z.array(z.string()), hasMore: z.boolean() }) }),
   z.object({ removed: z.literal(true) }),
   z.object({ completed: z.literal(true) }),
 ]);

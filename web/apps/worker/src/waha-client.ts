@@ -4,6 +4,7 @@ export type WahaSession = { name: string; status: string };
 export type WahaSentMessage = { id?: string; pending: boolean };
 export type WahaIdentity = { whatsappId: string; canonicalWhatsappId: string; phone: string | null; name: string | null; pushName: string | null; shortName: string | null; profilePictureUrl: string | null };
 export type WahaGroup = { chatId: string; name: string | null; pictureUrl: string | null; metadata: Record<string, unknown>; participants: Array<{ whatsappId: string; role: string | null }> };
+export type WahaHistoryPage = { items: Record<string, unknown>[]; hasMore: boolean; unsupported: string[] };
 
 export class WahaClientError extends Error {
   constructor(readonly kind: 'unavailable' | 'timeout' | 'response' | 'contract', readonly status?: number, readonly providerMessage?: string, readonly details: Record<string, unknown> = {}) {
@@ -25,6 +26,8 @@ export interface WahaClientPort {
   sendText(session: string, chatId: string, text: string): Promise<WahaSentMessage>;
   getIdentity(session: string, whatsappId: string): Promise<WahaIdentity>;
   getGroup(session: string, chatId: string): Promise<WahaGroup>;
+  listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage>;
+  listMessages(session: string, chatId: string, offset: number, limit: number): Promise<WahaHistoryPage>;
 }
 
 export class WahaHttpClient implements WahaClientPort {
@@ -63,6 +66,17 @@ export class WahaHttpClient implements WahaClientPort {
     const picture = objectOrEmpty(await this.optionalRequest(`/api/${encodeURIComponent(session)}/groups/${encodeURIComponent(chatId)}/picture?refresh=false`));
     const participants = await this.request(`/api/${encodeURIComponent(session)}/groups/${encodeURIComponent(chatId)}/participants/v2`);
     return { chatId, name: stringValue(group.subject) ?? stringValue(group.name), pictureUrl: stringValue(picture.url), metadata: safeMetadata(group), participants: Array.isArray(participants) ? participants.flatMap(value => { const participant = object(value); const whatsappId = stringValue(participant.id); return whatsappId ? [{ whatsappId, role: stringValue(participant.role) }] : []; }) : [] };
+  }
+  async listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage> {
+    const data = await this.request(`/api/${encodeURIComponent(session)}/chats?limit=${limit}&offset=${offset}&sortBy=messageTimestamp&sortOrder=desc`);
+    const items = Array.isArray(data) ? data.flatMap(value => value && typeof value === 'object' && !Array.isArray(value) ? [value as Record<string, unknown>] : []) : [];
+    const unsupported: string[] = []; const accepted = items.filter(item => { const id = stringValue(item.id); if (!id || id === 'status@broadcast' || (!id.endsWith('@c.us') && !id.endsWith('@lid') && !id.endsWith('@g.us'))) { if (id) unsupported.push(id); return false; } return true; });
+    return { items: accepted, unsupported, hasMore: items.length === limit };
+  }
+  async listMessages(session: string, chatId: string, offset: number, limit: number): Promise<WahaHistoryPage> {
+    const data = await this.request(`/api/${encodeURIComponent(session)}/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}&offset=${offset}&downloadMedia=false`);
+    const items = Array.isArray(data) ? data.flatMap(value => value && typeof value === 'object' && !Array.isArray(value) ? [value as Record<string, unknown>] : []) : [];
+    return { items, unsupported: [], hasMore: items.length === limit };
   }
 
   private async request(path: string, method = 'GET', body?: unknown, timeoutMs = this.options.timeoutMs): Promise<unknown> { return (await this.requestResponse(path, method, body, timeoutMs)).data; }
