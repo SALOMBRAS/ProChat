@@ -23,6 +23,8 @@ export class InboxApi {
   assign=(id:string,userId?:string|null)=>this.http.post<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/assign`, userId === undefined ? {} : { userId });
   assignTeam=(id:string,teamId:string|null)=>this.http.post<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/assign`, { teamId });
   unassign=(id:string)=>this.http.post<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/unassign`);
+  moveToQueue=(id:string,queueId:string|null)=>this.http.post<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/queue`, { queueId });
+  redistribute=(id:string)=>this.http.post<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/redistribute`);
   updateStatus=(id:string,status:ConversationStatus)=>this.http.patch<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/status`, { status });
   updatePriority=(id:string,priority:ConversationPriority)=>this.http.patch<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/priority`, { priority });
   activity=(id:string)=>this.http.get<ConversationEvent[]>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/activity`);
