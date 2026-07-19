@@ -17,4 +17,5 @@ export class RoutingController {
   redistribute: RequestHandler = async (req, res) => res.json(await this.routing.redistribute(req.context!, id.parse(req.params.id)));
   job: RequestHandler = async (req,res) => res.json(this.routing.getJob(req.context!,id.parse(req.params.id)));
   cancelJob: RequestHandler = async (req,res) => res.json(this.routing.cancelJob(req.context!,id.parse(req.params.id)));
+  status: RequestHandler = async (req,res) => res.json(this.routing.routingStatus(req.context!,id.parse(req.params.id)));
 }
