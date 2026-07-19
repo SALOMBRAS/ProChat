@@ -4,18 +4,18 @@ export class ApiError extends Error {
   constructor(public readonly code: ApiErrorCode, message: string, public readonly details: Record<string, unknown> = {}) { super(message); }
 }
 
-export interface ApiClientOptions { baseUrl?: string; workspaceId?: string; timeoutMs?: number; fetcher?: typeof fetch; }
+export interface ApiClientOptions { baseUrl?: string; workspaceId?: string; userId?: string; timeoutMs?: number; fetcher?: typeof fetch; }
 const safeText = (value: unknown) => String(value ?? '').replace(/(authorization|api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]').slice(0, 240);
 
 /** Single transport boundary for the dashboard. Components never call fetch directly. */
 export class ApiClient {
-  private readonly baseUrl: string; private readonly workspaceId: string; private readonly timeoutMs: number; private readonly fetcher: typeof fetch;
-  constructor(options: ApiClientOptions = {}) { this.baseUrl = options.baseUrl ?? import.meta.env.VITE_API_URL ?? ''; this.workspaceId = options.workspaceId ?? import.meta.env.VITE_WORKSPACE_ID ?? 'default-workspace'; this.timeoutMs = options.timeoutMs ?? 8_000; this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis); }
+  private readonly baseUrl: string; private readonly workspaceId: string; private readonly userId: string; private readonly timeoutMs: number; private readonly fetcher: typeof fetch;
+  constructor(options: ApiClientOptions = {}) { this.baseUrl = options.baseUrl ?? import.meta.env.VITE_API_URL ?? ''; this.workspaceId = options.workspaceId ?? import.meta.env.VITE_WORKSPACE_ID ?? 'default-workspace'; this.userId = options.userId ?? import.meta.env.VITE_USER_ID ?? '00000000-0000-4000-8000-000000000001'; this.timeoutMs = options.timeoutMs ?? 8_000; this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis); }
   async request<T>(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<T> {
     const startedAt = performance.now(); const controller = new AbortController(); const timeout = window.setTimeout(() => controller.abort(), this.timeoutMs);
     const abort = () => controller.abort(); signal?.addEventListener('abort', abort, { once: true }); const method = init.method ?? 'GET';
     try {
-      const response = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: controller.signal, headers: { ...(init.body instanceof FormData ? {} : { 'content-type': 'application/json' }), 'x-workspace-id': this.workspaceId, ...init.headers } });
+      const response = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: controller.signal, headers: { ...(init.body instanceof FormData ? {} : { 'content-type': 'application/json' }), 'x-workspace-id': this.workspaceId, 'x-user-id': this.userId, ...init.headers } });
       if (response.status === 204) return undefined as T;
       let body: unknown;
       try { body = await response.json(); } catch (error) { throw new ApiError('REQUEST_FAILED', `Resposta inválida da API.${import.meta.env.DEV ? ` [PARSE ${response.status} ${path}]` : ''}`, { phase: 'parse', endpoint: path, method, status: response.status, errorName: error instanceof Error ? error.name : 'UnknownError', reason: safeText(error instanceof Error ? error.message : error) }); }

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   ConversationContext,
+  ConversationEvent,
+  ConversationPriority,
+  ConversationStatus,
   HistorySyncJob,
   InboxConversation,
   InboxMessage,
@@ -41,6 +44,11 @@ const activityLabel = (value?: string) =>
         minute: "2-digit",
       }).format(new Date(value))
     : "—";
+const statusLabel: Record<ConversationStatus, string> = { open: "Aberta", in_progress: "Em atendimento", waiting_customer: "Aguardando cliente", resolved: "Resolvida", archived: "Arquivada" };
+const priorityLabel: Record<ConversationPriority, string> = { low: "Baixa", normal: "Normal", high: "Alta", urgent: "Urgente" };
+const operationLabel: Record<ConversationEvent["action"], string> = { assigned: "Responsável alterado", unassigned: "Conversa sem responsável", status_changed: "Status alterado", priority_changed: "Prioridade alterada", archived: "Conversa arquivada", reopened: "Conversa reaberta" };
+type InboxFilter = "all" | "mine" | "unassigned" | "in_progress" | "waiting_customer" | "resolved" | "archived" | "high_priority";
+const currentUserId = import.meta.env.VITE_USER_ID || "00000000-0000-4000-8000-000000000001";
 const Avatar = ({
   conversation,
   large = false,
@@ -139,6 +147,9 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [savingContext, setSavingContext] = useState(false);
   const [syncJob, setSyncJob] = useState<HistorySyncJob>();
   const [startingSync, setStartingSync] = useState(false);
+  const [activity, setActivity] = useState<ConversationEvent[]>([]);
+  const [filter, setFilter] = useState<InboxFilter>("all");
+  const [changingManagement, setChangingManagement] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const scrollAfterRender = useRef(false);
@@ -194,6 +205,15 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
         setError(errorMessage(nextError));
     }
   };
+  const loadActivity = async (conversationId: string) => {
+    if (!api.activity) return;
+    try {
+      const result = await api.activity(conversationId);
+      if (activeConversationId.current === conversationId) setActivity(result);
+    } catch (nextError) {
+      if (activeConversationId.current === conversationId) setError(errorMessage(nextError));
+    }
+  };
   useEffect(() => {
     void refreshConversations();
   }, [api]);
@@ -235,10 +255,11 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     activeConversationId.current = selected?.id;
     contextRequest.current += 1;
     setContext(undefined);
+    setActivity([]);
     setNotes("");
     setTag("");
     loadedContextId.current = undefined;
-    if (selected) void loadContext(selected.id);
+    if (selected) { void loadContext(selected.id); void loadActivity(selected.id); }
   }, [selected?.id, api]);
   useEffect(
     () =>
@@ -246,6 +267,14 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
         if (event.eventType === "conversation.context.updated") {
           if (selected && String(event.payload.conversationId) === selected.id)
             void loadContext(selected.id);
+          return;
+        }
+        if (event.eventType === "conversation.management.updated") {
+          const conversation = event.payload.conversation as InboxConversation | undefined;
+          if (conversation?.id) {
+            setConversationPage((current) => ({ ...current, items: current.items.map((item) => item.id === conversation.id ? conversation : item) }));
+            if (selected?.id === conversation.id) { setSelected(conversation); void loadActivity(conversation.id); }
+          }
           return;
         }
         if (event.eventType === "conversation.sync.updated") {
@@ -423,6 +452,27 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       index === 0 ||
       dateLabel(messages[index - 1].timestamp) !== dateLabel(item.timestamp),
   }));
+  const applyManagement = async (operation: () => Promise<{ conversation: InboxConversation }>) => {
+    if (!selected || changingManagement) return;
+    setChangingManagement(true);
+    try {
+      const result = await operation();
+      setSelected(result.conversation);
+      setConversationPage((current) => ({ ...current, items: current.items.map((item) => item.id === result.conversation.id ? result.conversation : item) }));
+      await loadActivity(result.conversation.id);
+    } catch (nextError) { setError(errorMessage(nextError)); }
+    finally { setChangingManagement(false); }
+  };
+  const filteredConversations = conversationPage.items.filter((conversation) => {
+    if (filter === "mine") return conversation.assignedUserId === currentUserId;
+    if (filter === "unassigned") return !conversation.assignedUserId;
+    if (filter === "in_progress") return conversation.status === "in_progress";
+    if (filter === "waiting_customer") return conversation.status === "waiting_customer";
+    if (filter === "resolved") return conversation.status === "resolved";
+    if (filter === "archived") return conversation.status === "archived";
+    if (filter === "high_priority") return conversation.priority === "high" || conversation.priority === "urgent";
+    return true;
+  });
   return (
     <section className="page inbox chat-inbox">
       <div className="inbox-layout">
@@ -458,6 +508,12 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
           >
             {startingSync ? "Iniciando…" : "Sincronizar histórico"}
           </button>
+          <label className="inbox-management-filter">
+            <span>Filtro</span>
+            <select aria-label="Filtrar conversas" value={filter} onChange={(event) => setFilter(event.target.value as InboxFilter)}>
+              <option value="all">Todas</option><option value="mine">Minhas</option><option value="unassigned">Sem responsável</option><option value="in_progress">Em atendimento</option><option value="waiting_customer">Aguardando cliente</option><option value="resolved">Resolvidas</option><option value="archived">Arquivadas</option><option value="high_priority">Alta prioridade</option>
+            </select>
+          </label>
           {error && (
             <p className="alert" role="alert">
               {error}
@@ -466,7 +522,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
           {loadingConversations ? (
             <p className="inbox-loading">Carregando conversas…</p>
           ) : (
-            conversationPage.items.map((conversation) => (
+            filteredConversations.map((conversation) => (
               <button
                 className={
                   selected?.id === conversation.id
@@ -498,6 +554,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                       <span className="unread">{conversation.unreadCount}</span>
                     )}
                   </span>
+                  <span className="conversation-management-meta"><b className={`priority-${conversation.priority}`}>{priorityLabel[conversation.priority]}</b><small>{statusLabel[conversation.status]}</small><small>{conversation.assignedUserId === currentUserId ? "Minha" : conversation.assignedUserId ? "Responsável definido" : "Sem responsável"}</small></span>
                 </span>
               </button>
             ))
@@ -521,6 +578,17 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                         : "Conversa encerrada"}
                     </span>
                   </div>
+                </div>
+                <div className="conversation-controls">
+                  <select aria-label="Responsável" value={selected.assignedUserId ? "me" : "none"} disabled={changingManagement} onChange={(event) => void applyManagement(() => event.target.value === "me" ? api.assign(selected.id) : api.unassign(selected.id))}>
+                    <option value="none">Sem responsável</option><option value="me">{selected.assignedUserId === currentUserId ? "Minha conta" : "Assumir conversa"}</option>
+                  </select>
+                  <select aria-label="Status da conversa" value={selected.status} disabled={changingManagement} onChange={(event) => void applyManagement(() => api.updateStatus(selected.id, event.target.value as ConversationStatus))}>
+                    {Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                  <select aria-label="Prioridade da conversa" value={selected.priority} disabled={changingManagement} onChange={(event) => void applyManagement(() => api.updatePriority(selected.id, event.target.value as ConversationPriority))}>
+                    {Object.entries(priorityLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
                 </div>
               </div>
               <div className="message-list" ref={listRef} onScroll={onScroll}>
@@ -679,6 +747,10 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                   maxLength={10000}
                   aria-label="Observação interna"
                 />
+              </div>
+              <div className="conversation-context operational-history">
+                <div className="context-heading"><span>HISTÓRICO OPERACIONAL</span></div>
+                {activity.length ? activity.map((event) => <div className="operational-event" key={event.id}><strong>{operationLabel[event.action]}</strong><span>{event.previousValue ?? "—"} → {event.newValue ?? "—"}</span><small>{event.userId} · {activityLabel(event.createdAt)}</small></div>) : <p>Nenhuma alteração operacional ainda.</p>}
               </div>
               <div className="conversation-context activity">
                 <div className="context-heading">
