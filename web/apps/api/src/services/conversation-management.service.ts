@@ -13,10 +13,11 @@ const transitions: Record<ConversationStatus, ConversationStatus[]> = {
 };
 
 export class ConversationManagementService {
-  constructor(private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly directory: WorkspaceDirectoryService) {}
+  constructor(private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly directory: WorkspaceDirectoryService, private readonly onManualAssignment?: (workspaceId: string, conversationId: string) => void) {}
 
   async assign(context: RequestContext, conversationId: string, assignedUserId: string | null) {
     await this.directory.requireAssignableUser(context, assignedUserId);
+    this.onManualAssignment?.(context.workspaceId, conversationId);
     const current = await this.requireConversation(context.workspaceId, conversationId);
     const event = await this.conversations.setAssignment(context.workspaceId, conversationId, assignedUserId, this.actor(context));
     return this.publish(context, conversationId, current, event);

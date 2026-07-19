@@ -12,7 +12,9 @@ export class RoutingController {
   members: RequestHandler = async (req, res) => res.json(await this.routing.members(req.context!, id.parse(req.params.id)));
   saveMember: RequestHandler = async (req, res) => res.status(201).json(await this.routing.saveMember(req.context!, id.parse(req.params.id), memberInput.parse(req.body)));
   removeMember: RequestHandler = async (req, res) => { await this.routing.removeMember(req.context!, id.parse(req.params.id), id.parse(req.params.userId)); res.status(204).end(); };
-  distribute: RequestHandler = async (req, res) => { const conversationId = id.parse(z.object({ conversationId: id }).parse(req.body).conversationId); res.json(await this.routing.distribute(req.context!, conversationId, id.parse(req.params.id))); };
-  moveConversation: RequestHandler = async (req, res) => res.json(await this.routing.moveConversation(req.context!, id.parse(req.params.id), z.object({ queueId: id.nullable() }).parse(req.body).queueId));
+  distribute: RequestHandler = async (req, res) => { const conversationId = id.parse(z.object({ conversationId: id }).parse(req.body).conversationId); const result=await this.routing.distribute(req.context!, conversationId, id.parse(req.params.id)); res.status((result as {queued?:boolean}).queued?202:200).json(result); };
+  moveConversation: RequestHandler = async (req, res) => { const result=await this.routing.moveConversation(req.context!, id.parse(req.params.id), z.object({ queueId: id.nullable() }).parse(req.body).queueId); res.status((result as {queued?:boolean}).queued?202:200).json(result); }
   redistribute: RequestHandler = async (req, res) => res.json(await this.routing.redistribute(req.context!, id.parse(req.params.id)));
+  job: RequestHandler = async (req,res) => res.json(this.routing.getJob(req.context!,id.parse(req.params.id)));
+  cancelJob: RequestHandler = async (req,res) => res.json(this.routing.cancelJob(req.context!,id.parse(req.params.id)));
 }

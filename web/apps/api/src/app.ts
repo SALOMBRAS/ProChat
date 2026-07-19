@@ -27,6 +27,7 @@ import { SqliteWorkspaceDirectoryStore, SupabaseWorkspaceDirectoryStore, Workspa
 import { WorkspaceDirectoryController } from './controllers/workspace-directory.controller.js';
 import { RoutingController } from './controllers/routing.controller.js';
 import { RoutingService, SqliteRoutingStore, SupabaseRoutingStore } from './services/routing.service.js';
+import { SqliteRoutingJobStore } from './services/routing-jobs.service.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
   const realtimeHub = new RealtimeHub(); app.locals.realtimeHub = realtimeHub;
@@ -73,7 +74,8 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const outboxStore = database ? new SqliteAttachmentOutboxStore(database.sqlite) : new SupabaseAttachmentOutboxStore(supabase!);
     const attachmentStorage = database ? new UnavailableTemporaryAttachmentStorage() : new SupabaseTemporaryAttachmentStorage(supabase!);
     const directory = new WorkspaceDirectoryService(database ? new SqliteWorkspaceDirectoryStore(database.sqlite) : new SupabaseWorkspaceDirectoryStore(supabase!), realtimeHub, config.developmentUserId);
-    const routing = new RoutingService(database ? new SqliteRoutingStore(database.sqlite) : new SupabaseRoutingStore(supabase!), webhookStore, directory, realtimeHub);
+    const routingStore = database ? new SqliteRoutingStore(database.sqlite) : new SupabaseRoutingStore(supabase!);
+    const routing = new RoutingService(routingStore, webhookStore, directory, realtimeHub, database ? new SqliteRoutingJobStore(database.sqlite) : undefined);
     const attachments = new AttachmentOutboxService(webhookStore, outboxStore, attachmentStorage, workerClient);
     if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void attachments.cleanupExpired(); }, 60 * 60 * 1000); timer.unref(); }
     const identitySync = new WhatsAppIdentitySyncService(workerClient, identityStore, target => realtimeHub.publish(target.workspaceId, 'conversation.updated', { wahaSession: target.wahaSession, chatId: target.chatId, identitySynchronized: true }));
@@ -81,7 +83,8 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }, identitySync, async (workspaceId, externalMessageId) => { await attachments.confirm(workspaceId, externalMessageId); }).receive);
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
     const historySync = new WhatsAppHistorySyncService(workerClient, webhookStore, syncStore, realtimeHub);
-    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory), historySync, sessions, attachments), new WorkspaceDirectoryController(directory), new RoutingController(routing))); app.use(errorHandler);
+    app.locals.routingJobs = database ? new SqliteRoutingJobStore(database.sqlite) : undefined;
+    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments), new WorkspaceDirectoryController(directory), new RoutingController(routing))); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }
   return app;
 }

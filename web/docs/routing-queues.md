@@ -19,3 +19,7 @@ Toda decis√£o registra fila, estrat√©gia, resultado, operador (quando houver) e 
 ## Limita√ß√µes atuais
 
 A elegibilidade usa o status administrativo e a disponibilidade configurada na fila. Enquanto a autentica√ß√£o e a presen√ßa reais n√£o estiverem ativas, o fallback de desenvolvimento continua sendo o ator administrativo. A estrutura j√° tem `autoAssignedAt`, `routingLockedAt`, disponibilidade e limite de carga para suportar presen√ßa, SLA e regras de roteamento futuras; n√£o h√° c√°lculo de SLA nem an√°lise de conte√∫do nesta etapa.
+
+## Jobs no worker
+
+Filas autom·ticas criam `routing_jobs` e a API retorna `202`. Configure o worker com `ROUTING_DATABASE_PATH` apontando para o SQLite compartilhado; `ROUTING_POLL_MS` (1000) e `ROUTING_BATCH_SIZE` (10) regulam o consumo. O lease usa `lockedAt` e `lockedBy`; leases expirados s„o recuper·veis. Falhas transitÛrias recebem atÈ trÍs tentativas com backoff exponencial. AtribuiÁ„o manual cancela jobs pendentes ou em processamento da conversa.

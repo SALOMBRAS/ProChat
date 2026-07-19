@@ -4,6 +4,7 @@ import { DemoWhatsAppWorkerAdapter } from './demo-whatsapp-worker.adapter.js';
 import { StructuredLogEventPublisherAdapter } from './event-publishers.js';
 import { log } from './logging.js';
 import { createWorkerTransportHandler, listenInternalTransport } from './internal-transport-server.js';
+import { startRoutingJobConsumer } from './routing-job-consumer.js';
 
 export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfig()) {
   if (config.demoMode) {
@@ -37,6 +38,15 @@ export async function runWorker(): Promise<void> {
     const runtime = await createWorkerRuntime(startupConfig);
     phase = 'internal_transport_bind';
     const transport = await listenInternalTransport({ host: '127.0.0.1', port: runtime.config.internalTransportPort }, createWorkerTransportHandler(runtime.adapter));
+    let stopRouting: (() => void) | undefined;
+    let routingDatabase: any;
+    if (runtime.config.routingDatabasePath) {
+      const [{ SqlitePersistenceDatabase }, { SqliteRoutingStore }, { SqliteRoutingJobStore, RoutingJobProcessor }] = await Promise.all([import('../../api/src/persistence/database.js'), import('../../api/src/services/routing.service.js'), import('../../api/src/services/routing-jobs.service.js')]);
+      routingDatabase = new SqlitePersistenceDatabase(runtime.config.routingDatabasePath); routingDatabase.migrate();
+      const jobs = new SqliteRoutingJobStore(routingDatabase.sqlite); const processor = new RoutingJobProcessor(jobs, new SqliteRoutingStore(routingDatabase.sqlite));
+      const pollMs = runtime.config.routingPollMs ?? 1_000;
+      stopRouting = startRoutingJobConsumer({ claim: (workerId, limit, lockTimeoutMs) => jobs.claim(workerId,limit,lockTimeoutMs), process: job => processor.process(job as never) }, { workerId: runtime.config.name, pollMs, batchSize: runtime.config.routingBatchSize ?? 10, lockTimeoutMs: pollMs * 10 });
+    }
     log('info', 'WhatsApp worker started', { name: runtime.config.name, provider: runtime.config.whatsAppProvider, connectionEnabled: runtime.config.connectionEnabled, demoMode: runtime.config.demoMode, restoredSessions: runtime.restored.length, dataDirConfigured: !runtime.config.demoMode });
     let stopping = false;
     const keepAlive = setInterval(() => undefined, 60_000);
@@ -44,6 +54,7 @@ export async function runWorker(): Promise<void> {
       if (stopping) return;
       stopping = true;
       clearInterval(keepAlive);
+      stopRouting?.(); routingDatabase?.close();
       log('info', 'WhatsApp worker stopping', { name: runtime.config.name, signal });
       await transport.close();
       await runtime.shutdown();

@@ -13,6 +13,9 @@ export type WorkerConfig = {
   wahaBaseUrl: string;
   wahaApiKey?: string;
   wahaTimeoutMs: number;
+  routingDatabasePath?: string;
+  routingPollMs?: number;
+  routingBatchSize?: number;
 };
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -43,5 +46,8 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     wahaBaseUrl: (env.WAHA_BASE_URL ?? 'http://127.0.0.1:3002').replace(/\/+$/, ''),
     wahaApiKey: env.WAHA_API_KEY?.trim() || undefined,
     wahaTimeoutMs: positiveInteger(env.WAHA_TIMEOUT_MS, 10_000, 'WAHA_TIMEOUT_MS'),
+    routingDatabasePath: env.ROUTING_DATABASE_PATH?.trim() || undefined,
+    routingPollMs: positiveInteger(env.ROUTING_POLL_MS, 1_000, 'ROUTING_POLL_MS'),
+    routingBatchSize: positiveInteger(env.ROUTING_BATCH_SIZE, 10, 'ROUTING_BATCH_SIZE'),
   };
 }
