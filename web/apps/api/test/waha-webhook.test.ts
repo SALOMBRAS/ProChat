@@ -117,4 +117,13 @@ describe('WAHA webhook ingress', () => {
     await Promise.all([request(app).post(`/api/v1/inbox/conversations/${conversation.id}/messages`).set('x-workspace-id', 'workspace-a').send({ text: 'Resposta' }).expect(201), request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedWebhook.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedWebhook.timestamp).send(signedWebhook.raw).expect(202)]);
     expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS total FROM whatsapp_messages WHERE externalMessageId = ?').get('outbound-race')).toEqual({ total: 1 });
   });
+  it('isolates context by workspace and conversation for direct chats and groups', async () => {
+    const app = await appFor(); const direct = '5511999990000@c.us'; const group = '120363363444637332@g.us';
+    for (const body of [{ id: 'evt-context-direct', timestamp: Date.now() - 1_000, event: 'message', session: 'waha-a', payload: { id: 'message-context-direct', chatId: direct, body: 'Oi' } }, { id: 'evt-context-group', timestamp: Date.now(), event: 'message', session: 'waha-a', payload: { id: 'message-context-group', chatId: group, body: 'Olá grupo' } }]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    const conversations = (await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200)).body.items;
+    const directConversation = conversations.find((item: { chatId: string }) => item.chatId === direct); const groupConversation = conversations.find((item: { chatId: string }) => item.chatId === group);
+    await request(app).patch(`/api/v1/inbox/conversations/${directConversation.id}/context`).set('x-workspace-id', 'workspace-a').send({ notes: 'Somente contato', tags: ['VIP'] }).expect(200);
+    await request(app).get(`/api/v1/inbox/conversations/${groupConversation.id}/context`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body).toMatchObject({ notes: null, tags: [] }));
+    await request(app).get(`/api/v1/inbox/conversations/${directConversation.id}/context`).set('x-workspace-id', 'workspace-b').expect(404);
+  });
 });
