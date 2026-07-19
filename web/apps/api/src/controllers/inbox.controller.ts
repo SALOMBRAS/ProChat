@@ -15,7 +15,7 @@ const sendMessage = z.object({ text: z.string().trim().min(1).max(4_096) });
 const contextUpdate = z.object({ notes: z.string().max(10_000).optional(), tags: z.array(z.string().trim().min(1).max(64)).max(20).optional() }).refine(value => value.notes !== undefined || value.tags !== undefined);
 const syncRequest = z.object({ wahaSession: z.string().trim().min(1).max(200).optional() });
 const attachmentRequest = z.object({ caption: z.string().max(4_096).optional() });
-const assignmentRequest = z.object({ userId: z.string().uuid().optional() });
+const assignmentRequest = z.object({ userId: z.string().uuid().nullable().optional(), teamId: z.string().uuid().nullable().optional() });
 const statusRequest = z.object({ status: z.enum(['open', 'in_progress', 'waiting_customer', 'resolved', 'archived']) });
 const priorityRequest = z.object({ priority: z.enum(['low', 'normal', 'high', 'urgent']) });
 export class InboxController {
@@ -30,7 +30,7 @@ export class InboxController {
   cancelOutbox: RequestHandler = async (req, res) => { if (!this.outbox) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Attachment outbox is unavailable'); res.json(await this.outbox.cancel(req.context!, z.string().uuid().parse(req.params.jobId))); };
   getContext: RequestHandler = async (req, res) => { const conversationId = z.string().uuid().parse(req.params.conversationId); const result = await this.context.get(req.context!.workspaceId, conversationId); if (!result) throw new AppError(404, 'NOT_FOUND', 'Conversation not found'); res.json(result); };
   updateContext: RequestHandler = async (req, res) => { const conversationId = z.string().uuid().parse(req.params.conversationId); const result = await this.context.update(req.context!.workspaceId, conversationId, contextUpdate.parse(req.body)); if (!result) throw new AppError(404, 'NOT_FOUND', 'Conversation not found'); res.json(result); };
-  assign: RequestHandler = async (req, res) => { const input = assignmentRequest.parse(req.body ?? {}); const actor = z.string().uuid().parse(req.context!.userId); res.json(await this.management.assign({ ...req.context!, userId: actor }, z.string().uuid().parse(req.params.conversationId), input.userId ?? actor)); };
+  assign: RequestHandler = async (req, res) => { const input = assignmentRequest.parse(req.body ?? {}); const actor = z.string().uuid().parse(req.context!.userId); const context = { ...req.context!, userId: actor }; const conversationId = z.string().uuid().parse(req.params.conversationId); if (input.teamId !== undefined) return res.json(await this.management.assignTeam(context, conversationId, input.teamId)); res.json(await this.management.assign(context, conversationId, input.userId ?? actor)); };
   unassign: RequestHandler = async (req, res) => { const actor = z.string().uuid().parse(req.context!.userId); res.json(await this.management.assign({ ...req.context!, userId: actor }, z.string().uuid().parse(req.params.conversationId), null)); };
   updateStatus: RequestHandler = async (req, res) => { const actor = z.string().uuid().parse(req.context!.userId); res.json(await this.management.setStatus({ ...req.context!, userId: actor }, z.string().uuid().parse(req.params.conversationId), statusRequest.parse(req.body).status)); };
   updatePriority: RequestHandler = async (req, res) => { const actor = z.string().uuid().parse(req.context!.userId); res.json(await this.management.setPriority({ ...req.context!, userId: actor }, z.string().uuid().parse(req.params.conversationId), priorityRequest.parse(req.body).priority)); };

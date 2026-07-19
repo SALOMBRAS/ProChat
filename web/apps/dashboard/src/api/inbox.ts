@@ -20,7 +20,8 @@ export class InboxApi {
   markRead=(id:string)=>this.http.post<void>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/read`);
   context=(id:string)=>this.http.get<ConversationContext>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/context`);
   updateContext=(id:string, input: { notes?: string; tags?: string[] })=>this.http.patch<ConversationContext>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/context`, input);
-  assign=(id:string,userId?:string)=>this.http.post<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/assign`, userId ? { userId } : {});
+  assign=(id:string,userId?:string|null)=>this.http.post<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/assign`, userId === undefined ? {} : { userId });
+  assignTeam=(id:string,teamId:string|null)=>this.http.post<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/assign`, { teamId });
   unassign=(id:string)=>this.http.post<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/unassign`);
   updateStatus=(id:string,status:ConversationStatus)=>this.http.patch<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/status`, { status });
   updatePriority=(id:string,priority:ConversationPriority)=>this.http.patch<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/priority`, { priority });

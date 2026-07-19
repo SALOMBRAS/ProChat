@@ -2,6 +2,7 @@ import type { RequestContext } from '@chatpro/contracts';
 import { AppError } from '../errors.js';
 import type { RealtimeHub } from '../realtime.js';
 import type { ConversationEvent, ConversationPriority, ConversationStatus, ConversationStore, ConversationSummary } from './waha-webhook.service.js';
+import type { WorkspaceDirectoryService } from './workspace-directory.service.js';
 
 const transitions: Record<ConversationStatus, ConversationStatus[]> = {
   open: ['in_progress', 'archived'],
@@ -12,11 +13,19 @@ const transitions: Record<ConversationStatus, ConversationStatus[]> = {
 };
 
 export class ConversationManagementService {
-  constructor(private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub) {}
+  constructor(private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly directory: WorkspaceDirectoryService) {}
 
   async assign(context: RequestContext, conversationId: string, assignedUserId: string | null) {
+    await this.directory.requireAssignableUser(context, assignedUserId);
     const current = await this.requireConversation(context.workspaceId, conversationId);
     const event = await this.conversations.setAssignment(context.workspaceId, conversationId, assignedUserId, this.actor(context));
+    return this.publish(context, conversationId, current, event);
+  }
+
+  async assignTeam(context: RequestContext, conversationId: string, assignedTeamId: string | null) {
+    await this.directory.requireAssignableTeam(context, assignedTeamId);
+    const current = await this.requireConversation(context.workspaceId, conversationId);
+    const event = await this.conversations.setTeamAssignment(context.workspaceId, conversationId, assignedTeamId, this.actor(context));
     return this.publish(context, conversationId, current, event);
   }
 

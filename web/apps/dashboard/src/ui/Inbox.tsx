@@ -12,8 +12,11 @@ import type {
 import { InboxApi } from "../api/inbox.js";
 import { connectRealtime } from "../api/realtime.js";
 import { ApiError } from "../api/client.js";
+import { WorkspaceApi } from "../api/workspace.js";
+import type { Team, WorkspaceUser } from "@chatpro/contracts";
 
 const defaultApi = new InboxApi();
+const workspaceApi = new WorkspaceApi();
 const pageSize = 50;
 const errorMessage = (error: unknown) =>
   error instanceof ApiError ? error.message : "Ocorreu um erro inesperado.";
@@ -150,6 +153,8 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [activity, setActivity] = useState<ConversationEvent[]>([]);
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [changingManagement, setChangingManagement] = useState(false);
+  const [workspaceUsers, setWorkspaceUsers] = useState<WorkspaceUser[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const scrollAfterRender = useRef(false);
@@ -217,6 +222,8 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   useEffect(() => {
     void refreshConversations();
   }, [api]);
+  const refreshDirectory = async () => { try { const [users, nextTeams] = await Promise.all([workspaceApi.users(), workspaceApi.teams()]); setWorkspaceUsers(users); setTeams(nextTeams); } catch (nextError) { setError(errorMessage(nextError)); } };
+  useEffect(() => { void refreshDirectory(); }, []);
   useEffect(() => {
     const session = conversationPage.items[0]?.whatsappSessionId;
     if (!session || !api.syncStatus) return;
@@ -277,6 +284,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
           }
           return;
         }
+        if (["workspace.user.created", "workspace.user.updated", "workspace.team.created", "workspace.team.updated", "workspace.team.members.updated"].includes(event.eventType)) { void refreshDirectory(); return; }
         if (event.eventType === "conversation.sync.updated") {
           setSyncJob((current) =>
             current
@@ -554,7 +562,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                       <span className="unread">{conversation.unreadCount}</span>
                     )}
                   </span>
-                  <span className="conversation-management-meta"><b className={`priority-${conversation.priority}`}>{priorityLabel[conversation.priority]}</b><small>{statusLabel[conversation.status]}</small><small>{conversation.assignedUserId === currentUserId ? "Minha" : conversation.assignedUserId ? "Responsável definido" : "Sem responsável"}</small></span>
+                  <span className="conversation-management-meta"><b className={`priority-${conversation.priority}`}>{priorityLabel[conversation.priority]}</b><small>{statusLabel[conversation.status]}</small><small>{conversation.assignedUserId ? workspaceUsers.find(user => user.id === conversation.assignedUserId)?.displayName ?? "Responsável definido" : "Sem responsável"}</small>{conversation.assignedTeamId && <small>{teams.find(team => team.id === conversation.assignedTeamId)?.name ?? "Equipe"}</small>}</span>
                 </span>
               </button>
             ))
@@ -580,8 +588,11 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                   </div>
                 </div>
                 <div className="conversation-controls">
-                  <select aria-label="Responsável" value={selected.assignedUserId ? "me" : "none"} disabled={changingManagement} onChange={(event) => void applyManagement(() => event.target.value === "me" ? api.assign(selected.id) : api.unassign(selected.id))}>
-                    <option value="none">Sem responsável</option><option value="me">{selected.assignedUserId === currentUserId ? "Minha conta" : "Assumir conversa"}</option>
+                  <select aria-label="Responsável" value={selected.assignedUserId ?? ""} disabled={changingManagement} onChange={(event) => void applyManagement(() => event.target.value ? api.assign(selected.id, event.target.value) : api.unassign(selected.id))}>
+                    <option value="">Sem responsável</option>{workspaceUsers.filter(user => user.status === "active").map(user => <option value={user.id} key={user.id}>{user.displayName}</option>)}
+                  </select>
+                  <select aria-label="Equipe responsável" value={selected.assignedTeamId ?? ""} disabled={changingManagement} onChange={(event) => void applyManagement(() => api.assignTeam(selected.id, event.target.value || null))}>
+                    <option value="">Sem equipe</option>{teams.filter(team => team.isActive).map(team => <option value={team.id} key={team.id}>{team.name}</option>)}
                   </select>
                   <select aria-label="Status da conversa" value={selected.status} disabled={changingManagement} onChange={(event) => void applyManagement(() => api.updateStatus(selected.id, event.target.value as ConversationStatus))}>
                     {Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
