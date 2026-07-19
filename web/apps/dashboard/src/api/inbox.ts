@@ -1,5 +1,5 @@
 import { ApiClient } from './client';
-import type { InboxConversation as SharedInboxConversation, InboxMessage as SharedInboxMessage } from '@chatpro/contracts';
+import type { InboxConversation as SharedInboxConversation, InboxMessage as SharedInboxMessage, InboxOutboxJob } from '@chatpro/contracts';
 export type InboxConversation = SharedInboxConversation;
 export type InboxMessage = SharedInboxMessage;
 export type Page<T> = { items:T[]; page:number; pageSize:number; total:number };
@@ -10,6 +10,9 @@ export class InboxApi {
   conversations=(page=1,pageSize=50)=>this.http.get<Page<InboxConversation>>(`/api/v1/inbox/conversations?page=${page}&pageSize=${pageSize}`);
   messages=(id:string,page=1,pageSize=100)=>this.http.get<Page<InboxMessage>>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages?page=${page}&pageSize=${pageSize}`);
   sendMessage=(id:string,text:string)=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages`, { text });
+  sendAttachment=(id:string,file:File,caption?:string)=>{ const body = new FormData(); body.set('file', file); if (caption?.trim()) body.set('caption', caption.trim()); return this.http.postForm<InboxOutboxJob>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/attachments`, body); };
+  outbox=(jobId:string)=>this.http.get<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}`);
+  cancelOutbox=(jobId:string)=>this.http.post<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}/cancel`);
   markRead=(id:string)=>this.http.post<void>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/read`);
   context=(id:string)=>this.http.get<ConversationContext>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/context`);
   updateContext=(id:string, input: { notes?: string; tags?: string[] })=>this.http.patch<ConversationContext>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/context`, input);

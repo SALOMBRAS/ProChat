@@ -15,7 +15,7 @@ export class ApiClient {
     const startedAt = performance.now(); const controller = new AbortController(); const timeout = window.setTimeout(() => controller.abort(), this.timeoutMs);
     const abort = () => controller.abort(); signal?.addEventListener('abort', abort, { once: true }); const method = init.method ?? 'GET';
     try {
-      const response = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: controller.signal, headers: { 'content-type': 'application/json', 'x-workspace-id': this.workspaceId, ...init.headers } });
+      const response = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: controller.signal, headers: { ...(init.body instanceof FormData ? {} : { 'content-type': 'application/json' }), 'x-workspace-id': this.workspaceId, ...init.headers } });
       if (response.status === 204) return undefined as T;
       let body: unknown;
       try { body = await response.json(); } catch (error) { throw new ApiError('REQUEST_FAILED', `Resposta inválida da API.${import.meta.env.DEV ? ` [PARSE ${response.status} ${path}]` : ''}`, { phase: 'parse', endpoint: path, method, status: response.status, errorName: error instanceof Error ? error.name : 'UnknownError', reason: safeText(error instanceof Error ? error.message : error) }); }
@@ -31,6 +31,7 @@ export class ApiClient {
   }
   get<T>(path: string, signal?: AbortSignal) { return this.request<T>(path, { method: 'GET' }, signal); }
   post<T>(path: string, body?: unknown, signal?: AbortSignal) { return this.request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }, signal); }
+  postForm<T>(path: string, body: FormData) { return this.request<T>(path, { method: 'POST', body }); }
   patch<T>(path: string, body: unknown) { return this.request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }); }
   put<T>(path: string, body: unknown) { return this.request<T>(path, { method: 'PUT', body: JSON.stringify(body) }); }
   delete(path: string) { return this.request<void>(path, { method: 'DELETE' }); }
