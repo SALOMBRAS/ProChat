@@ -36,6 +36,14 @@ export function createWorkerTransportHandler(worker: WhatsAppWorkerPort): Intern
         const identitySync = await worker.execute(context, { type: 'syncIdentity', ...command.payload });
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { identitySync: identitySync as never } };
       }
+      if (command.type === 'message.sendAttachment') {
+        const sentMessage = await worker.execute(context, { type: 'sendAttachment', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, attachment: { type: command.payload.type, url: command.payload.url, filename: command.payload.filename, mimeType: command.payload.mimeType, ...(command.payload.caption ? { caption: command.payload.caption } : {}) } });
+        return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { sentMessage: sentMessage as { id: string; timestamp: string } } };
+      }
+      if (command.type === 'history.page') {
+        const historyPage = await worker.execute(context, { type: 'historyPage', ...command.payload });
+        return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { historyPage: historyPage as never } };
+      }
       const sessionId = command.payload.sessionId;
       if (command.type === 'session.status') {
         const session = await worker.execute(context, { type: 'getSession', sessionId });

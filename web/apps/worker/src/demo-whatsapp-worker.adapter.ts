@@ -17,7 +17,8 @@ export class DemoWhatsAppWorkerAdapter implements WhatsAppWorkerPort {
     const validContext = requestContextSchema.parse(context);
     if (command.type === 'listSessions') return [...this.sessions.values()].filter(session => session.workspaceId === validContext.workspaceId).map(({ qr: _qr, transition: _transition, ...session }) => session);
     if (command.type === 'createSession') return this.create(validContext, command.sessionId, command.input);
-    if (command.type === 'sendMessage') throw new WorkerOperationError('NOT_IMPLEMENTED', 'Manual messaging is unavailable in demo mode', context.correlationId);
+    if (command.type === 'sendMessage' || command.type === 'sendAttachment') throw new WorkerOperationError('NOT_IMPLEMENTED', 'Manual messaging is unavailable in demo mode', context.correlationId);
+    if (command.type === 'historyPage') throw new WorkerOperationError('NOT_IMPLEMENTED', 'History synchronization is unavailable in demo mode', context.correlationId);
     if (command.type === 'syncIdentity') throw new WorkerOperationError('NOT_IMPLEMENTED', 'Identity synchronization is unavailable in demo mode', context.correlationId);
     const session = this.require(validContext, command.sessionId);
     if (command.type === 'getSession') return this.public(session);

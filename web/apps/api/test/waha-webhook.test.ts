@@ -11,7 +11,7 @@ import type { WhatsAppWorkerPort } from '../../worker/src/ports.js';
 const directories: string[] = []; const applications: Array<Awaited<ReturnType<typeof createApp>>> = []; const workerServers: Array<{ close: () => Promise<void> }> = [];
 const key = 'webhook-test-secret';
 const signed = (body: unknown) => { const raw = JSON.stringify(body); return { raw, hmac: createHmac('sha512', key).update(raw).digest('hex'), timestamp: String(Date.now()) }; };
-const appFor = async (workerTransportUrl = 'http://127.0.0.1:1/internal/transport', workerTransportTimeoutMs = 20) => { const directory = mkdtempSync(join(tmpdir(), 'chatpro-waha-webhook-')); directories.push(directory); const app = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl, workerTransportTimeoutMs, databaseProvider: 'sqlite', databasePath: join(directory, 'api.sqlite'), wahaWebhookHmacKey: key, wahaWebhookWorkspaceId: 'workspace-a' }); applications.push(app); return app; };
+const appFor = async (workerTransportUrl = 'http://127.0.0.1:1/internal/transport', workerTransportTimeoutMs = 20) => { const directory = mkdtempSync(join(tmpdir(), 'chatpro-waha-webhook-')); directories.push(directory); const app = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl, workerTransportTimeoutMs, databaseProvider: 'sqlite', databasePath: join(directory, 'api.sqlite'), wahaWebhookHmacKey: key, wahaWebhookWorkspaceId: 'workspace-a', developmentUserId: '00000000-0000-4000-8000-000000000001' }); const timestamp = new Date().toISOString(); app.locals.persistenceDatabase.sqlite.prepare('INSERT INTO workspace_users (id,workspaceId,email,displayName,avatarUrl,role,status,createdAt,updatedAt,lastSeenAt) VALUES (?,?,?,?,?,?,?,?,?,?)').run('00000000-0000-4000-8000-000000000002', 'workspace-a', 'teammate@chatpro.local', 'Teammate', null, 'agent', 'active', timestamp, timestamp, null); applications.push(app); return app; };
 afterEach(async () => { applications.splice(0).forEach(app => app.locals.persistenceDatabase?.close()); directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })); await Promise.all(workerServers.splice(0).map(server => server.close())); });
 
 describe('WAHA webhook ingress', () => {
@@ -116,5 +116,33 @@ describe('WAHA webhook ingress', () => {
     const conversation = (await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200)).body.items[0]; const webhook = { id: 'evt-race-outbound', timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload: { id: 'outbound-race', to: '5511999990000@c.us', fromMe: true, body: 'Resposta' } }; const signedWebhook = signed(webhook);
     await Promise.all([request(app).post(`/api/v1/inbox/conversations/${conversation.id}/messages`).set('x-workspace-id', 'workspace-a').send({ text: 'Resposta' }).expect(201), request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedWebhook.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedWebhook.timestamp).send(signedWebhook.raw).expect(202)]);
     expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS total FROM whatsapp_messages WHERE externalMessageId = ?').get('outbound-race')).toEqual({ total: 1 });
+  });
+  it('isolates context by workspace and conversation for direct chats and groups', async () => {
+    const app = await appFor(); const direct = '5511999990000@c.us'; const group = '120363363444637332@g.us';
+    for (const body of [{ id: 'evt-context-direct', timestamp: Date.now() - 1_000, event: 'message', session: 'waha-a', payload: { id: 'message-context-direct', chatId: direct, body: 'Oi' } }, { id: 'evt-context-group', timestamp: Date.now(), event: 'message', session: 'waha-a', payload: { id: 'message-context-group', chatId: group, body: 'Olá grupo' } }]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    const conversations = (await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200)).body.items;
+    const directConversation = conversations.find((item: { chatId: string }) => item.chatId === direct); const groupConversation = conversations.find((item: { chatId: string }) => item.chatId === group);
+    await request(app).patch(`/api/v1/inbox/conversations/${directConversation.id}/context`).set('x-workspace-id', 'workspace-a').send({ notes: 'Somente contato', tags: ['VIP'] }).expect(200);
+    await request(app).get(`/api/v1/inbox/conversations/${groupConversation.id}/context`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body).toMatchObject({ notes: null, tags: [] }));
+    await request(app).get(`/api/v1/inbox/conversations/${directConversation.id}/context`).set('x-workspace-id', 'workspace-b').expect(404);
+  });
+  it('manages assignment, status, priority, activity and realtime updates without changing message ingestion', async () => {
+    const app = await appFor(); const actor = '00000000-0000-4000-8000-000000000001'; const teammate = '00000000-0000-4000-8000-000000000002'; const source = { id: 'evt-management', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-management', chatId: '5511999990000@c.us', body: 'Preciso de ajuda' } }; const signedSource = signed(source);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedSource.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedSource.timestamp).send(signedSource.raw).expect(202);
+    const conversation = (await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200)).body.items[0];
+    const socket = { readyState: 1, messages: [] as string[], send(data: string) { this.messages.push(data); } }; app.locals.realtimeHub.add(socket, 'workspace-a');
+    const agent = (path: string) => { const patch = path.startsWith('PATCH '); const endpoint = `/api/v1${patch ? path.slice(6) : path}`; return (patch ? request(app).patch(endpoint) : request(app).post(endpoint)).set('x-workspace-id', 'workspace-a').set('x-user-id', actor); };
+    await agent(`/inbox/conversations/${conversation.id}/assign`).send({ userId: actor }).expect(200).expect(response => expect(response.body.conversation).toMatchObject({ assignedUserId: actor, status: 'open', priority: 'normal' }));
+    await agent(`/inbox/conversations/${conversation.id}/assign`).send({ userId: teammate }).expect(200).expect(response => expect(response.body.event).toMatchObject({ action: 'assigned', previousValue: actor, newValue: teammate }));
+    await agent(`PATCH /inbox/conversations/${conversation.id}/status`).send({ status: 'in_progress' }).expect(200);
+    await agent(`PATCH /inbox/conversations/${conversation.id}/priority`).send({ priority: 'urgent' }).expect(200).expect(response => expect(response.body.conversation.priority).toBe('urgent'));
+    await agent(`/inbox/conversations/${conversation.id}/unassign`).send({}).expect(200).expect(response => expect(response.body.event.action).toBe('unassigned'));
+    await agent(`PATCH /inbox/conversations/${conversation.id}/status`).send({ status: 'waiting_customer' }).expect(200);
+    await agent(`PATCH /inbox/conversations/${conversation.id}/status`).send({ status: 'resolved' }).expect(200);
+    await agent(`PATCH /inbox/conversations/${conversation.id}/status`).send({ status: 'archived' }).expect(200);
+    await agent(`PATCH /inbox/conversations/${conversation.id}/status`).send({ status: 'open' }).expect(200).expect(response => expect(response.body.event.action).toBe('reopened'));
+    await agent(`PATCH /inbox/conversations/${conversation.id}/status`).send({ status: 'resolved' }).expect(409);
+    await request(app).get(`/api/v1/inbox/conversations/${conversation.id}/activity`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body.map((event: { action: string }) => event.action)).toEqual(expect.arrayContaining(['assigned', 'unassigned', 'priority_changed', 'status_changed', 'archived', 'reopened'])));
+    expect(socket.messages.map(message => JSON.parse(message).eventType)).toContain('conversation.management.updated');
   });
 });

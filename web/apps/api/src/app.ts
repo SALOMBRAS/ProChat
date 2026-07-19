@@ -20,6 +20,14 @@ import { InternalInboxService } from './services/internal-inbox.service.js';
 import { RealtimeHub } from './realtime.js';
 import { SqliteWhatsAppIdentityStore, SupabaseWhatsAppIdentityStore, WhatsAppIdentitySyncService } from './services/whatsapp-identity-sync.service.js';
 import { ConversationContextService, SqliteConversationContextStore, SupabaseConversationContextStore } from './services/conversation-context.service.js';
+import { WhatsAppHistorySyncService, SqliteWhatsAppHistorySyncStore, SupabaseWhatsAppHistorySyncStore } from './services/whatsapp-history-sync.service.js';
+import { AttachmentOutboxService, SqliteAttachmentOutboxStore, SupabaseAttachmentOutboxStore, SupabaseTemporaryAttachmentStorage, UnavailableTemporaryAttachmentStorage } from './services/attachment-outbox.service.js';
+import { ConversationManagementService } from './services/conversation-management.service.js';
+import { SqliteWorkspaceDirectoryStore, SupabaseWorkspaceDirectoryStore, WorkspaceDirectoryService } from './services/workspace-directory.service.js';
+import { WorkspaceDirectoryController } from './controllers/workspace-directory.controller.js';
+import { RoutingController } from './controllers/routing.controller.js';
+import { RoutingService, SqliteRoutingStore, SupabaseRoutingStore } from './services/routing.service.js';
+import { SqliteRoutingJobStore } from './services/routing-jobs.service.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
   const realtimeHub = new RealtimeHub(); app.locals.realtimeHub = realtimeHub;
@@ -61,12 +69,22 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite) : new SupabaseWahaWebhookStore(supabase!);
     const identityStore = database ? new SqliteWhatsAppIdentityStore(database.sqlite) : new SupabaseWhatsAppIdentityStore(supabase!);
     const contextStore = database ? new SqliteConversationContextStore(database.sqlite) : new SupabaseConversationContextStore(supabase!);
+    const syncStore = database ? new SqliteWhatsAppHistorySyncStore(database.sqlite) : new SupabaseWhatsAppHistorySyncStore(supabase!);
     const workerClient = new InternalWorkerClient({ url: config.workerTransportUrl, timeoutMs: config.workerTransportTimeoutMs });
+    const outboxStore = database ? new SqliteAttachmentOutboxStore(database.sqlite) : new SupabaseAttachmentOutboxStore(supabase!);
+    const attachmentStorage = database ? new UnavailableTemporaryAttachmentStorage() : new SupabaseTemporaryAttachmentStorage(supabase!);
+    const directory = new WorkspaceDirectoryService(database ? new SqliteWorkspaceDirectoryStore(database.sqlite) : new SupabaseWorkspaceDirectoryStore(supabase!), realtimeHub, config.developmentUserId);
+    const routingStore = database ? new SqliteRoutingStore(database.sqlite) : new SupabaseRoutingStore(supabase!);
+    const routing = new RoutingService(routingStore, webhookStore, directory, realtimeHub, database ? new SqliteRoutingJobStore(database.sqlite) : undefined);
+    const attachments = new AttachmentOutboxService(webhookStore, outboxStore, attachmentStorage, workerClient);
+    if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void attachments.cleanupExpired(); }, 60 * 60 * 1000); timer.unref(); }
     const identitySync = new WhatsAppIdentitySyncService(workerClient, identityStore, target => realtimeHub.publish(target.workspaceId, 'conversation.updated', { wahaSession: target.wahaSession, chatId: target.chatId, identitySynchronized: true }));
     if (config.nodeEnv !== 'test') identitySync.enqueueBackfill();
-    app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }, identitySync).receive);
+    app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }, identitySync, async (workspaceId, externalMessageId) => { await attachments.confirm(workspaceId, externalMessageId); }).receive);
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
-    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub), new ConversationContextService(webhookStore, contextStore, realtimeHub)))); app.use(errorHandler);
+    const historySync = new WhatsAppHistorySyncService(workerClient, webhookStore, syncStore, realtimeHub);
+    app.locals.routingJobs = database ? new SqliteRoutingJobStore(database.sqlite) : undefined;
+    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments), new WorkspaceDirectoryController(directory), new RoutingController(routing))); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }
   return app;
 }
