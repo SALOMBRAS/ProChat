@@ -74,9 +74,10 @@ const Avatar = ({
     )}
   </span>
 );
-const Media = ({ message }: { message: InboxMessage }) => {
-  const url = message.mediaUrl;
-  if (!url)
+const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => { if (!message.mediaUrl) return; const controller = new AbortController(); let objectUrl: string | undefined; void api.media(message.id, controller.signal).then(blob => { objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); }).catch(() => setUrl(undefined)); return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); }; }, [api, message.id, message.mediaUrl]);
+  if (!message.mediaUrl)
     return message.direction === "inbound" ? (
       <span className="message-received-label">Recebida</span>
     ) : null;
@@ -89,7 +90,7 @@ const Media = ({ message }: { message: InboxMessage }) => {
         rel="noreferrer"
       >
         <img
-          src={message.thumbnailUrl ?? url}
+          src={url}
           alt={message.mediaFilename ?? "Imagem recebida"}
         />
       </a>
@@ -115,7 +116,7 @@ const Media = ({ message }: { message: InboxMessage }) => {
       </audio>
     );
   return (
-    <a className="message-document" href={url} target="_blank" rel="noreferrer">
+    <a className="message-document" href={url} download={message.mediaFilename ?? undefined}>
       <span>▧</span>
       <strong>{message.mediaFilename ?? "Documento"}</strong>
       <small>{message.mediaMimeType ?? "Abrir arquivo"}</small>
@@ -638,7 +639,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                             {senderName(item.senderWhatsappId)}:
                           </strong>
                         )}
-                        <Media message={item} />
+                        <Media message={item} api={api} />
                         {item.content && <p>{item.content}</p>}
                         <span className={`message-meta status-${item.status}`}>
                           {item.direction === "outbound" && (

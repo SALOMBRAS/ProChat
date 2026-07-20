@@ -30,6 +30,7 @@ export class ApiClient {
     } finally { window.clearTimeout(timeout); signal?.removeEventListener('abort', abort); }
   }
   get<T>(path: string, signal?: AbortSignal) { return this.request<T>(path, { method: 'GET' }, signal); }
+  async blob(path: string, signal?: AbortSignal): Promise<Blob> { const response = await this.fetcher(`${this.baseUrl}${path}`, { method: 'GET', signal, headers: { 'x-workspace-id': this.workspaceId, 'x-user-id': this.userId } }); if (!response.ok) throw new ApiError('REQUEST_FAILED', 'NÃ£o foi possÃ­vel carregar a mÃ­dia.', { endpoint: path, status: response.status }); return response.blob(); }
   post<T>(path: string, body?: unknown, signal?: AbortSignal) { return this.request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }, signal); }
   postForm<T>(path: string, body: FormData) { return this.request<T>(path, { method: 'POST', body }); }
   patch<T>(path: string, body: unknown) { return this.request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }); }
