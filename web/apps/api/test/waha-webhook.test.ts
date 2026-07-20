@@ -155,6 +155,16 @@ describe('WAHA webhook ingress', () => {
     const messages = await request(app).get(`/api/v1/inbox/conversations/${conversations.body.items[0].id}/messages`).set('x-workspace-id', 'workspace-a').expect(200);
     expect(messages.body.items.map((item: { senderWhatsappId: string }) => item.senderWhatsappId).sort()).toEqual(['5511999990001@c.us', '5511999990002@c.us']);
   });
+  it('hides quarantined conversations from Inbox and restores them without touching messages', async () => {
+    const app = await appFor(); const body = { id: 'evt-quarantine', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-quarantine', chatId: '5511999990000@c.us', body: 'preservar' } }; const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    const conversation = (await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200)).body.items[0];
+    app.locals.persistenceDatabase.sqlite.prepare("UPDATE conversations SET visibilityState = 'quarantined', integrityClassification = 'probable_false_direct' WHERE workspaceId = ? AND id = ?").run('workspace-a', conversation.id);
+    await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body.total).toBe(0));
+    await request(app).get('/api/v1/inbox/integrity/quarantine').set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body.items[0].id).toBe(conversation.id));
+    await request(app).post(`/api/v1/inbox/integrity/quarantine/${conversation.id}/restore`).set('x-workspace-id', 'workspace-a').expect(204);
+    await request(app).get(`/api/v1/inbox/conversations/${conversation.id}/messages`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body.total).toBe(1));
+  });
   it('manages assignment, status, priority, activity and realtime updates without changing message ingestion', async () => {
     const app = await appFor(); const actor = '00000000-0000-4000-8000-000000000001'; const teammate = '00000000-0000-4000-8000-000000000002'; const source = { id: 'evt-management', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-management', chatId: '5511999990000@c.us', body: 'Preciso de ajuda' } }; const signedSource = signed(source);
     await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedSource.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedSource.timestamp).send(signedSource.raw).expect(202);
