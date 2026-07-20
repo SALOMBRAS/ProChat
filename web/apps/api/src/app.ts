@@ -78,6 +78,9 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const routingStore = database ? new SqliteRoutingStore(database.sqlite) : new SupabaseRoutingStore(supabase!);
     const routing = new RoutingService(routingStore, webhookStore, directory, realtimeHub, database ? new SqliteRoutingJobStore(database.sqlite) : undefined);
     const attachments = new AttachmentOutboxService(webhookStore, outboxStore, attachmentStorage, workerClient);
+    // A restart must never turn stored work into provider calls. Old rows
+    // without provider acceptance are retained and made terminal for review.
+    await attachments.reconcileStartup();
     if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void attachments.cleanupExpired(); }, 60 * 60 * 1000); timer.unref(); }
     const identitySync = new WhatsAppIdentitySyncService(workerClient, identityStore, target => realtimeHub.publish(target.workspaceId, 'conversation.updated', { wahaSession: target.wahaSession, chatId: target.chatId, identitySynchronized: true }));
     if (config.nodeEnv !== 'test') identitySync.enqueueBackfill();

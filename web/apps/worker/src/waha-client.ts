@@ -25,7 +25,7 @@ export interface WahaClientPort {
   logoutSession(name: string): Promise<void>;
   removeSession(name: string): Promise<void>;
   sendText(session: string, chatId: string, text: string): Promise<WahaSentMessage>;
-  sendFile(session: string, chatId: string, attachment: WahaAttachment): Promise<WahaSentMessage>;
+  sendAttachment(session: string, chatId: string, attachment: WahaAttachment): Promise<WahaSentMessage>;
   getIdentity(session: string, whatsappId: string): Promise<WahaIdentity>;
   getGroup(session: string, chatId: string): Promise<WahaGroup>;
   listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage>;
@@ -69,12 +69,13 @@ export class WahaHttpClient implements WahaClientPort {
     const participants = await this.request(`/api/${encodeURIComponent(session)}/groups/${encodeURIComponent(chatId)}/participants/v2`);
     return { chatId, name: stringValue(group.subject) ?? stringValue(group.name), pictureUrl: stringValue(picture.url), metadata: safeMetadata(group), participants: Array.isArray(participants) ? participants.flatMap(value => { const participant = object(value); const whatsappId = stringValue(participant.id); return whatsappId ? [{ whatsappId, role: stringValue(participant.role) }] : []; }) : [] };
   }
-  async sendFile(session: string, chatId: string, attachment: WahaAttachment): Promise<WahaSentMessage> {
-    // WAHA Core 2026.7.1 sendFile accepts a JSON File object. We deliberately
-    // use only its URL form: no server path and no base64 leave this boundary.
-    const response = await this.requestResponse('/api/sendFile', 'POST', { session, chatId, file: { url: attachment.url, mimetype: attachment.mimeType, filename: attachment.filename }, ...(attachment.caption ? { caption: attachment.caption } : {}) });
+  async sendAttachment(session: string, chatId: string, attachment: WahaAttachment): Promise<WahaSentMessage> {
+    // Keep the object private and delegate retrieval to WAHA through its short
+    // lived signed URL. Endpoint choice controls the WhatsApp media kind.
+    const path = attachment.type === 'image' ? '/api/sendImage' : attachment.type === 'audio' ? '/api/sendVoice' : attachment.type === 'video' ? '/api/sendVideo' : '/api/sendFile';
+    const response = await this.requestResponse(path, 'POST', { session, chatId, file: { url: attachment.url, mimetype: attachment.mimeType, filename: attachment.filename }, ...(attachment.caption ? { caption: attachment.caption } : {}), ...(attachment.type === 'audio' ? { convert: true } : {}), ...(attachment.type === 'video' ? { convert: attachment.mimeType !== 'video/mp4', asNote: false } : {}) });
     const id = messageId(response.data);
-    log('info', 'WAHA sendFile accepted', { providerStatus: response.status, mediaType: attachment.type, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
+    log('info', 'WAHA attachment accepted', { providerStatus: response.status, endpoint: path, mediaType: attachment.type, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
     return id ? { id, pending: false } : { pending: true };
   }
   async listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage> {

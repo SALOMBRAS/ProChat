@@ -396,7 +396,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
         setAttachmentStatus(
           job.status === "failed"
             ? "Falhou"
-            : "Enviado; aguardando confirmação",
+            : "Anexo em processamento; aguardando confirmação",
         );
         setAttachment(undefined);
       } else await api.sendMessage(selected.id, text);
