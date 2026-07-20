@@ -77,7 +77,8 @@ const Avatar = ({
 const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
   const [url, setUrl] = useState<string>();
   const [failed, setFailed] = useState(false);
-  useEffect(() => { if (!message.mediaUrl) return; let active = true; setUrl(undefined); setFailed(false); void api.mediaUrl(message.id).then(access => { if (active) setUrl(access.url); }).catch(() => { if (active) setFailed(true); }); return () => { active = false; }; }, [api, message.id, message.mediaUrl]);
+  const [playbackError, setPlaybackError] = useState<string>();
+  useEffect(() => { if (!message.mediaUrl) return; let active = true; setUrl(undefined); setFailed(false); setPlaybackError(undefined); void api.mediaUrl(message.id).then(access => { if (active) setUrl(access.url); }).catch(() => { if (active) setFailed(true); }); return () => { active = false; }; }, [api, message.id, message.mediaUrl]);
   if (!message.mediaUrl)
     return message.direction === "inbound" ? (
       <span className="message-received-label">Recebida</span>
@@ -100,15 +101,21 @@ const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
     );
   if (message.messageType === "video")
     return (
+      <>
       <video
         className="message-media video"
         controls
         preload="metadata"
         poster={message.thumbnailUrl ?? undefined}
         playsInline
+        onLoadedMetadata={() => setPlaybackError(undefined)}
+        onStalled={() => setPlaybackError("O vÃ­deo estÃ¡ demorando para carregar.")}
+        onError={() => setPlaybackError("Formato de vÃ­deo invÃ¡lido ou nÃ£o suportado.")}
       >
         <source src={url} type={message.mediaMimeType ?? undefined} />
       </video>
+      {playbackError && <span className="media-error" role="status">{playbackError}</span>}
+      </>
     );
   if (
     message.messageType === "audio" ||
