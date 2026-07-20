@@ -13,6 +13,7 @@ import type { WahaMediaProxyService } from '../services/waha-media-proxy.service
 import type { SupabaseWhatsAppMediaStorage } from '../services/whatsapp-media-persistence.service.js';
 import type { SlaService } from '../services/sla.service.js';
 import type { KanbanService, KanbanSource } from '../services/kanban.service.js';
+import type { SupabaseKanbanService } from '../services/supabase-kanban.service.js';
 
 const query = z.object({ page: z.coerce.number().int().positive().default(1), pageSize: z.coerce.number().int().positive().max(100).default(25) });
 const sendMessage = z.object({ text: z.string().trim().min(1).max(4_096) });
@@ -28,7 +29,7 @@ const kanbanStage = z.object({ key:z.string().trim().regex(/^[a-z0-9_]+$/).max(6
 const kanbanFilters = z.object({ page:z.coerce.number().int().positive().default(1),pageSize:z.coerce.number().int().positive().max(100).default(30),stageId:z.string().uuid(),assignedUserId:z.string().uuid().optional(),assignedTeamId:z.string().uuid().optional(),queueId:z.string().uuid().optional(),tag:z.string().max(64).optional(),sla:z.string().max(32).optional(),unread:z.coerce.boolean().optional(),type:z.enum(['direct','group']).optional(),search:z.string().max(100).optional(),from:z.string().datetime().optional(),to:z.string().datetime().optional() });
 export class InboxController {
   readonly attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 1 } }).single('file');
-  constructor(private readonly conversations: ConversationStore, private readonly inbox: InternalInboxService, private readonly context: ConversationContextService, private readonly management: ConversationManagementService, private readonly sync?: WhatsAppHistorySyncService, private readonly sessions?: { list(context: NonNullable<import('express').Request['context']>): Promise<Array<{ id: string; status: string }>> }, private readonly outbox?: AttachmentOutboxService, private readonly media?: WahaMediaProxyService, private readonly permanentMedia?: SupabaseWhatsAppMediaStorage, private readonly sla?: SlaService, private readonly kanban?: KanbanService) {}
+  constructor(private readonly conversations: ConversationStore, private readonly inbox: InternalInboxService, private readonly context: ConversationContextService, private readonly management: ConversationManagementService, private readonly sync?: WhatsAppHistorySyncService, private readonly sessions?: { list(context: NonNullable<import('express').Request['context']>): Promise<Array<{ id: string; status: string }>> }, private readonly outbox?: AttachmentOutboxService, private readonly media?: WahaMediaProxyService, private readonly permanentMedia?: SupabaseWhatsAppMediaStorage, private readonly sla?: SlaService, private readonly kanban?: KanbanService | SupabaseKanbanService) {}
   private requireKanban() { if (!this.kanban) throw new AppError(503,'SERVICE_UNAVAILABLE','Kanban storage is unavailable for this provider'); return this.kanban; }
   kanbanBoards: RequestHandler = async (req,res)=>res.json(await this.requireKanban().boards(req.context!.workspaceId));
   kanbanBoard: RequestHandler = async (req,res)=>res.json(await this.requireKanban().detail(req.context!.workspaceId,z.string().uuid().parse(req.params.boardId)));

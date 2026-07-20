@@ -5,4 +5,19 @@ CREATE TABLE IF NOT EXISTS public.conversation_kanban_state (workspace_id text N
 CREATE INDEX IF NOT EXISTS idx_kanban_state_stage ON public.conversation_kanban_state(board_id,stage_id,position);
 CREATE TABLE IF NOT EXISTS public.conversation_kanban_events (id uuid PRIMARY KEY, workspace_id text NOT NULL, conversation_id uuid NOT NULL, board_id uuid NOT NULL, from_stage_id uuid NULL, to_stage_id uuid NOT NULL, source text NOT NULL, actor_id uuid NULL, metadata_safe jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS idx_kanban_events_conversation ON public.conversation_kanban_events(workspace_id,conversation_id,created_at DESC);
+CREATE OR REPLACE FUNCTION public.chatpro_kanban_move(p_workspace_id text,p_conversation_id uuid,p_board_id uuid,p_stage_id uuid,p_position numeric,p_source text,p_actor_id uuid,p_expected_updated_at timestamptz DEFAULT NULL)
+RETURNS TABLE(updated_at timestamptz, from_stage_id uuid, to_stage_id uuid) LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_current public.conversation_kanban_state%ROWTYPE; v_stage_board uuid;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.conversations WHERE workspace_id=p_workspace_id AND id=p_conversation_id AND visibility_state='visible') THEN RAISE EXCEPTION 'visible conversation not found' USING ERRCODE='P0002'; END IF;
+  SELECT board_id INTO v_stage_board FROM public.kanban_stages WHERE id=p_stage_id;
+  IF v_stage_board IS DISTINCT FROM p_board_id OR NOT EXISTS (SELECT 1 FROM public.kanban_boards WHERE id=p_board_id AND workspace_id=p_workspace_id) THEN RAISE EXCEPTION 'invalid board or stage' USING ERRCODE='22023'; END IF;
+  SELECT * INTO v_current FROM public.conversation_kanban_state WHERE workspace_id=p_workspace_id AND conversation_id=p_conversation_id AND board_id=p_board_id FOR UPDATE;
+  IF FOUND AND p_expected_updated_at IS NOT NULL AND v_current.updated_at <> p_expected_updated_at THEN RAISE EXCEPTION 'kanban conflict' USING ERRCODE='40001'; END IF;
+  IF FOUND THEN UPDATE public.conversation_kanban_state SET stage_id=p_stage_id,position=p_position,manual_override=CASE WHEN p_source='manual' THEN true ELSE manual_override END,last_transition_source=p_source,last_transition_by=p_actor_id,last_transition_at=now(),updated_at=now() WHERE workspace_id=p_workspace_id AND conversation_id=p_conversation_id AND board_id=p_board_id;
+  ELSE INSERT INTO public.conversation_kanban_state(workspace_id,conversation_id,board_id,stage_id,position,manual_override,last_transition_source,last_transition_by,last_transition_at) VALUES(p_workspace_id,p_conversation_id,p_board_id,p_stage_id,p_position,p_source='manual',p_source,p_actor_id,now()); END IF;
+  INSERT INTO public.conversation_kanban_events(id,workspace_id,conversation_id,board_id,from_stage_id,to_stage_id,source,actor_id,metadata_safe) VALUES(gen_random_uuid(),p_workspace_id,p_conversation_id,p_board_id,CASE WHEN FOUND THEN v_current.stage_id ELSE NULL END,p_stage_id,p_source,p_actor_id,'{}');
+  RETURN QUERY SELECT s.updated_at, v_current.stage_id, p_stage_id FROM public.conversation_kanban_state s WHERE s.workspace_id=p_workspace_id AND s.conversation_id=p_conversation_id AND s.board_id=p_board_id;
+END $$;
+GRANT EXECUTE ON FUNCTION public.chatpro_kanban_move(text,uuid,uuid,uuid,numeric,text,uuid,timestamptz) TO service_role;
 GRANT SELECT, INSERT, UPDATE ON public.kanban_boards, public.kanban_stages, public.conversation_kanban_state, public.conversation_kanban_events TO service_role;

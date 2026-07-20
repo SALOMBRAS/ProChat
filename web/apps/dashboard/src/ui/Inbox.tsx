@@ -14,6 +14,7 @@ import { connectRealtime } from "../api/realtime.js";
 import { ApiError } from "../api/client.js";
 import { WorkspaceApi } from "../api/workspace.js";
 import type { Team, WorkspaceUser } from "@chatpro/contracts";
+import { InboxKanban } from "./InboxKanban.js";
 
 const defaultApi = new InboxApi();
 const workspaceApi = new WorkspaceApi();
@@ -166,6 +167,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [startingSync, setStartingSync] = useState(false);
   const [activity, setActivity] = useState<ConversationEvent[]>([]);
   const [filter, setFilter] = useState<InboxFilter>("all");
+  const [view, setView] = useState<"list" | "kanban">("list");
   const [changingManagement, setChangingManagement] = useState(false);
   const [workspaceUsers, setWorkspaceUsers] = useState<WorkspaceUser[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -514,6 +516,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     if (filter === "high_priority") return conversation.priority === "high" || conversation.priority === "urgent";
     return true;
   });
+  if (view === "kanban") return <section className="page inbox"><button className="secondary" onClick={() => setView("list")}>Lista</button><InboxKanban /></section>;
   return (
     <section className="page inbox chat-inbox">
       <div className="inbox-layout">
@@ -536,6 +539,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
             >
               ↻
             </button>
+            <button className="secondary" onClick={() => setView("kanban")} aria-label="Abrir Kanban">Kanban</button>
           </div>
           <button
             className="secondary"

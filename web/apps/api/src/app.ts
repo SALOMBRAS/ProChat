@@ -32,6 +32,7 @@ import { WahaMediaProxyService } from './services/waha-media-proxy.service.js';
 import { SupabaseWhatsAppMediaStorage, WhatsAppMediaPersistenceService } from './services/whatsapp-media-persistence.service.js';
 import { SlaService, SqliteSlaStore, SupabaseSlaStore } from './services/sla.service.js';
 import { KanbanService } from './services/kanban.service.js';
+import { SupabaseKanbanService } from './services/supabase-kanban.service.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
   const realtimeHub = new RealtimeHub(); app.locals.realtimeHub = realtimeHub;
@@ -80,7 +81,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const directory = new WorkspaceDirectoryService(database ? new SqliteWorkspaceDirectoryStore(database.sqlite) : new SupabaseWorkspaceDirectoryStore(supabase!), realtimeHub, config.developmentUserId);
     const routingStore = database ? new SqliteRoutingStore(database.sqlite) : new SupabaseRoutingStore(supabase!);
     const sla = new SlaService(database ? new SqliteSlaStore(database.sqlite) : new SupabaseSlaStore(supabase!), realtimeHub);
-    const kanban = database ? new KanbanService(database.sqlite, realtimeHub, sla) : undefined;
+    const kanban = database ? new KanbanService(database.sqlite, realtimeHub, sla) : new SupabaseKanbanService(supabase!, realtimeHub, sla);
     if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void sla.tick(); }, 60_000); timer.unref(); }
     const routing = new RoutingService(routingStore, webhookStore, directory, realtimeHub, database ? new SqliteRoutingJobStore(database.sqlite) : undefined);
     const attachments = new AttachmentOutboxService(webhookStore, outboxStore, attachmentStorage, workerClient);
