@@ -388,7 +388,8 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     try {
       if (attachment) {
         setAttachmentStatus("Preparando anexo…");
-        const job = await api.sendAttachment(selected.id, attachment, text);
+        const clientRequestId = crypto.randomUUID();
+        const job = await api.sendAttachment(selected.id, attachment, clientRequestId, text);
         setAttachmentStatus(
           job.status === "failed"
             ? "Falhou"

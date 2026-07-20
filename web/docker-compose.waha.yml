@@ -11,7 +11,10 @@ services:
       WHATSAPP_API_HOSTNAME: 0.0.0.0
       WHATSAPP_DEFAULT_ENGINE: WEBJS
       WAHA_PRINT_QR: "False"
-      WHATSAPP_DOWNLOAD_MEDIA: "false"
+      # Webhooks carry media.url only when WAHA downloads the received file.
+      # The API persists the event immediately; this enables the media path
+      # without turning a webhook into a synchronous download.
+      WHATSAPP_DOWNLOAD_MEDIA: "true"
       WHATSAPP_API_KEY_EXCLUDE_PATH: health
       WAHA_DASHBOARD_ENABLED: "false"
       WHATSAPP_SWAGGER_ENABLED: "false"
