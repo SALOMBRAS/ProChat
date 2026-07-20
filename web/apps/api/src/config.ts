@@ -13,6 +13,7 @@ export interface ApiConfig {
   wahaWebhookWorkspaceId?: string;
   wahaBaseUrl?: string;
   wahaApiKey?: string;
+  mediaProxyTokenSecret?: string;
   developmentUserId?: string;
   whatsappHistorySyncBatchChats?: number;
   whatsappHistorySyncBatchMessages?: number;
@@ -32,5 +33,5 @@ export function loadConfig(env = process.env): ApiConfig {
   const developmentUserId = env.CHATPRO_DEVELOPMENT_USER_ID?.trim() || undefined;
   if (developmentUserId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(developmentUserId)) throw new Error('CHATPRO_DEVELOPMENT_USER_ID must be a UUID');
   const positiveInteger = (name: string, fallback: number, maximum: number) => { const value = Number(env[name] ?? fallback); if (!Number.isInteger(value) || value < 1 || value > maximum) throw new Error(`${name} must be a positive integer up to ${maximum}`); return value; };
-  return { port, nodeEnv: env.NODE_ENV ?? 'development', workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, wahaWebhookHmacKey: env.WAHA_WEBHOOK_HMAC_KEY?.trim() || undefined, wahaWebhookWorkspaceId, wahaBaseUrl: env.WAHA_BASE_URL?.trim().replace(/\/+$/, '') || undefined, wahaApiKey: env.WAHA_API_KEY?.trim() || undefined, developmentUserId, whatsappHistorySyncBatchChats: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_CHATS', 10, 100), whatsappHistorySyncBatchMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_MESSAGES', 300, 5_000), whatsappHistorySyncMaxChats: positiveInteger('WHATSAPP_HISTORY_SYNC_MAX_CHATS', 500, 10_000), whatsappHistorySyncMaxMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_MAX_MESSAGES', 50_000, 1_000_000) };
+  return { port, nodeEnv: env.NODE_ENV ?? 'development', workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, wahaWebhookHmacKey: env.WAHA_WEBHOOK_HMAC_KEY?.trim() || undefined, wahaWebhookWorkspaceId, wahaBaseUrl: env.WAHA_BASE_URL?.trim().replace(/\/+$/, '') || undefined, wahaApiKey: env.WAHA_API_KEY?.trim() || undefined, mediaProxyTokenSecret: env.MEDIA_PROXY_TOKEN_SECRET?.trim() || undefined, developmentUserId, whatsappHistorySyncBatchChats: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_CHATS', 10, 100), whatsappHistorySyncBatchMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_MESSAGES', 300, 5_000), whatsappHistorySyncMaxChats: positiveInteger('WHATSAPP_HISTORY_SYNC_MAX_CHATS', 500, 10_000), whatsappHistorySyncMaxMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_MAX_MESSAGES', 50_000, 1_000_000) };
 }

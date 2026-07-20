@@ -76,11 +76,14 @@ const Avatar = ({
 );
 const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
   const [url, setUrl] = useState<string>();
-  useEffect(() => { if (!message.mediaUrl) return; const controller = new AbortController(); let objectUrl: string | undefined; void api.media(message.id, controller.signal).then(blob => { objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); }).catch(() => setUrl(undefined)); return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); }; }, [api, message.id, message.mediaUrl]);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { if (!message.mediaUrl) return; let active = true; setUrl(undefined); setFailed(false); void api.mediaUrl(message.id).then(access => { if (active) setUrl(access.url); }).catch(() => { if (active) setFailed(true); }); return () => { active = false; }; }, [api, message.id, message.mediaUrl]);
   if (!message.mediaUrl)
     return message.direction === "inbound" ? (
       <span className="message-received-label">Recebida</span>
     ) : null;
+  if (failed) return <span className="media-error" role="status">NÃ£o foi possÃ­vel carregar a mÃ­dia.</span>;
+  if (!url) return <span className="media-loading" role="status">Carregando mÃ­diaâ€¦</span>;
   if (message.messageType === "image" || message.messageType === "sticker")
     return (
       <a
@@ -102,6 +105,7 @@ const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
         controls
         preload="metadata"
         poster={message.thumbnailUrl ?? undefined}
+        playsInline
       >
         <source src={url} type={message.mediaMimeType ?? undefined} />
       </video>
