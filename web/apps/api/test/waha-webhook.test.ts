@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
+import { historyRecord, webhookRecord } from '../src/services/waha-webhook.service.js';
 import { createWorkerTransportHandler, listenInternalTransport } from '../../worker/src/internal-transport-server.js';
 import type { WhatsAppWorkerPort } from '../../worker/src/ports.js';
 
@@ -15,6 +16,19 @@ const appFor = async (workerTransportUrl = 'http://127.0.0.1:1/internal/transpor
 afterEach(async () => { applications.splice(0).forEach(app => app.locals.persistenceDatabase?.close()); directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })); await Promise.all(workerServers.splice(0).map(server => server.close())); });
 
 describe('WAHA webhook ingress', () => {
+  it('preserves ISO and millisecond timestamps from historical WAHA messages', () => {
+    expect(historyRecord('workspace-a', 'waha-a', { id: 'history-iso', timestamp: '2024-01-02T03:04:05.000Z' })?.occurredAt).toBe('2024-01-02T03:04:05.000Z');
+    expect(historyRecord('workspace-a', 'waha-a', { id: 'history-ms', timestamp: '1704164645000' })?.occurredAt).toBe('2024-01-02T03:04:05.000Z');
+  });
+  it('prefers the original payload timestamp over a delayed webhook delivery timestamp', () => {
+    const event = { id: 'evt-delayed', timestamp: Date.parse('2026-07-20T14:00:00.000Z'), event: 'message', session: 'waha-a', payload: { id: 'message-delayed', chatId: '5511999990000@c.us', timestamp: 1704164645 } };
+    expect(webhookRecord(event as any, 'workspace-a').occurredAt).toBe('2024-01-02T03:04:05.000Z');
+  });
+  it('does not create an Inbox conversation for status broadcasts', async () => {
+    const app = await appFor(); const body = { id: 'evt-status', timestamp: Date.now(), event: 'message', session: 'waha-a', payload: { id: 'status-message', chatId: 'status@broadcast', body: 'Status' } }; const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS total FROM conversations').get()).toMatchObject({ total: 0 });
+  });
   it('authenticates, sanitizes and persists a message idempotently', async () => {
     const app = await appFor(); const body = { id: 'evt-1', timestamp: Date.now(), event: 'message', session: 'waha-a', payload: { id: 'message-1', chatId: '5511999990000@c.us', body: 'Olá', type: 'text', apiKey: 'must-not-persist' } }; const requestBody = signed(body);
     await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202).expect(response => expect(response.body).toEqual({ accepted: true, duplicate: false }));

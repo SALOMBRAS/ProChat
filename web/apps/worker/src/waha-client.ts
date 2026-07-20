@@ -78,8 +78,8 @@ export class WahaHttpClient implements WahaClientPort {
     return id ? { id, pending: false } : { pending: true };
   }
   async listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage> {
-    const data = await this.request(`/api/${encodeURIComponent(session)}/chats?limit=${limit}&offset=${offset}&sortBy=messageTimestamp&sortOrder=desc`);
-    const items = Array.isArray(data) ? data.flatMap(value => value && typeof value === 'object' && !Array.isArray(value) ? [value as Record<string, unknown>] : []) : [];
+    const data = await this.request(`/api/${encodeURIComponent(session)}/chats?limit=${limit}&offset=${offset}&sortBy=conversationTimestamp&sortOrder=desc`);
+    const items = Array.isArray(data) ? data.flatMap(value => value && typeof value === 'object' && !Array.isArray(value) ? [{ ...(value as Record<string, unknown>), id: serializedId((value as Record<string, unknown>).id) ?? (value as Record<string, unknown>).id }] : []) : [];
     const unsupported: string[] = []; const accepted = items.filter(item => { const id = stringValue(item.id); if (!id || id === 'status@broadcast' || (!id.endsWith('@c.us') && !id.endsWith('@lid') && !id.endsWith('@g.us'))) { if (id) unsupported.push(id); return false; } return true; });
     return { items: accepted, unsupported, hasMore: items.length === limit };
   }
@@ -111,6 +111,7 @@ function session(value: unknown): WahaSession { if (!value || typeof value !== '
 function object(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new WahaClientError('response'); return value as Record<string, unknown>; }
 function objectOrEmpty(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function stringValue(value: unknown): string | null { return typeof value === 'string' && value.trim() ? value.trim() : null; }
+function serializedId(value: unknown): string | null { return stringValue(value) ?? (value && typeof value === 'object' && !Array.isArray(value) ? stringValue((value as Record<string, unknown>)._serialized) : null); }
 function safeMetadata(value: Record<string, unknown>): Record<string, unknown> { const allowed = ['description', 'owner', 'creation', 'createdAt', 'isReadOnly', 'isAnnounce', 'isRestricted']; return Object.fromEntries(allowed.flatMap(key => value[key] === undefined ? [] : [[key, value[key]]])) as Record<string, unknown>; }
 function phoneFromChat(chatId: string): string | null { const phone = chatId.split('@', 1)[0].replace(/\D/g, ''); return phone.length >= 8 && phone.length <= 15 ? phone : null; }
 function safeProviderMessage(value: string): string | undefined { const trimmed = value.replace(/(api[_-]?key|authorization|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]').replace(/\s+/g, ' ').trim(); return trimmed ? trimmed.slice(0, 200) : undefined; }
