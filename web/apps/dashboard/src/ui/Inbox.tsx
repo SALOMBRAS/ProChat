@@ -144,7 +144,9 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [attachment, setAttachment] = useState<File>();
+  const [attachmentPreview, setAttachmentPreview] = useState<string>();
   const [attachmentStatus, setAttachmentStatus] = useState("");
+  useEffect(() => { if (!attachment?.type.startsWith('image/')) { setAttachmentPreview(undefined); return; } const url = URL.createObjectURL(attachment); setAttachmentPreview(url); return () => URL.revokeObjectURL(url); }, [attachment]);
   const [context, setContext] = useState<ConversationContext>();
   const [notes, setNotes] = useState("");
   const [tag, setTag] = useState("");
@@ -665,6 +667,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                 <button type="button" className="composer-action" onClick={(event) => (event.currentTarget.previousElementSibling as HTMLInputElement | null)?.click()} disabled={sending} aria-label="Anexar arquivo">⌕</button>
                 <textarea aria-label="Mensagem" name="text" placeholder={attachment ? 'Adicionar legenda (opcional)' : 'Digite uma mensagem'} maxLength={4096} disabled={sending} />
                 {attachment && <span className="attachment-preview" title={attachment.name}>{attachment.name}</span>}
+                {attachmentPreview && <img className="attachment-image-preview" src={attachmentPreview} alt="Prévia do anexo" />}
                 {attachmentStatus && <span className="attachment-status">{attachmentStatus}</span>}
                 <button
                   className="send-button"

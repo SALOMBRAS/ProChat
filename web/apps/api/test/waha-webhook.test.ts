@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
-import { historyRecord, webhookRecord } from '../src/services/waha-webhook.service.js';
+import { historyRecord, messagePreview, webhookRecord } from '../src/services/waha-webhook.service.js';
 import { createWorkerTransportHandler, listenInternalTransport } from '../../worker/src/internal-transport-server.js';
 import type { WhatsAppWorkerPort } from '../../worker/src/ports.js';
 
@@ -16,6 +16,13 @@ const appFor = async (workerTransportUrl = 'http://127.0.0.1:1/internal/transpor
 afterEach(async () => { applications.splice(0).forEach(app => app.locals.persistenceDatabase?.close()); directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })); await Promise.all(workerServers.splice(0).map(server => server.close())); });
 
 describe('WAHA webhook ingress', () => {
+  it('formats media conversation previews without falling back to text-only placeholders', () => {
+    expect(messagePreview({ messageType: 'image', body: null, mediaFilename: null })).toBe('Foto');
+    expect(messagePreview({ messageType: 'image', body: 'Confira', mediaFilename: null })).toBe('Foto: Confira');
+    expect(messagePreview({ messageType: 'document', body: null, mediaFilename: 'invoice.pdf' })).toBe('Documento: invoice.pdf');
+    expect(messagePreview({ messageType: 'audio', body: null, mediaFilename: null })).toBe('Áudio');
+    expect(messagePreview({ messageType: 'sticker', body: null, mediaFilename: null })).toBe('Sticker');
+  });
   it('preserves ISO and millisecond timestamps from historical WAHA messages', () => {
     expect(historyRecord('workspace-a', 'waha-a', { id: 'history-iso', timestamp: '2024-01-02T03:04:05.000Z' })?.occurredAt).toBe('2024-01-02T03:04:05.000Z');
     expect(historyRecord('workspace-a', 'waha-a', { id: 'history-ms', timestamp: '1704164645000' })?.occurredAt).toBe('2024-01-02T03:04:05.000Z');
