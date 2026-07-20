@@ -147,6 +147,14 @@ describe('WAHA webhook ingress', () => {
     await request(app).get(`/api/v1/inbox/conversations/${groupConversation.id}/context`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body).toMatchObject({ notes: null, tags: [] }));
     await request(app).get(`/api/v1/inbox/conversations/${directConversation.id}/context`).set('x-workspace-id', 'workspace-b').expect(404);
   });
+  it('keeps different group participants as authors in one conversation', async () => {
+    const app = await appFor(); const group = '120363000000@g.us';
+    for (const [id, participant] of [['group-a', '5511999990001@c.us'], ['group-b', '5511999990002@c.us']] as const) { const body = { id: `evt-${id}`, timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id, chatId: group, participant, body: 'grupo' } }; const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    const conversations = await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200);
+    expect(conversations.body).toMatchObject({ total: 1, items: [{ chatId: group, conversationType: 'group' }] });
+    const messages = await request(app).get(`/api/v1/inbox/conversations/${conversations.body.items[0].id}/messages`).set('x-workspace-id', 'workspace-a').expect(200);
+    expect(messages.body.items.map((item: { senderWhatsappId: string }) => item.senderWhatsappId).sort()).toEqual(['5511999990001@c.us', '5511999990002@c.us']);
+  });
   it('manages assignment, status, priority, activity and realtime updates without changing message ingestion', async () => {
     const app = await appFor(); const actor = '00000000-0000-4000-8000-000000000001'; const teammate = '00000000-0000-4000-8000-000000000002'; const source = { id: 'evt-management', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-management', chatId: '5511999990000@c.us', body: 'Preciso de ajuda' } }; const signedSource = signed(source);
     await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedSource.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedSource.timestamp).send(signedSource.raw).expect(202);

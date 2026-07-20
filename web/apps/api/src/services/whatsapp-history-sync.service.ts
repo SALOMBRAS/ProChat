@@ -5,6 +5,7 @@ import { InternalWorkerClient } from '../internal-worker-client.js';
 import type { RealtimeHub } from '../realtime.js';
 import { log } from '../logging.js';
 import { historyRecord, type WahaWebhookStore } from './waha-webhook.service.js';
+import { isConversationChatId } from './conversation-identity.js';
 
 export type SyncStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type SyncJob = { id: string; workspaceId: string; wahaSession: string; status: SyncStatus; currentChatId: string | null; chatCursor: string | null; messageCursor: string | null; chatsProcessed: number; messagesProcessed: number; startedAt: string; completedAt: string | null; lastErrorSafe: string | null; updatedAt: string };
@@ -111,7 +112,7 @@ export class WhatsAppHistorySyncService {
             await this.save({ ...job, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, 'completed');
             return;
           }
-          const chatId = typeof page.items[0].id === 'string' ? page.items[0].id : null;
+          const chatId = typeof page.items[0].id === 'string' && isConversationChatId(page.items[0].id) ? page.items[0].id : null;
           if (!chatId) {
             job = await this.save({ ...job, chatCursor: String(offset + 1), updatedAt: new Date().toISOString() }, 'skipped invalid chat');
             continue;
@@ -125,7 +126,7 @@ export class WhatsAppHistorySyncService {
         const page = await this.page(job, job.currentChatId, offset, Math.min(this.options.messagePageSize, remainingMessages, remainingGlobalMessages));
         for (const message of page.items) {
           if ((await this.current(job)).status === 'cancelled') return;
-          const record = historyRecord(workspaceId, wahaSession, message);
+          const record = historyRecord(workspaceId, wahaSession, message, job.currentChatId);
           if (record) await this.messages.ingest(record);
           messagesThisBatch += 1;
         }
