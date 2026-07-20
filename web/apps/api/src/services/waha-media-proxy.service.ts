@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { Response } from 'express';
 import { AppError } from '../errors.js';
 
@@ -19,6 +20,14 @@ export class WahaMediaProxyService {
     const length = upstream.headers.get('content-length'); if (length) response.setHeader('content-length', length);
     const filename = (fallbackFilename ?? 'attachment').replace(/[\\\r\n"]/g, '_');
     response.setHeader('content-disposition', `inline; filename="${filename}"`);
-    Readable.fromWeb(upstream.body as import('node:stream/web').ReadableStream).pipe(response);
+    // Never use Readable.pipe() here: an upstream socket reset otherwise emits
+    // an unhandled error on the Node stream and terminates the API process.
+    try { await pipeline(Readable.fromWeb(upstream.body as import('node:stream/web').ReadableStream), response); }
+    catch {
+      // Headers may already be on the wire, so a JSON error is no longer valid.
+      // Destroy only this client response; pipeline has consumed the stream error
+      // and the Express process remains available for all other requests.
+      if (!response.destroyed) response.destroy();
+    }
   }
 }
