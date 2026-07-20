@@ -9,6 +9,7 @@ import { connectRealtime } from '../api/realtime';
 import InboxScreen from './Inbox.js';
 import { TeamDirectory } from './TeamDirectory.js';
 import RoutingQueues from './RoutingQueues.js';
+import { InboxKanban } from './InboxKanban.js';
 
 const domain = new DomainApi(); const sessionsApi = new SessionsApi(); const inboxApi = new InboxApi();
 const Inbox = InboxScreen;

@@ -9,6 +9,9 @@ export type ConversationStatus = 'open' | 'in_progress' | 'waiting_customer' | '
 export type ConversationPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type ConversationEvent = { id: string; conversationId: string; workspaceId: string; userId: string; action: 'assigned' | 'unassigned' | 'status_changed' | 'priority_changed' | 'archived' | 'reopened'; previousValue: string | null; newValue: string | null; createdAt: string };
 export type ConversationManagementResult = { conversation: InboxConversation; event: ConversationEvent | null; changed: boolean };
+export type KanbanStage = { id:string; boardId:string; key:string; name:string; position:number; count:number; isTerminal:boolean; isArchivedStage:boolean };
+export type KanbanBoard = { id:string; name:string; isDefault:boolean; stages:KanbanStage[] };
+export type KanbanCard = { conversationId:string; maskedId:string; lastMessage:string; lastMessageAt:string; unreadCount:number; conversationType:'direct'|'group'; assignedUserId:string|null; assignedTeamId:string|null; routingQueueId:string|null; tags:string[]; slaStatus:string|null; stageId:string; position:number; updatedAt:string };
 export class InboxApi {
   constructor(private readonly http = new ApiClient()) {}
   conversations=(page=1,pageSize=50)=>this.http.get<Page<InboxConversation>>(`/api/v1/inbox/conversations?page=${page}&pageSize=${pageSize}`);
@@ -32,4 +35,7 @@ export class InboxApi {
   startSync=(wahaSession?:string)=>this.http.post<HistorySyncJob>('/api/v1/inbox/sync/start', wahaSession ? { wahaSession } : {});
   syncStatus=(wahaSession:string)=>this.http.get<HistorySyncJob>(`/api/v1/inbox/sync/status?wahaSession=${encodeURIComponent(wahaSession)}`);
   cancelSync=(wahaSession:string)=>this.http.post<HistorySyncJob>('/api/v1/inbox/sync/cancel', { wahaSession });
+  kanbanBoards=()=>this.http.get<KanbanBoard[]>('/api/v1/inbox/kanban/boards');
+  kanbanCards=(boardId:string,stageId:string)=>this.http.get<Page<KanbanCard>>(`/api/v1/inbox/kanban/boards/${boardId}/conversations?stageId=${encodeURIComponent(stageId)}`);
+  moveKanban=(conversationId:string,input:{boardId:string;stageId:string;source:'manual';expectedUpdatedAt?:string})=>this.http.post(`/api/v1/inbox/kanban/conversations/${conversationId}/move`,input);
 }
