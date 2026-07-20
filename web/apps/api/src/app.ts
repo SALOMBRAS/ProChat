@@ -33,6 +33,7 @@ import { SupabaseWhatsAppMediaStorage, WhatsAppMediaPersistenceService } from '.
 import { SlaService, SqliteSlaStore, SupabaseSlaStore } from './services/sla.service.js';
 import { KanbanService } from './services/kanban.service.js';
 import { SupabaseKanbanService } from './services/supabase-kanban.service.js';
+import { KanbanAutomationCoordinator } from './services/kanban-automation.service.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
   const realtimeHub = new RealtimeHub(); app.locals.realtimeHub = realtimeHub;
@@ -71,17 +72,20 @@ export async function createApp(config: ApiConfig = loadConfig()) {
   app.locals.persistenceDatabase = database;
   try {
     const supabase = database ? undefined : createSupabasePersistenceClient(config);
-    const webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite) : new SupabaseWahaWebhookStore(supabase!);
+    let webhookStore: SqliteWahaWebhookStore | SupabaseWahaWebhookStore;
     const identityStore = database ? new SqliteWhatsAppIdentityStore(database.sqlite) : new SupabaseWhatsAppIdentityStore(supabase!);
     const contextStore = database ? new SqliteConversationContextStore(database.sqlite) : new SupabaseConversationContextStore(supabase!);
     const syncStore = database ? new SqliteWhatsAppHistorySyncStore(database.sqlite) : new SupabaseWhatsAppHistorySyncStore(supabase!);
     const workerClient = new InternalWorkerClient({ url: config.workerTransportUrl, timeoutMs: config.workerTransportTimeoutMs });
     const outboxStore = database ? new SqliteAttachmentOutboxStore(database.sqlite) : new SupabaseAttachmentOutboxStore(supabase!);
-    const attachmentStorage = database ? new UnavailableTemporaryAttachmentStorage() : new SupabaseTemporaryAttachmentStorage(supabase!); const permanentMedia = database ? undefined : new SupabaseWhatsAppMediaStorage(supabase!); const mediaPersistence = new WhatsAppMediaPersistenceService(webhookStore, permanentMedia, { baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey });
+    const attachmentStorage = database ? new UnavailableTemporaryAttachmentStorage() : new SupabaseTemporaryAttachmentStorage(supabase!); const permanentMedia = database ? undefined : new SupabaseWhatsAppMediaStorage(supabase!);
     const directory = new WorkspaceDirectoryService(database ? new SqliteWorkspaceDirectoryStore(database.sqlite) : new SupabaseWorkspaceDirectoryStore(supabase!), realtimeHub, config.developmentUserId);
     const routingStore = database ? new SqliteRoutingStore(database.sqlite) : new SupabaseRoutingStore(supabase!);
     const sla = new SlaService(database ? new SqliteSlaStore(database.sqlite) : new SupabaseSlaStore(supabase!), realtimeHub);
     const kanban = database ? new KanbanService(database.sqlite, realtimeHub, sla) : new SupabaseKanbanService(supabase!, realtimeHub, sla);
+    const kanbanAutomation = new KanbanAutomationCoordinator(kanban);
+    webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite, kanbanAutomation) : new SupabaseWahaWebhookStore(supabase!, kanbanAutomation);
+    const mediaPersistence = new WhatsAppMediaPersistenceService(webhookStore, permanentMedia, { baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey });
     if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void sla.tick(); }, 60_000); timer.unref(); }
     const routing = new RoutingService(routingStore, webhookStore, directory, realtimeHub, database ? new SqliteRoutingJobStore(database.sqlite) : undefined);
     const attachments = new AttachmentOutboxService(webhookStore, outboxStore, attachmentStorage, workerClient);
@@ -95,7 +99,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
     const historySync = new WhatsAppHistorySyncService(workerClient, webhookStore, syncStore, realtimeHub, { maxChatsPerRun: config.whatsappHistorySyncBatchChats, maxMessagesPerRun: config.whatsappHistorySyncBatchMessages, maxChatsTotal: config.whatsappHistorySyncMaxChats, maxMessagesTotal: config.whatsappHistorySyncMaxMessages });
     app.locals.routingJobs = database ? new SqliteRoutingJobStore(database.sqlite) : undefined;
-    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments, new WahaMediaProxyService({ baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey, signingKey: config.mediaProxyTokenSecret }), permanentMedia, sla, kanban), new WorkspaceDirectoryController(directory), new RoutingController(routing))); app.use(errorHandler);
+    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub, kanbanAutomation), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments, new WahaMediaProxyService({ baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey, signingKey: config.mediaProxyTokenSecret }), permanentMedia, sla, kanban), new WorkspaceDirectoryController(directory), new RoutingController(routing))); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }
   return app;
 }
