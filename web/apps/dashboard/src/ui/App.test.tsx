@@ -109,4 +109,15 @@ describe('Inbox', () => {
     act(() => realtime.handler?.({ eventType: 'conversation.context.updated', payload: { conversationId: a.id } }));
     expect((api.context as any).mock.calls).toHaveLength(callsBefore);
   });
+
+  it('keeps the visible history sync status scoped to its WAHA session', async () => {
+    const a = conversation('conversation-a', '5511999999999@c.us');
+    const syncJob = { id: 'job-a', jobId: 'job-a', wahaSession: 'session-a', status: 'running' as const, chatsProcessed: 1, messagesProcessed: 20, currentChat: '5511999999999@c.us', hasMore: true, progressLabel: 'Sincronizando histórico…', lastErrorSafe: null, updatedAt: '2026-07-16T18:00:00.000Z' };
+    const api = { conversations: vi.fn().mockResolvedValue(page([a])), messages: vi.fn().mockResolvedValue(emptyMessages), sendMessage: vi.fn(), markRead: vi.fn(), syncStatus: vi.fn().mockResolvedValue(syncJob), startSync: vi.fn(), cancelSync: vi.fn() } as unknown as InboxApi;
+    render(<Inbox api={api} />);
+    expect(await screen.findByText(/Sincronizando histórico/)).toBeInTheDocument();
+    act(() => realtime.handler?.({ eventType: 'conversation.sync.updated', payload: { wahaSession: 'session-b', status: 'completed', chatsProcessed: 99, messagesProcessed: 99, progressLabel: 'Histórico sincronizado.' } }));
+    expect(screen.getByText(/Sincronizando histórico/)).toBeInTheDocument();
+    expect(screen.queryByText(/99 conversas/)).not.toBeInTheDocument();
+  });
 });

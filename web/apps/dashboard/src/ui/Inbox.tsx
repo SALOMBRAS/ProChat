@@ -225,13 +225,15 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const refreshDirectory = async () => { try { const [users, nextTeams] = await Promise.all([workspaceApi.users(), workspaceApi.teams()]); setWorkspaceUsers(users); setTeams(nextTeams); } catch (nextError) { setError(errorMessage(nextError)); } };
   useEffect(() => { void refreshDirectory(); }, []);
   useEffect(() => {
-    const session = conversationPage.items[0]?.whatsappSessionId;
+    const session = syncJob?.wahaSession ?? conversationPage.items[0]?.whatsappSessionId;
     if (!session || !api.syncStatus) return;
-    void api
-      .syncStatus(session)
-      .then(setSyncJob)
-      .catch(() => setSyncJob(undefined));
-  }, [conversationPage.items, api]);
+    let disposed = false;
+    const load = () => void api.syncStatus!(session).then((job) => { if (!disposed) setSyncJob(job); }).catch(() => { if (!disposed) setSyncJob(undefined); });
+    load();
+    const polling = syncJob?.status === "running" || syncJob?.status === "pending";
+    const timer = polling ? window.setInterval(load, 2_000) : undefined;
+    return () => { disposed = true; if (timer) window.clearInterval(timer); };
+  }, [conversationPage.items, api, syncJob?.status, syncJob?.wahaSession]);
   useEffect(() => {
     document
       .querySelectorAll<HTMLButtonElement>(".chat-inbox .conversation-item")
@@ -286,10 +288,12 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
         }
         if (["workspace.user.created", "workspace.user.updated", "workspace.team.created", "workspace.team.updated", "workspace.team.members.updated"].includes(event.eventType)) { void refreshDirectory(); return; }
         if (event.eventType === "conversation.sync.updated") {
+          const wahaSession = String(event.payload.wahaSession ?? "");
           setSyncJob((current) =>
-            current
+            current && current.wahaSession === wahaSession
               ? {
                   ...current,
+                  jobId: String(event.payload.jobId ?? current.jobId),
                   status: String(
                     event.payload.status,
                   ) as HistorySyncJob["status"],
@@ -300,6 +304,11 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                     event.payload.messagesProcessed ??
                       current.messagesProcessed,
                   ),
+                  currentChat: typeof event.payload.currentChat === "string" ? event.payload.currentChat : null,
+                  hasMore: Boolean(event.payload.hasMore ?? current.hasMore),
+                  progressLabel: String(event.payload.progressLabel ?? current.progressLabel),
+                  lastErrorSafe: typeof event.payload.lastErrorSafe === "string" ? event.payload.lastErrorSafe : null,
+                  updatedAt: String(event.payload.updatedAt ?? current.updatedAt),
                 }
               : current,
           );
@@ -417,6 +426,15 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       setStartingSync(false);
     }
   };
+  const cancelSync = async () => {
+    const session = syncJob?.wahaSession ?? conversationPage.items[0]?.whatsappSessionId;
+    if (!session || !api.cancelSync) return;
+    try {
+      setSyncJob(await api.cancelSync(session));
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    }
+  };
   const addTag = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const conversationId = selected?.id;
@@ -492,12 +510,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                 Conversas <span>{conversationPage.total}</span>
               </h2>
               <small>
-                Histórico:{" "}
-                {syncJob?.status === "running"
-                  ? `sincronizando (${syncJob.chatsProcessed} conversas, ${syncJob.messagesProcessed} mensagens)`
-                  : syncJob?.status === "completed"
-                    ? "concluído"
-                    : "não sincronizado"}
+                Histórico: {syncJob ? `${syncJob.progressLabel} (${syncJob.chatsProcessed} conversas, ${syncJob.messagesProcessed} mensagens)` : "não sincronizado"}
               </small>
             </div>
             <button
@@ -511,11 +524,16 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
           </div>
           <button
             className="secondary"
-            disabled={startingSync || syncJob?.status === "running"}
+            disabled={startingSync || syncJob?.status === "running" || syncJob?.status === "pending"}
             onClick={() => void startSync()}
           >
-            {startingSync ? "Iniciando…" : "Sincronizar histórico"}
+            {startingSync ? "Iniciando…" : syncJob?.status === "failed" || syncJob?.status === "cancelled" ? "Retomar sincronização" : "Sincronizar histórico"}
           </button>
+          {(syncJob?.status === "running" || syncJob?.status === "pending") && (
+            <button className="secondary" onClick={() => void cancelSync()}>
+              Cancelar sincronização
+            </button>
+          )}
           <label className="inbox-management-filter">
             <span>Filtro</span>
             <select aria-label="Filtrar conversas" value={filter} onChange={(event) => setFilter(event.target.value as InboxFilter)}>

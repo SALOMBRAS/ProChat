@@ -82,7 +82,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     if (config.nodeEnv !== 'test') identitySync.enqueueBackfill();
     app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }, identitySync, async (workspaceId, externalMessageId) => { await attachments.confirm(workspaceId, externalMessageId); }).receive);
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
-    const historySync = new WhatsAppHistorySyncService(workerClient, webhookStore, syncStore, realtimeHub);
+    const historySync = new WhatsAppHistorySyncService(workerClient, webhookStore, syncStore, realtimeHub, { maxChatsPerRun: config.whatsappHistorySyncBatchChats, maxMessagesPerRun: config.whatsappHistorySyncBatchMessages, maxChatsTotal: config.whatsappHistorySyncMaxChats, maxMessagesTotal: config.whatsappHistorySyncMaxMessages });
     app.locals.routingJobs = database ? new SqliteRoutingJobStore(database.sqlite) : undefined;
     app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments), new WorkspaceDirectoryController(directory), new RoutingController(routing))); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }
