@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS public.routing_queue_members (
 CREATE TABLE IF NOT EXISTS public.routing_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), workspace_id text NOT NULL, conversation_id uuid NOT NULL, queue_id uuid NULL, assigned_user_id uuid NULL,
   strategy text NOT NULL CHECK(strategy IN ('round_robin','least_loaded','manual')), result text NOT NULL CHECK(result IN ('assigned','skipped','failed','manual_override')),
-  reason_safe text NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,id),
+  reason_safe text NULL, created_at timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY(workspace_id,conversation_id) REFERENCES public.conversations(workspace_id,id) ON DELETE CASCADE
 );
 ALTER TABLE public.conversations ADD COLUMN IF NOT EXISTS routing_queue_id uuid NULL, ADD COLUMN IF NOT EXISTS auto_assigned_at timestamptz NULL, ADD COLUMN IF NOT EXISTS routing_locked_at timestamptz NULL;
