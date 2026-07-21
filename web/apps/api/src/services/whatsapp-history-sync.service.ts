@@ -11,7 +11,7 @@ export type SyncStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cance
 export type SyncJob = { id: string; workspaceId: string; wahaSession: string; status: SyncStatus; currentChatId: string | null; chatCursor: string | null; messageCursor: string | null; chatsProcessed: number; messagesProcessed: number; startedAt: string; completedAt: string | null; lastErrorSafe: string | null; updatedAt: string };
 export type SyncJobStatus = SyncJob & { jobId: string; currentChat: string | null; hasMore: boolean; progressLabel: string };
 export type SyncJobStore = { get(workspaceId: string, wahaSession: string): Promise<SyncJob | undefined>; save(job: SyncJob): Promise<void> };
-export type HistorySyncOptions = { chatPageSize?: number; messagePageSize?: number; maxChatsPerRun?: number; maxMessagesPerRun?: number; maxChatsTotal?: number; maxMessagesTotal?: number; continuationDelayMs?: number; maxAttempts?: number; retryBaseMs?: number; sleep?: (milliseconds: number) => Promise<void> };
+export type HistorySyncOptions = { chatPageSize?: number; messagePageSize?: number; maxChatsPerRun?: number; maxMessagesPerRun?: number; emergencyMaxMessages?: number; continuationDelayMs?: number; maxAttempts?: number; retryBaseMs?: number; sleep?: (milliseconds: number) => Promise<void> };
 export type HistorySyncRunLimits = { maxChatsPerRun?: number; maxMessagesPerRun?: number };
 const transientCodes = new Set(['TIMEOUT', 'SERVICE_UNAVAILABLE']);
 
@@ -22,13 +22,12 @@ export class WhatsAppHistorySyncService {
 
   constructor(private readonly worker: InternalWorkerClient, private readonly messages: WahaWebhookStore, private readonly jobs: SyncJobStore, private readonly realtime: RealtimeHub, options: HistorySyncOptions = {}) {
     this.options = {
-      chatPageSize: options.chatPageSize ?? 20,
-      messagePageSize: options.messagePageSize ?? 50,
-      maxChatsPerRun: options.maxChatsPerRun ?? 10,
-      maxMessagesPerRun: options.maxMessagesPerRun ?? 300,
-      maxChatsTotal: options.maxChatsTotal ?? 500,
-      maxMessagesTotal: options.maxMessagesTotal ?? 50_000,
-      continuationDelayMs: options.continuationDelayMs ?? 100,
+      chatPageSize: options.chatPageSize ?? 25,
+      messagePageSize: options.messagePageSize ?? 100,
+      maxChatsPerRun: options.maxChatsPerRun ?? 25,
+      maxMessagesPerRun: options.maxMessagesPerRun ?? 1_000,
+      emergencyMaxMessages: options.emergencyMaxMessages ?? 100_000,
+      continuationDelayMs: options.continuationDelayMs ?? 1_000,
       maxAttempts: options.maxAttempts ?? 3,
       retryBaseMs: options.retryBaseMs ?? 250,
       sleep: options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))),
@@ -91,11 +90,12 @@ export class WhatsAppHistorySyncService {
       job = await this.save({ ...job, status: 'running', updatedAt: new Date().toISOString() }, 'running');
       let chatsThisBatch = 0;
       let messagesThisBatch = 0;
+      let messagesThisExecution = 0;
       while (job.status === 'running') {
         job = await this.current(job);
         if (job.status === 'cancelled') return;
-        if (this.globalLimitReached(job)) {
-          await this.save({ ...job, status: 'pending', updatedAt: new Date().toISOString() }, 'paused at global safety limit');
+        if (messagesThisExecution >= this.options.emergencyMaxMessages) {
+          await this.save({ ...job, status: 'pending', updatedAt: new Date().toISOString() }, 'paused at emergency execution guard');
           return;
         }
         if (chatsThisBatch >= limits.maxChatsPerRun || messagesThisBatch >= limits.maxMessagesPerRun) {
@@ -129,13 +129,13 @@ export class WhatsAppHistorySyncService {
         }
         const offset = integerCursor(job.messageCursor);
         const remainingMessages = limits.maxMessagesPerRun - messagesThisBatch;
-        const remainingGlobalMessages = this.options.maxMessagesTotal - job.messagesProcessed;
-        const page = await this.page(job, job.currentChatId, offset, Math.min(this.options.messagePageSize, remainingMessages, remainingGlobalMessages));
+        const page = await this.page(job, job.currentChatId, offset, Math.min(this.options.messagePageSize, remainingMessages));
         for (const message of page.items) {
           if ((await this.current(job)).status === 'cancelled') return;
           const record = historyRecord(workspaceId, wahaSession, message, job.currentChatId);
           if (record) await this.messages.ingest(record);
           messagesThisBatch += 1;
+          messagesThisExecution += 1;
         }
         job = await this.current(job);
         if (job.status === 'cancelled') return;
@@ -180,22 +180,18 @@ export class WhatsAppHistorySyncService {
   }
 
   private view(job: SyncJob): SyncJobStatus {
-    const globalLimitReached = this.globalLimitReached(job);
     const progressLabel = job.status === 'completed'
       ? 'Histórico sincronizado.'
       : job.status === 'running'
         ? 'Sincronizando histórico…'
-        : job.status === 'pending' && globalLimitReached
-          ? 'Pausado: limite global de segurança atingido.'
-          : job.status === 'pending'
-            ? 'Próximo lote agendado…'
+        : job.status === 'pending'
+            ? 'Aguardando próximo ciclo…'
             : job.status === 'failed'
               ? 'Falhou; corrija o problema e retome.'
               : 'Sincronização cancelada.';
-    return { ...job, jobId: job.id, currentChat: job.currentChatId, hasMore: job.status === 'running' || (job.status === 'pending' && !globalLimitReached), progressLabel };
+    return { ...job, jobId: job.id, currentChat: job.currentChatId, hasMore: job.status === 'running' || job.status === 'pending', progressLabel };
   }
 
-  private globalLimitReached(job: SyncJob): boolean { return job.chatsProcessed >= this.options.maxChatsTotal || job.messagesProcessed >= this.options.maxMessagesTotal; }
   private limits(limits: HistorySyncRunLimits): Required<HistorySyncRunLimits> { return { maxChatsPerRun: limits.maxChatsPerRun ?? this.options.maxChatsPerRun, maxMessagesPerRun: limits.maxMessagesPerRun ?? this.options.maxMessagesPerRun }; }
   private key(workspaceId: string, wahaSession: string): string { return `${workspaceId}:${wahaSession}`; }
 }
