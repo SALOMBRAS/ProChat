@@ -3,11 +3,12 @@ import { AppError } from '../errors.js';
 import { InternalWorkerClient } from '../internal-worker-client.js';
 import type { ConversationStore, InboxMessage } from './waha-webhook.service.js';
 import type { RealtimeHub } from '../realtime.js';
+import type { KanbanAutomationCoordinator } from './kanban-automation.service.js';
 
 const statusFor = (code: string): number => ({ VALIDATION_ERROR: 400, NOT_FOUND: 404, CONFLICT: 409, TIMEOUT: 504, SERVICE_UNAVAILABLE: 503, PROVIDER_CONTRACT_ERROR: 502 }[code] ?? 503);
 
 export class InternalInboxService {
-  constructor(private readonly worker: InternalWorkerClient, private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub) {}
+  constructor(private readonly worker: InternalWorkerClient, private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly automation?: KanbanAutomationCoordinator) {}
   async send(context: RequestContext, conversationId: string, text: string): Promise<InboxMessage> {
     const conversation = await this.conversations.getConversation(context.workspaceId, conversationId);
     if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
@@ -16,7 +17,9 @@ export class InternalInboxService {
     const sent = response.data as { sentMessage?: { id?: string; timestamp: string; pending?: boolean } };
     if (!sent.sentMessage) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Internal worker returned an invalid response');
     if (!sent.sentMessage.id) return { id: `pending:${context.correlationId}`, direction: 'outbound', content: text, timestamp: sent.sentMessage.timestamp, status: 'sent', messageType: 'text', chatId: conversation.chatId, senderWhatsappId: conversation.chatId, metadata: { pending: true } };
-    const message = await this.conversations.recordOutbound({ workspaceId: context.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId, externalMessageId: sent.sentMessage.id, text, occurredAt: sent.sentMessage.timestamp });
+    const persisted = await this.conversations.recordOutbound({ workspaceId: context.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId, externalMessageId: sent.sentMessage.id, text, occurredAt: sent.sentMessage.timestamp });
+    const { persistence, ...message } = persisted;
+    if (persistence.messageInserted && persistence.conversationId) await this.automation?.run({ workspaceId: context.workspaceId, conversationId: persistence.conversationId, messageId: persisted.id, direction: 'outbound', replay: persistence.duplicate, visible: !persistence.quarantined, technical: persistence.technical, quarantined: persistence.quarantined });
     this.realtime.publish(context.workspaceId, 'message.sent', { conversationId, message }); this.realtime.publish(context.workspaceId, 'conversation.updated', { conversationId }); return message;
   }
 }

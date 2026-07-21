@@ -31,4 +31,33 @@ describe('WhatsAppHistorySyncService', () => {
     const store = new MemoryStore(); let release!: () => void; const blocked = new Promise<void>(resolve => { release = resolve; }); const send = vi.fn().mockImplementation(async (request: any) => { if (!request.command.payload.chatId) return response([{ id: '1@c.us' }]); await blocked; return response([]); }); const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn() } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub);
     await service.start('workspace-a', 'session-a'); await waitFor(() => store.job?.currentChatId === '1@c.us'); await service.cancel('workspace-a', 'session-a'); release(); await waitFor(() => store.job?.status === 'cancelled'); expect(store.job?.completedAt).toBeNull();
   });
+  it('continues automatically after a batch checkpoint until the full history is complete', async () => {
+    const store = new MemoryStore();
+    const send = vi.fn().mockImplementation((request: any) => {
+      if (!request.command.payload.chatId) return request.command.payload.offset === 0 ? response([{ id: '1@c.us' }]) : response([]);
+      return request.command.payload.offset === 0
+        ? response([{ id: 'm-1', chatId: '1@c.us', timestamp: 1 }, { id: 'm-2', chatId: '1@c.us', timestamp: 2 }], true)
+        : response([{ id: 'm-3', chatId: '1@c.us', timestamp: 3 }]);
+    });
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn().mockResolvedValue({ duplicate: false }) } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { maxMessagesPerRun: 2, continuationDelayMs: 1, sleep });
+    await service.start('workspace-a', 'session-a');
+    await waitFor(() => store.job?.status === 'completed');
+    expect(store.job).toMatchObject({ chatCursor: '1', messagesProcessed: 3, chatsProcessed: 1 });
+    expect(sleep).toHaveBeenCalledWith(1);
+    expect(send.mock.calls.filter((call: any[]) => call[0].command.payload.chatId).map((call: any[]) => call[0].command.payload.offset)).toEqual([0, 2]);
+  });
+
+  it('stops in an explicit pending state only when the global safety limit is reached', async () => {
+    const store = new MemoryStore();
+    const send = vi.fn().mockImplementation((request: any) => request.command.payload.chatId ? response([{ id: 'm-1', chatId: '1@c.us', timestamp: 1 }, { id: 'm-2', chatId: '1@c.us', timestamp: 2 }]) : response([{ id: '1@c.us' }]));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn().mockResolvedValue({ duplicate: false }) } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { maxMessagesTotal: 2, sleep });
+    await service.start('workspace-a', 'session-a');
+    await waitFor(() => store.job?.status === 'pending' && store.job.messagesProcessed === 2);
+    const status = await service.status('workspace-a', 'session-a');
+    expect(status).toMatchObject({ status: 'pending', hasMore: false, progressLabel: 'Pausado: limite global de segurança atingido.' });
+    expect(send.mock.calls.find((call: any[]) => call[0].command.payload.chatId)?.[0].command.payload.limit).toBe(2);
+    expect(sleep).not.toHaveBeenCalled();
+  });
 });

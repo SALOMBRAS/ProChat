@@ -2,19 +2,23 @@ import { ApiClient } from './client';
 import type { InboxConversation as SharedInboxConversation, InboxMessage as SharedInboxMessage, InboxOutboxJob } from '@chatpro/contracts';
 export type InboxConversation = SharedInboxConversation;
 export type InboxMessage = SharedInboxMessage;
-export type Page<T> = { items:T[]; page:number; pageSize:number; total:number };
+export type Page<T> = { items:T[]; page:number; pageSize:number; total:number; nextCursor?: string | null; hasMore?: boolean };
 export type ConversationContext = { notes: string | null; tags: string[]; firstInteractionAt: string; lastInteractionAt: string };
-export type HistorySyncJob = { id: string; wahaSession: string; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; chatsProcessed: number; messagesProcessed: number; lastErrorSafe: string | null };
+export type HistorySyncJob = { id: string; jobId: string; wahaSession: string; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; chatsProcessed: number; messagesProcessed: number; currentChat: string | null; hasMore: boolean; progressLabel: string; lastErrorSafe: string | null; updatedAt: string };
 export type ConversationStatus = 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'archived';
 export type ConversationPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type ConversationEvent = { id: string; conversationId: string; workspaceId: string; userId: string; action: 'assigned' | 'unassigned' | 'status_changed' | 'priority_changed' | 'archived' | 'reopened'; previousValue: string | null; newValue: string | null; createdAt: string };
 export type ConversationManagementResult = { conversation: InboxConversation; event: ConversationEvent | null; changed: boolean };
+export type KanbanStage = { id:string; boardId:string; key:string; name:string; position:number; count:number; isTerminal:boolean; isArchivedStage:boolean };
+export type KanbanBoard = { id:string; name:string; isDefault:boolean; stages:KanbanStage[] };
+export type KanbanCard = { conversationId:string; maskedId:string; lastMessage:string; lastMessageAt:string; unreadCount:number; conversationType:'direct'|'group'; assignedUserId:string|null; assignedTeamId:string|null; routingQueueId:string|null; tags:string[]; slaStatus:string|null; stageId:string; position:number; updatedAt:string };
 export class InboxApi {
   constructor(private readonly http = new ApiClient()) {}
-  conversations=(page=1,pageSize=50)=>this.http.get<Page<InboxConversation>>(`/api/v1/inbox/conversations?page=${page}&pageSize=${pageSize}`);
-  messages=(id:string,page=1,pageSize=100)=>this.http.get<Page<InboxMessage>>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages?page=${page}&pageSize=${pageSize}`);
+  conversations=(page=1,pageSize=100,cursor?:string,search?:string)=>this.http.get<Page<InboxConversation>>(`/api/v1/inbox/conversations?page=${page}&pageSize=${pageSize}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}`);
+  messages=(id:string,page=1,pageSize=50,cursor?:string)=>this.http.get<Page<InboxMessage>>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages?page=${page}&pageSize=${pageSize}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+  mediaUrl=(messageId:string)=>this.http.get<{ url: string; expiresAt: string }>(`/api/v1/inbox/messages/${encodeURIComponent(messageId)}/media/access`);
   sendMessage=(id:string,text:string)=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages`, { text });
-  sendAttachment=(id:string,file:File,caption?:string)=>{ const body = new FormData(); body.set('file', file); if (caption?.trim()) body.set('caption', caption.trim()); return this.http.postForm<InboxOutboxJob>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/attachments`, body); };
+  sendAttachment=(id:string,file:File,clientRequestId:string,caption?:string)=>{ const body = new FormData(); body.set('file', file); body.set('clientRequestId', clientRequestId); if (caption?.trim()) body.set('caption', caption.trim()); return this.http.postForm<InboxOutboxJob>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/attachments`, body); };
   outbox=(jobId:string)=>this.http.get<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}`);
   cancelOutbox=(jobId:string)=>this.http.post<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}/cancel`);
   markRead=(id:string)=>this.http.post<void>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/read`);
@@ -31,4 +35,7 @@ export class InboxApi {
   startSync=(wahaSession?:string)=>this.http.post<HistorySyncJob>('/api/v1/inbox/sync/start', wahaSession ? { wahaSession } : {});
   syncStatus=(wahaSession:string)=>this.http.get<HistorySyncJob>(`/api/v1/inbox/sync/status?wahaSession=${encodeURIComponent(wahaSession)}`);
   cancelSync=(wahaSession:string)=>this.http.post<HistorySyncJob>('/api/v1/inbox/sync/cancel', { wahaSession });
+  kanbanBoards=()=>this.http.get<KanbanBoard[]>('/api/v1/inbox/kanban/boards');
+  kanbanCards=(boardId:string,stageId:string)=>this.http.get<Page<KanbanCard>>(`/api/v1/inbox/kanban/boards/${boardId}/conversations?stageId=${encodeURIComponent(stageId)}`);
+  moveKanban=(conversationId:string,input:{boardId:string;stageId:string;source:'manual';expectedUpdatedAt?:string})=>this.http.post(`/api/v1/inbox/kanban/conversations/${conversationId}/move`,input);
 }

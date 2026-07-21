@@ -32,7 +32,7 @@ class ControlledWorker implements WhatsAppWorkerPort {
 
 describe('session API transport integration', () => {
   let server: Server; let app: Awaited<ReturnType<typeof createApp>>; let worker: ControlledWorker;
-  beforeEach(async () => { worker = new ControlledWorker(); const runtime = await listenInternalTransport({ host: '127.0.0.1', port: 0 }, createWorkerTransportHandler(worker)); server = runtime.server; const address = server.address(); if (!address || typeof address === 'string') throw new Error('missing address'); app = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: `http://127.0.0.1:${address.port}/internal/transport`, workerTransportTimeoutMs: 100 }); });
+  beforeEach(async () => { worker = new ControlledWorker(); const runtime = await listenInternalTransport({ host: '127.0.0.1', port: 0 }, createWorkerTransportHandler(worker)); server = runtime.server; const address = server.address(); if (!address || typeof address === 'string') throw new Error('missing address'); app = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: `http://127.0.0.1:${address.port}/internal/transport`, workerTransportTimeoutMs: 1_000 }); });
   afterEach(async () => { await new Promise<void>(resolve => server.close(() => resolve())); });
   const headers = { 'x-workspace-id': 'workspace-a', 'x-user-id': 'user-a' };
 

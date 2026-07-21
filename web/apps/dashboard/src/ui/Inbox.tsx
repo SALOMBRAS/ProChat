@@ -14,6 +14,7 @@ import { connectRealtime } from "../api/realtime.js";
 import { ApiError } from "../api/client.js";
 import { WorkspaceApi } from "../api/workspace.js";
 import type { Team, WorkspaceUser } from "@chatpro/contracts";
+import { InboxKanban } from "./InboxKanban.js";
 
 const defaultApi = new InboxApi();
 const workspaceApi = new WorkspaceApi();
@@ -74,12 +75,30 @@ const Avatar = ({
     )}
   </span>
 );
-const Media = ({ message }: { message: InboxMessage }) => {
-  const url = message.mediaUrl;
-  if (!url)
+let activeAudio: HTMLAudioElement | undefined;
+const AudioPlayer = ({ url, message }: { url: string; message: InboxMessage }) => {
+  const audio = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(message.duration ?? 0);
+  const [speed, setSpeed] = useState(1);
+  const [unavailable, setUnavailable] = useState(false);
+  const format = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+  const toggle = async () => { const node = audio.current; if (!node) return; if (node.paused) { if (activeAudio && activeAudio !== node) activeAudio.pause(); activeAudio = node; try { await node.play(); } catch { setUnavailable(true); } } else node.pause(); };
+  const changeSpeed = () => { const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1; setSpeed(next); if (audio.current) audio.current.playbackRate = next; };
+  return <div className="audio-player" aria-label="Mensagem de áudio"><audio ref={audio} preload="metadata" onLoadedMetadata={() => setDuration(audio.current?.duration || message.duration || 0)} onTimeUpdate={() => setCurrent(audio.current?.currentTime || 0)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCurrent(0); }} onError={() => setUnavailable(true)}><source src={url} type={message.mediaMimeType ?? undefined} /></audio>{unavailable ? <span className="media-error" role="status">Áudio indisponível.</span> : <><button type="button" className="audio-play" onClick={() => void toggle()} aria-label={playing ? "Pausar áudio" : "Reproduzir áudio"}>{playing ? "Ⅱ" : "▶"}</button><span className="audio-mark" aria-hidden="true">♬</span><input aria-label="Progresso do áudio" type="range" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(current, duration || 0)} onChange={event => { const value = Number(event.target.value); if (audio.current) audio.current.currentTime = value; setCurrent(value); }} /><time>{format(current)} / {format(duration)}</time><button type="button" className="audio-speed" onClick={changeSpeed} aria-label={`Velocidade ${speed}x`}>{speed}x</button></>}</div>;
+};
+const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
+  const [url, setUrl] = useState<string>();
+  const [failed, setFailed] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string>();
+  useEffect(() => { if (!message.mediaUrl) return; let active = true; setUrl(undefined); setFailed(false); setPlaybackError(undefined); void api.mediaUrl(message.id).then(access => { if (active) setUrl(access.url); }).catch(() => { if (active) setFailed(true); }); return () => { active = false; }; }, [api, message.id, message.mediaUrl]);
+  if (!message.mediaUrl)
     return message.direction === "inbound" ? (
       <span className="message-received-label">Recebida</span>
     ) : null;
+  if (failed) return <span className="media-error" role="status">NÃ£o foi possÃ­vel carregar a mÃ­dia.</span>;
+  if (!url) return <span className="media-loading" role="status">Carregando mÃ­diaâ€¦</span>;
   if (message.messageType === "image" || message.messageType === "sticker")
     return (
       <a
@@ -89,33 +108,36 @@ const Media = ({ message }: { message: InboxMessage }) => {
         rel="noreferrer"
       >
         <img
-          src={message.thumbnailUrl ?? url}
+          src={url}
           alt={message.mediaFilename ?? "Imagem recebida"}
         />
       </a>
     );
   if (message.messageType === "video")
     return (
+      <>
       <video
         className="message-media video"
         controls
         preload="metadata"
         poster={message.thumbnailUrl ?? undefined}
+        playsInline
+        onLoadedMetadata={() => setPlaybackError(undefined)}
+        onStalled={() => setPlaybackError("O vÃ­deo estÃ¡ demorando para carregar.")}
+        onError={() => setPlaybackError("Formato de vÃ­deo invÃ¡lido ou nÃ£o suportado.")}
       >
         <source src={url} type={message.mediaMimeType ?? undefined} />
       </video>
+      {playbackError && <span className="media-error" role="status">{playbackError}</span>}
+      </>
     );
   if (
     message.messageType === "audio" ||
     message.mediaMimeType?.startsWith("audio/")
   )
-    return (
-      <audio className="message-media audio" controls preload="metadata">
-        <source src={url} type={message.mediaMimeType ?? undefined} />
-      </audio>
-    );
+    return <AudioPlayer url={url} message={message} />;
   return (
-    <a className="message-document" href={url} target="_blank" rel="noreferrer">
+    <a className="message-document" href={url} download={message.mediaFilename ?? undefined}>
       <span>▧</span>
       <strong>{message.mediaFilename ?? "Documento"}</strong>
       <small>{message.mediaMimeType ?? "Abrir arquivo"}</small>
@@ -143,7 +165,9 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [attachment, setAttachment] = useState<File>();
+  const [attachmentPreview, setAttachmentPreview] = useState<string>();
   const [attachmentStatus, setAttachmentStatus] = useState("");
+  useEffect(() => { if (!attachment?.type.startsWith('image/')) { setAttachmentPreview(undefined); return; } const url = URL.createObjectURL(attachment); setAttachmentPreview(url); return () => URL.revokeObjectURL(url); }, [attachment]);
   const [context, setContext] = useState<ConversationContext>();
   const [notes, setNotes] = useState("");
   const [tag, setTag] = useState("");
@@ -152,6 +176,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [startingSync, setStartingSync] = useState(false);
   const [activity, setActivity] = useState<ConversationEvent[]>([]);
   const [filter, setFilter] = useState<InboxFilter>("all");
+  const [view, setView] = useState<"list" | "kanban">("list");
   const [changingManagement, setChangingManagement] = useState(false);
   const [workspaceUsers, setWorkspaceUsers] = useState<WorkspaceUser[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -160,6 +185,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const scrollAfterRender = useRef(false);
   const loadedContextId = useRef<string>();
   const activeConversationId = useRef<string>();
+  const selectedRef = useRef<InboxConversation>();
   const contextRequest = useRef(0);
   const refreshConversations = async () => {
     setLoadingConversations(true);
@@ -174,12 +200,9 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const loadLatest = async (conversationId: string, stickToEnd: boolean) => {
     setLoadingMessages(true);
     try {
-      const first = await api.messages(conversationId, 1, pageSize);
-      const lastPage = Math.max(1, Math.ceil(first.total / pageSize));
-      const latest =
-        lastPage === 1
-          ? first
-          : await api.messages(conversationId, lastPage, pageSize);
+      // The API returns the most recent reverse-cursor page first. Do not
+      // request the whole history merely to find its final offset page.
+      const latest = await api.messages(conversationId, 1, pageSize);
       setMessages(latest.items);
       setMessagePage(latest.page);
       scrollAfterRender.current = stickToEnd;
@@ -225,13 +248,15 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const refreshDirectory = async () => { try { const [users, nextTeams] = await Promise.all([workspaceApi.users(), workspaceApi.teams()]); setWorkspaceUsers(users); setTeams(nextTeams); } catch (nextError) { setError(errorMessage(nextError)); } };
   useEffect(() => { void refreshDirectory(); }, []);
   useEffect(() => {
-    const session = conversationPage.items[0]?.whatsappSessionId;
+    const session = syncJob?.wahaSession ?? conversationPage.items[0]?.whatsappSessionId;
     if (!session || !api.syncStatus) return;
-    void api
-      .syncStatus(session)
-      .then(setSyncJob)
-      .catch(() => setSyncJob(undefined));
-  }, [conversationPage.items, api]);
+    let disposed = false;
+    const load = () => void api.syncStatus!(session).then((job) => { if (!disposed) setSyncJob(job); }).catch(() => { if (!disposed) setSyncJob(undefined); });
+    load();
+    const polling = syncJob?.status === "running" || syncJob?.status === "pending";
+    const timer = polling ? window.setInterval(load, 2_000) : undefined;
+    return () => { disposed = true; if (timer) window.clearInterval(timer); };
+  }, [conversationPage.items, api, syncJob?.status, syncJob?.wahaSession]);
   useEffect(() => {
     document
       .querySelectorAll<HTMLButtonElement>(".chat-inbox .conversation-item")
@@ -260,6 +285,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   }, [conversationPage]);
   useEffect(() => {
     activeConversationId.current = selected?.id;
+    selectedRef.current = selected;
     contextRequest.current += 1;
     setContext(undefined);
     setActivity([]);
@@ -272,24 +298,27 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     () =>
       connectRealtime((event) => {
         if (event.eventType === "conversation.context.updated") {
-          if (selected && String(event.payload.conversationId) === selected.id)
-            void loadContext(selected.id);
+          const current = selectedRef.current;
+          if (current && String(event.payload.conversationId) === current.id)
+            void loadContext(current.id);
           return;
         }
         if (event.eventType === "conversation.management.updated") {
           const conversation = event.payload.conversation as InboxConversation | undefined;
           if (conversation?.id) {
             setConversationPage((current) => ({ ...current, items: current.items.map((item) => item.id === conversation.id ? conversation : item) }));
-            if (selected?.id === conversation.id) { setSelected(conversation); void loadActivity(conversation.id); }
+            if (selectedRef.current?.id === conversation.id) { setSelected(conversation); void loadActivity(conversation.id); }
           }
           return;
         }
         if (["workspace.user.created", "workspace.user.updated", "workspace.team.created", "workspace.team.updated", "workspace.team.members.updated"].includes(event.eventType)) { void refreshDirectory(); return; }
         if (event.eventType === "conversation.sync.updated") {
+          const wahaSession = String(event.payload.wahaSession ?? "");
           setSyncJob((current) =>
-            current
+            current && current.wahaSession === wahaSession
               ? {
                   ...current,
+                  jobId: String(event.payload.jobId ?? current.jobId),
                   status: String(
                     event.payload.status,
                   ) as HistorySyncJob["status"],
@@ -300,6 +329,11 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                     event.payload.messagesProcessed ??
                       current.messagesProcessed,
                   ),
+                  currentChat: typeof event.payload.currentChat === "string" ? event.payload.currentChat : null,
+                  hasMore: Boolean(event.payload.hasMore ?? current.hasMore),
+                  progressLabel: String(event.payload.progressLabel ?? current.progressLabel),
+                  lastErrorSafe: typeof event.payload.lastErrorSafe === "string" ? event.payload.lastErrorSafe : null,
+                  updatedAt: String(event.payload.updatedAt ?? current.updatedAt),
                 }
               : current,
           );
@@ -315,9 +349,9 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
         )
           return;
         void refreshConversations();
-        if (selected && atBottomRef.current) void loadLatest(selected.id, true);
+        if (selectedRef.current && atBottomRef.current) void loadLatest(selectedRef.current.id, true);
       }),
-    [selected?.id, api],
+    [api],
   );
   useEffect(() => {
     const conversationId = selected?.id;
@@ -379,11 +413,12 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     try {
       if (attachment) {
         setAttachmentStatus("Preparando anexo…");
-        const job = await api.sendAttachment(selected.id, attachment, text);
+        const clientRequestId = crypto.randomUUID();
+        const job = await api.sendAttachment(selected.id, attachment, clientRequestId, text);
         setAttachmentStatus(
           job.status === "failed"
             ? "Falhou"
-            : "Enviado; aguardando confirmação",
+            : "Anexo em processamento; aguardando confirmação",
         );
         setAttachment(undefined);
       } else await api.sendMessage(selected.id, text);
@@ -415,6 +450,15 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       setError(errorMessage(nextError));
     } finally {
       setStartingSync(false);
+    }
+  };
+  const cancelSync = async () => {
+    const session = syncJob?.wahaSession ?? conversationPage.items[0]?.whatsappSessionId;
+    if (!session || !api.cancelSync) return;
+    try {
+      setSyncJob(await api.cancelSync(session));
+    } catch (nextError) {
+      setError(errorMessage(nextError));
     }
   };
   const addTag = async (event: FormEvent<HTMLFormElement>) => {
@@ -481,6 +525,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     if (filter === "high_priority") return conversation.priority === "high" || conversation.priority === "urgent";
     return true;
   });
+  if (view === "kanban") return <section className="page inbox"><button className="secondary" onClick={() => setView("list")}>Lista</button><InboxKanban /></section>;
   return (
     <section className="page inbox chat-inbox">
       <div className="inbox-layout">
@@ -492,12 +537,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                 Conversas <span>{conversationPage.total}</span>
               </h2>
               <small>
-                Histórico:{" "}
-                {syncJob?.status === "running"
-                  ? `sincronizando (${syncJob.chatsProcessed} conversas, ${syncJob.messagesProcessed} mensagens)`
-                  : syncJob?.status === "completed"
-                    ? "concluído"
-                    : "não sincronizado"}
+                Histórico: {syncJob ? `${syncJob.progressLabel} (${syncJob.chatsProcessed} conversas, ${syncJob.messagesProcessed} mensagens)` : "não sincronizado"}
               </small>
             </div>
             <button
@@ -508,14 +548,20 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
             >
               ↻
             </button>
+            <button className="secondary" onClick={() => setView("kanban")} aria-label="Abrir Kanban">Kanban</button>
           </div>
           <button
             className="secondary"
-            disabled={startingSync || syncJob?.status === "running"}
+            disabled={startingSync || syncJob?.status === "running" || syncJob?.status === "pending"}
             onClick={() => void startSync()}
           >
-            {startingSync ? "Iniciando…" : "Sincronizar histórico"}
+            {startingSync ? "Iniciando…" : syncJob?.status === "failed" || syncJob?.status === "cancelled" ? "Retomar sincronização" : "Sincronizar histórico"}
           </button>
+          {(syncJob?.status === "running" || syncJob?.status === "pending") && (
+            <button className="secondary" onClick={() => void cancelSync()}>
+              Cancelar sincronização
+            </button>
+          )}
           <label className="inbox-management-filter">
             <span>Filtro</span>
             <select aria-label="Filtrar conversas" value={filter} onChange={(event) => setFilter(event.target.value as InboxFilter)}>
@@ -619,7 +665,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                             {senderName(item.senderWhatsappId)}:
                           </strong>
                         )}
-                        <Media message={item} />
+                        <Media message={item} api={api} />
                         {item.content && <p>{item.content}</p>}
                         <span className={`message-meta status-${item.status}`}>
                           {item.direction === "outbound" && (
@@ -645,6 +691,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                 <button type="button" className="composer-action" onClick={(event) => (event.currentTarget.previousElementSibling as HTMLInputElement | null)?.click()} disabled={sending} aria-label="Anexar arquivo">⌕</button>
                 <textarea aria-label="Mensagem" name="text" placeholder={attachment ? 'Adicionar legenda (opcional)' : 'Digite uma mensagem'} maxLength={4096} disabled={sending} />
                 {attachment && <span className="attachment-preview" title={attachment.name}>{attachment.name}</span>}
+                {attachmentPreview && <img className="attachment-image-preview" src={attachmentPreview} alt="Prévia do anexo" />}
                 {attachmentStatus && <span className="attachment-status">{attachmentStatus}</span>}
                 <button
                   className="send-button"

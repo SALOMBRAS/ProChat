@@ -1,0 +1,5136 @@
+{
+  "generated_at": "2026-07-20T20:05:28.426Z",
+  "mode": "dry-run",
+  "total_conversations": 512,
+  "totals": {
+    "valid_direct": 393,
+    "valid_group": 56,
+    "technical": 1,
+    "probable_false_direct": 0,
+    "inconclusive": 62
+  },
+  "no_messages_deleted": true,
+  "waha_chat_list_verified": false,
+  "records": [
+    {
+      "conversation_id": "b8595571-dc68-4b48-a851-e01ab6a1e3be",
+      "chat_id_masked": "553***46@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "111937ac-4188-4c87-a672-271e40bbc0e9",
+      "chat_id_masked": "556***41@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "4b8e00c5-0836-4479-b8be-c75efc971229",
+      "chat_id_masked": "551***84@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 3,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "97eb79d9-1400-45f7-b1ae-bd7d1e62af7c",
+      "chat_id_masked": "551***43@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "53c75bce-aa7a-4918-a4c1-624505aa9043",
+      "chat_id_masked": "558***91@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-a14338b935f2838eabbccfa3c690fd6f344f38ab",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 12,
+      "outbound_count": 10
+    },
+    {
+      "conversation_id": "fa34b28d-a14a-4001-9b09-5b6251fca95d",
+      "chat_id_masked": "sta***us@broadcast",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "technical",
+      "reason": "technical_or_non_chat_identifier",
+      "message_count": 4,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "506fd807-d1a2-43e7-a048-ae2439752ad6",
+      "chat_id_masked": "558***78@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 3,
+      "outbound_count": 3
+    },
+    {
+      "conversation_id": "61ed1653-c58b-49b3-8d81-6290d6ac4a29",
+      "chat_id_masked": "120***32@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-a14338b935f2838eabbccfa3c690fd6f344f38ab",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 17,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "06e3a7ab-17cc-467d-9e62-c2a583392147",
+      "chat_id_masked": "120***90@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "190bd8b3-f0a0-4254-8de5-0381ed1e0bea",
+      "chat_id_masked": "558***04@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 22,
+      "outbound_count": 13
+    },
+    {
+      "conversation_id": "0db9b8f9-2614-4c47-b421-950963cec47a",
+      "chat_id_masked": "552***05@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "7cf4f4dc-bf5b-4058-a8e5-2ba6e60a6947",
+      "chat_id_masked": "558***52@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8b0e09cd-0904-4916-bde7-7f18b1aecb1a",
+      "chat_id_masked": "558***47@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "995130ca-7c96-4fb2-91f5-97a2b45d9cc2",
+      "chat_id_masked": "120***62@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 21,
+      "outbound_count": 6
+    },
+    {
+      "conversation_id": "52dd3562-c7f5-4c02-866e-0b3251a38e61",
+      "chat_id_masked": "120***23@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "75aa50c4-23a9-49cc-9b1d-ff2017c96205",
+      "chat_id_masked": "147***64@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "94621a1d-6f47-4eef-aeba-0471cfbde728",
+      "chat_id_masked": "558***53@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 10,
+      "outbound_count": 3
+    },
+    {
+      "conversation_id": "b5f1de3b-766e-4852-b411-e650f41dfba5",
+      "chat_id_masked": "558***89@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "929bdb1c-2f4d-407d-8f9f-84307478c474",
+      "chat_id_masked": "558***33@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "9e5a850e-68de-4590-ab9a-9cc0e521712d",
+      "chat_id_masked": "558***53@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 7,
+      "outbound_count": 7
+    },
+    {
+      "conversation_id": "cf3fd024-5c52-44cf-af1a-432be7d06676",
+      "chat_id_masked": "558***45@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 6,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ef45d5d3-92c9-4855-aab2-07653c880620",
+      "chat_id_masked": "551***51@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "1810e113-73dc-4d31-908d-f1d027f12334",
+      "chat_id_masked": "558***57@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "fd930825-ff1e-4132-9fdb-16fcd726f45a",
+      "chat_id_masked": "558***73@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 2
+    },
+    {
+      "conversation_id": "e63573f6-fd57-4609-8c58-fd0c1ceb4079",
+      "chat_id_masked": "558***10@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 3,
+      "outbound_count": 3
+    },
+    {
+      "conversation_id": "a4c7d84e-e906-4920-974a-045257fc18f3",
+      "chat_id_masked": "558***07@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 97,
+      "outbound_count": 65
+    },
+    {
+      "conversation_id": "6f74293b-44db-41a7-b5fe-503001f45d65",
+      "chat_id_masked": "551***43@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-a14338b935f2838eabbccfa3c690fd6f344f38ab",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "615837a0-9ce1-4d74-ac8f-cbdff499dd50",
+      "chat_id_masked": "551***75@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "da1465ec-a172-4f57-b4d3-ed7790d8269b",
+      "chat_id_masked": "559***29@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 6,
+      "outbound_count": 5
+    },
+    {
+      "conversation_id": "355e7162-15de-4ff9-b92d-bf6bf6ef7da0",
+      "chat_id_masked": "552***87@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-a14338b935f2838eabbccfa3c690fd6f344f38ab",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "95c86bbe-65e6-43c0-a37b-9b688fd6f34b",
+      "chat_id_masked": "558***58@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "4e87c25c-bc3a-41fa-8dc9-ec83ac771fea",
+      "chat_id_masked": "120***27@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-a14338b935f2838eabbccfa3c690fd6f344f38ab",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "81202fc7-e86b-4e9c-ac62-b48b54c8da44",
+      "chat_id_masked": "223***45@lid",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "91c54b4b-29cc-44c0-b9a5-e43dda9c5f3c",
+      "chat_id_masked": "558***20@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 3,
+      "outbound_count": 2
+    },
+    {
+      "conversation_id": "e0f0e848-2c09-4936-b5a6-77d48cb6ee8e",
+      "chat_id_masked": "120***78@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 15,
+      "outbound_count": 4
+    },
+    {
+      "conversation_id": "46bf8740-0e12-42c1-93b8-ebfd3b67fffe",
+      "chat_id_masked": "558***74@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 4,
+      "outbound_count": 3
+    },
+    {
+      "conversation_id": "e685c98a-0f7d-4455-841c-66f333336c44",
+      "chat_id_masked": "558***71@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 4,
+      "outbound_count": 2
+    },
+    {
+      "conversation_id": "2ccf00da-9d63-4fea-9479-f8ae93ccecfd",
+      "chat_id_masked": "558***83@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 3,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "feff55f5-3fce-44b9-ae9e-e080f83ceca0",
+      "chat_id_masked": "558***82@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 3,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "5fecaa3b-169f-40b0-883e-dd68e688c2db",
+      "chat_id_masked": "556***48@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c7477b7a-d16e-4194-bc3a-ed5d43a1c125",
+      "chat_id_masked": "558***86@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "537b62e4-aabe-4a42-b301-98d4b616e3e1",
+      "chat_id_masked": "558***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 17,
+      "outbound_count": 9
+    },
+    {
+      "conversation_id": "c4698965-3669-44a8-bb85-62af1b9e7dc7",
+      "chat_id_masked": "558***32@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 31,
+      "outbound_count": 8
+    },
+    {
+      "conversation_id": "d14acaa4-d409-4dba-bd11-293f300604db",
+      "chat_id_masked": "558***55@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "6f921516-e638-4ad4-b337-63b87996d16d",
+      "chat_id_masked": "558***10@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 3,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "b637379d-1c70-4f8e-a81b-a6780db599ac",
+      "chat_id_masked": "558***55@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "6aaecdea-1e11-4d7b-93ed-45148e908a87",
+      "chat_id_masked": "558***65@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 3,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "e53eccb6-9091-4db7-8b3d-1c3e6f7a3d9b",
+      "chat_id_masked": "558***74@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "7b4fef76-3365-4477-b548-82c8af572d07",
+      "chat_id_masked": "558***67@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 8,
+      "outbound_count": 4
+    },
+    {
+      "conversation_id": "92e04257-2736-4099-9e3e-17d637c636cf",
+      "chat_id_masked": "558***35@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "262a9b8a-7a91-4c34-960f-b17234fa7fa3",
+      "chat_id_masked": "120***18@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 4,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "42ee03f6-dceb-4d51-9a41-dc27d473d272",
+      "chat_id_masked": "556***47@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "bd32aa4a-71ad-41e0-9419-6c2eff4f58b3",
+      "chat_id_masked": "176***18@lid",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "77a665d9-80ab-43da-89f2-bc459ce28c18",
+      "chat_id_masked": "551***28@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "35dcf25a-f72a-4250-adaa-4856ef7d297b",
+      "chat_id_masked": "558***90@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "56651df8-eaad-4521-bd0d-2ecccf02617e",
+      "chat_id_masked": "558***11@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "0bd06e43-2911-45c4-aded-2be4efd007fb",
+      "chat_id_masked": "558***56@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "ca8b9b94-778d-4f3f-87ec-12c8a036b0d4",
+      "chat_id_masked": "551***46@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "53cddba6-78a6-4235-ade1-7f6ec6323b67",
+      "chat_id_masked": "120***27@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 84,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "2bc2c282-489c-4c76-aa0f-dadb8fe9b997",
+      "chat_id_masked": "558***39@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "7d481430-554a-4643-aef7-9d271b08f4d8",
+      "chat_id_masked": "120***46@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "62754392-fc63-4797-9615-6bb7822758c8",
+      "chat_id_masked": "0***0@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "da561bb2-b9c9-4a77-ac1f-9b0021968dd8",
+      "chat_id_masked": "558***31@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 55,
+      "outbound_count": 34
+    },
+    {
+      "conversation_id": "5c8af1f6-bbfb-48e3-9da2-532657d45119",
+      "chat_id_masked": "558***75@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ac2dd245-27ac-46fe-891d-8141230bab78",
+      "chat_id_masked": "120***11@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f75ab1b0-b132-4478-a03e-a0d642a311d6",
+      "chat_id_masked": "558***01@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d1b45594-46c4-4e29-a3d1-052ba84c362d",
+      "chat_id_masked": "558***24@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c252bd5c-1628-4e94-a055-bd6d2646cd11",
+      "chat_id_masked": "558***91@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 34,
+      "outbound_count": 24
+    },
+    {
+      "conversation_id": "e080a5be-130b-4103-bdfe-9eab12c9d404",
+      "chat_id_masked": "558***01@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "eb9d0e34-2d0d-4c48-840c-46f5192e2689",
+      "chat_id_masked": "558***84@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "6c3af7c1-9862-45c1-83d6-bb8862d6aad1",
+      "chat_id_masked": "120***76@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 28,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "65a6d2a2-999b-4488-9b50-3f3ca263e383",
+      "chat_id_masked": "558***77@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 16,
+      "outbound_count": 13
+    },
+    {
+      "conversation_id": "cca382d0-5c2c-4402-b502-727f1e4010c3",
+      "chat_id_masked": "558***30@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "a5a71c50-689f-4b4b-8d0b-23286fe6ec83",
+      "chat_id_masked": "558***21@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "a2582ab8-8187-40a8-97ee-1191482d8641",
+      "chat_id_masked": "552***52@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "eb7a6a0a-0511-453e-ae6a-27991d2bc2c8",
+      "chat_id_masked": "551***00@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "de204558-d417-4c5c-ab33-0443db28bd46",
+      "chat_id_masked": "558***03@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d37e6f3f-46f7-4b0e-924d-398ff3fee7e5",
+      "chat_id_masked": "120***80@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "6c594bd5-37bb-45df-ad90-e1cc91ca1dd7",
+      "chat_id_masked": "558***07@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "1947f1fe-9f4a-4a44-8dd1-8a757e7af3e4",
+      "chat_id_masked": "558***29@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 5,
+      "outbound_count": 3
+    },
+    {
+      "conversation_id": "43980721-ee9f-40e4-9599-b3faae2d3210",
+      "chat_id_masked": "558***89@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "94c9aa27-7619-4f50-bd36-375c224fed3b",
+      "chat_id_masked": "558***18@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "cc65e46b-17dc-456b-999f-f1ba7d3cc622",
+      "chat_id_masked": "558***75@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ab9c14d5-cc14-40f2-80be-04be0c0b1f8d",
+      "chat_id_masked": "558***25@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d4479700-1f2b-49e7-b487-959a2dda5d1e",
+      "chat_id_masked": "558***46@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "97e5be6d-93ac-40aa-ab8f-488b031a7eda",
+      "chat_id_masked": "558***95@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "477fa9aa-9f92-4aec-a53c-91ceeae3aa9d",
+      "chat_id_masked": "558***65@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "55326461-6321-4c2e-bf0a-57f91acbc75f",
+      "chat_id_masked": "558***12@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "e6eecc02-7d33-4cc8-b208-b1d496a83741",
+      "chat_id_masked": "558***97@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 3,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "b5074e54-8349-4503-856a-a318d3ec781f",
+      "chat_id_masked": "557***12@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "6a62172f-75f9-44bb-b7e1-ccadbfaabd78",
+      "chat_id_masked": "120***85@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8190109f-f6a0-4db5-a19c-56e4927e7e41",
+      "chat_id_masked": "558***28@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 6,
+      "outbound_count": 4
+    },
+    {
+      "conversation_id": "6806d23f-e4bd-4b55-a218-d980fdff83e0",
+      "chat_id_masked": "551***52@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3fbca186-1885-4c6b-b5eb-575eb17e96cd",
+      "chat_id_masked": "558***66@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 4,
+      "outbound_count": 4
+    },
+    {
+      "conversation_id": "52b9bbff-e53a-4ce5-a0cd-67fc6316a743",
+      "chat_id_masked": "116***23@lid",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ad683db2-228c-488e-8e65-9a28724ec0c3",
+      "chat_id_masked": "551***21@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8fe192c4-a100-4fa3-a851-a72b944c91ce",
+      "chat_id_masked": "558***07@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "dab08ea0-a305-48ac-a902-09203e6ffc3d",
+      "chat_id_masked": "558***29@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "804e734c-b0ea-4354-8ed2-19980d85ae94",
+      "chat_id_masked": "558***90@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "22a4edac-6c79-41a0-bcb8-2a0defb9b280",
+      "chat_id_masked": "551***87@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "29e89417-641c-438a-b562-4aceecc49398",
+      "chat_id_masked": "553***21@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3a51dc6d-18eb-4e29-a8ef-2cc08a546183",
+      "chat_id_masked": "558***59@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "a3d93194-2ffe-49c8-90b0-3939904dd273",
+      "chat_id_masked": "558***95@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "2a2902c7-079e-4a85-9d54-b581fd781394",
+      "chat_id_masked": "558***55@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d25faf51-f73e-4c46-ba70-f06bca182c8f",
+      "chat_id_masked": "558***16@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c88504e7-db68-4518-a188-f49485c42ee5",
+      "chat_id_masked": "558***87@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "fa18d5ac-6c20-49f7-8978-286738f04e5e",
+      "chat_id_masked": "558***65@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "a05b3e1e-a9dd-4d6e-a21c-0c1d86599d4a",
+      "chat_id_masked": "551***22@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "eec89cb0-9b68-4941-9685-063373607c3a",
+      "chat_id_masked": "558***46@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "307c1825-a4cb-4498-b118-0326ba679906",
+      "chat_id_masked": "120***01@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "222b9bad-d09f-40ea-936e-fd4f5cfed664",
+      "chat_id_masked": "260***08@lid",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "45ae8f35-1d4e-4409-b5ab-5095d90bde14",
+      "chat_id_masked": "556***16@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3e183836-05a3-475b-a87b-ee54b67595d4",
+      "chat_id_masked": "558***04@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "2a46789a-6c3d-4986-95d3-1eaac7fba065",
+      "chat_id_masked": "553***78@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c04c0f10-4c5e-4e15-9426-7f41bb6b2eba",
+      "chat_id_masked": "558***64@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "52ff4ebb-3a37-461b-9cf1-7968a53652f3",
+      "chat_id_masked": "558***56@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "2464f4a8-4cfc-4210-b3cb-a53bcc8e170b",
+      "chat_id_masked": "558***31@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "78eb70d2-425e-46cb-a096-28ba667a2257",
+      "chat_id_masked": "558***30@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 2,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "5ffab75a-3d23-4dd6-aece-948057ad9f6d",
+      "chat_id_masked": "558***90@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d99f67da-339d-40fd-a235-8f04adb7d10d",
+      "chat_id_masked": "558***27@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "72319bc2-523f-4379-9786-c0cedafb98a3",
+      "chat_id_masked": "558***73@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "bcef3f92-e127-4f37-8b06-737ae0ad6795",
+      "chat_id_masked": "558***07@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "2e219cac-8850-47e9-acf2-8ea3be4080ee",
+      "chat_id_masked": "558***17@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "e9a372e1-8c1c-4cc2-85f8-0e72df6882ae",
+      "chat_id_masked": "558***21@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "fd74cbb7-23aa-4005-866b-8f593a0c058a",
+      "chat_id_masked": "186***77@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "475f0e80-c18e-40a7-9cd8-5be6bf30ae47",
+      "chat_id_masked": "447***82@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8839bb0e-616b-41b7-b7e4-14424d0e65be",
+      "chat_id_masked": "558***64@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f9bcee9a-4be9-476c-b1d5-a947d965791a",
+      "chat_id_masked": "551***93@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "6bae8eae-2b49-44c4-8bf9-034ddf20cfd7",
+      "chat_id_masked": "551***75@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "64ddfd8e-0fec-4c80-b956-56ac05cecaa2",
+      "chat_id_masked": "558***36@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "a98f4d57-ff49-4646-ac38-664ca77fd4d7",
+      "chat_id_masked": "551***36@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f37f9437-6d24-4f3f-a3a0-7b5de68bb445",
+      "chat_id_masked": "558***87@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "b1e81b28-744d-4680-aa90-4f81c573c9b8",
+      "chat_id_masked": "558***82@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d077357a-7426-42f8-962a-c84364ab9ce6",
+      "chat_id_masked": "120***77@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ef40f587-89f4-4dec-bfb6-4f1dadf1c82c",
+      "chat_id_masked": "558***40@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "984a15c4-f92a-44d4-bff1-12ad87d96d4a",
+      "chat_id_masked": "558***34@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "1a21736d-569a-423a-acc6-267644ecc4ac",
+      "chat_id_masked": "558***95@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "cd0212f2-c7f4-47d4-b0d6-81ddc45cb58c",
+      "chat_id_masked": "558***43@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "bdb9a7eb-eb88-4e13-a86b-8de46fd7aee6",
+      "chat_id_masked": "558***82@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d4c5bb58-22bb-48ae-a137-984615368d11",
+      "chat_id_masked": "558***53@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "9002d2c5-9fe2-4d1d-b37e-2287fb565450",
+      "chat_id_masked": "558***40@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "90f641a8-4b01-4bc6-92be-8d2a7730d1ae",
+      "chat_id_masked": "558***33@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "f6a9f7bd-3a0b-4fd0-b744-c44b059451de",
+      "chat_id_masked": "558***89@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "4733cafe-6647-4f9b-9994-4d5a1dd79269",
+      "chat_id_masked": "558***75@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "b742579b-d5df-43c5-88bd-3f2d719193f0",
+      "chat_id_masked": "558***79@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "486bd77b-02f2-4df5-9a47-24e3d66576eb",
+      "chat_id_masked": "558***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "fb126f11-d224-4843-a527-66589091897d",
+      "chat_id_masked": "558***82@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "0e2d56c2-bd0e-49ce-94b9-d3595709d069",
+      "chat_id_masked": "558***58@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "7197e3fe-13c5-45f2-ba3f-e8747f96604e",
+      "chat_id_masked": "558***40@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "baba630f-e5f9-4f6c-b25d-719da97897d1",
+      "chat_id_masked": "557***24@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "75ebf762-683c-4544-9e74-57d98abdc2b8",
+      "chat_id_masked": "558***63@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "becb7815-4484-440e-9e3a-360055be75c8",
+      "chat_id_masked": "558***52@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c0809adf-d158-41bf-97bf-bbee02d15e0b",
+      "chat_id_masked": "558***33@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "17728a7c-3a65-4eee-bb8b-9698a739ee6a",
+      "chat_id_masked": "595***78@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "fa5b3072-f0ff-4411-9f63-ef6f60969b36",
+      "chat_id_masked": "558***37@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "35447f54-82a3-4ea4-9095-98364dd8f556",
+      "chat_id_masked": "558***75@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "35242d9c-76ab-412a-bfda-4df2ab6ed062",
+      "chat_id_masked": "558***33@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "9c6d8736-e57c-4442-ad08-79ca176a72f0",
+      "chat_id_masked": "558***54@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d9e4faad-48a5-4099-816c-57430c114192",
+      "chat_id_masked": "558***58@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "b2fb3734-93a6-4bfb-9efb-33c258bafdb2",
+      "chat_id_masked": "558***99@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ee862b83-fcad-4d8c-badc-79ad63d39253",
+      "chat_id_masked": "558***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "02b4349a-46ad-47e4-bd4b-a8b79de7b9c3",
+      "chat_id_masked": "120***09@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "ba87f756-1d53-4bb5-9af4-7a24a1c73ae0",
+      "chat_id_masked": "558***30@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "cc34bb40-b695-4e87-8c18-7d9004de7cf6",
+      "chat_id_masked": "120***08@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ba38487c-b878-48f2-ae18-804508a4be68",
+      "chat_id_masked": "120***43@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "8db1588f-741b-4140-ae5e-c4290a2ef628",
+      "chat_id_masked": "558***59@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "64c91148-8002-45a3-82c2-1c9404a27ad6",
+      "chat_id_masked": "558***66@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "60a91cdb-4e8a-457e-9ff3-9aa8fae1a5d8",
+      "chat_id_masked": "558***48@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e4e62d74-8716-4cb1-a6c7-92dff0cc123a",
+      "chat_id_masked": "558***35@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "beca819c-a289-4848-969d-ff285bebb731",
+      "chat_id_masked": "558***42@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "9c030be7-912f-47ca-98b7-9bee67a8a864",
+      "chat_id_masked": "558***27@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "aaaa2c0e-8e47-4822-bff6-5f84b4d643da",
+      "chat_id_masked": "558***52@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c2c132a2-f3b7-4a5e-94f1-3987118dcc9a",
+      "chat_id_masked": "558***27@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "260fa5e9-a430-42e3-b91d-de51f06be4cf",
+      "chat_id_masked": "558***12@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "afd0826c-f293-466d-987f-33328023e53a",
+      "chat_id_masked": "558***05@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d96187ad-19b8-4606-b137-d5cf7ddf97c6",
+      "chat_id_masked": "558***59@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "412bdcb6-8438-4a28-bec7-ee0c9a972b0f",
+      "chat_id_masked": "558***91@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "40463af6-31fd-49eb-ab43-3a858d33cc27",
+      "chat_id_masked": "558***00@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8b2331a2-28c9-448b-a71e-3a7ca7cd6c1c",
+      "chat_id_masked": "558***78@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "256b9151-4384-41cd-b9c0-3db39790a96a",
+      "chat_id_masked": "558***88@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d2080f5c-b065-406e-9b0b-7bb4fe7b9d97",
+      "chat_id_masked": "558***81@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e43d4073-6c1e-44bb-bba3-8b629f0a7c48",
+      "chat_id_masked": "558***32@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0c8046d7-88b3-4eb8-8871-6bcea47e6eca",
+      "chat_id_masked": "558***09@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "cf0c7911-a82c-4ce6-9ad3-a9626fe459d2",
+      "chat_id_masked": "558***39@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "4439c936-c2e0-4e03-91c8-966f6fcc6fc9",
+      "chat_id_masked": "558***43@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "80d61d58-e950-4b0d-831c-2c5edb80e595",
+      "chat_id_masked": "558***00@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "f1dbc1da-ff91-40f0-85d9-fba3cdb957ad",
+      "chat_id_masked": "558***62@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "1aa44271-b33f-45a3-bcff-920de655b355",
+      "chat_id_masked": "558***97@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "6c32858a-63e5-4f0e-8f8c-f80806d7fe82",
+      "chat_id_masked": "558***05@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "f19bccd9-ad27-4f6c-8383-37a5d754de9f",
+      "chat_id_masked": "558***38@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d7c9b7d6-710a-46ac-bb0f-e733b2942549",
+      "chat_id_masked": "558***54@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "b87b18e2-ff19-4b55-b5fa-deb06c4837ca",
+      "chat_id_masked": "558***74@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0987137d-fb6b-4134-a65d-2d88a3f2f375",
+      "chat_id_masked": "558***98@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "f1d52b9e-9c11-47ef-9529-ea06d4b3ba3b",
+      "chat_id_masked": "120***12@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "921fd220-041f-48b2-839d-5cfef83946fb",
+      "chat_id_masked": "558***78@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "b2d746f3-759a-4942-ba38-2a19b673d95b",
+      "chat_id_masked": "558***37@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "fe92fc47-8c75-4c5e-adc7-cdc128395213",
+      "chat_id_masked": "558***24@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3d50738d-1e21-4d48-84ca-6ed8973421aa",
+      "chat_id_masked": "558***39@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "ada03870-05f7-490b-9aa6-3bc77ba93634",
+      "chat_id_masked": "558***17@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "87110195-0005-43b3-8b6b-d319ff97d68f",
+      "chat_id_masked": "558***54@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ba027345-bbb6-4f30-a10b-bf29f7a61229",
+      "chat_id_masked": "556***48@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "2521b88f-d941-4882-85cc-5306cc6e53f8",
+      "chat_id_masked": "558***84@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "e97bc06b-6c8c-47d4-bb3d-290f48647782",
+      "chat_id_masked": "552***16@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "7bff6510-760c-4601-b312-e0fbe6f44e10",
+      "chat_id_masked": "558***03@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "e359fafa-25b5-4187-8e04-4cc60a4a039c",
+      "chat_id_masked": "551***40@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "5d474d75-846e-420c-bf63-8396d3631e03",
+      "chat_id_masked": "120***32@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 106,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ca966807-7f0e-48dd-86bb-4485eb43f275",
+      "chat_id_masked": "120***54@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "6d8b28eb-c6d6-44b8-bd98-214a1ddc79d2",
+      "chat_id_masked": "558***00@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "5b6a52f7-a6b4-4659-a85d-7e9a98b2bc00",
+      "chat_id_masked": "558***42@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "7abebc20-cca1-4aff-b15f-ad3d8a9d47fb",
+      "chat_id_masked": "558***95@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "5df9bd01-e572-40a2-a8e7-541e57df7874",
+      "chat_id_masked": "551***90@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "350e1d8c-0ce1-4aa2-b140-3e28eb29dbaf",
+      "chat_id_masked": "558***13@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "7bba2828-722c-401c-9c43-499ceb5d1850",
+      "chat_id_masked": "558***93@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "6fb195b1-194a-44ce-96e1-2cf2cdbfedbb",
+      "chat_id_masked": "557***38@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "7856d777-e059-40c7-912f-26dc293a2e40",
+      "chat_id_masked": "558***42@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "9d94c358-3b6e-4efa-8a7d-c0b1768b8bc8",
+      "chat_id_masked": "558***47@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "378037a7-124c-486e-bb38-1f77aecac695",
+      "chat_id_masked": "558***57@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "75eb157c-9e4c-4cde-807c-205faf9974da",
+      "chat_id_masked": "553***32@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0b37e7ab-96a1-4454-9c0c-31da34d536b8",
+      "chat_id_masked": "558***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d186ab1a-11d2-49d1-8632-1b4bfecad09a",
+      "chat_id_masked": "558***26@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c9414391-3d28-4d02-a718-50622671c8a4",
+      "chat_id_masked": "558***57@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "b7b4ce8d-7629-42b5-8283-8062a8d59657",
+      "chat_id_masked": "558***15@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "658406b1-934b-41f9-94fb-b4c9be7f0291",
+      "chat_id_masked": "556***27@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0c1a837c-6261-49fe-9538-0f1ecf4deb34",
+      "chat_id_masked": "551***19@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "448ee490-9e9b-4560-b020-7c7d6d0630f1",
+      "chat_id_masked": "558***51@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "2dabd6ab-4b37-4db5-b0ff-238d07f943f4",
+      "chat_id_masked": "120***85@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "59fcfd8e-b8ed-4091-a0d8-f20a573d70e7",
+      "chat_id_masked": "558***27@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "b169ca68-b876-4d51-a3a5-591123af51aa",
+      "chat_id_masked": "556***48@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "27c9f64d-4da9-4200-b8ca-f5eacb86c5df",
+      "chat_id_masked": "558***99@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "9931198b-b8af-4cd3-8e04-c3997e456320",
+      "chat_id_masked": "120***74@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "226bafd0-50c3-4535-b3e2-546697a7d702",
+      "chat_id_masked": "558***77@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "28fab8e6-c788-4826-a4da-95a57a9927e7",
+      "chat_id_masked": "558***48@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f43e3b74-3a99-4226-a682-f58059f0ecec",
+      "chat_id_masked": "558***84@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "cacc57cb-6322-447e-8fbf-daaf36f3cc9f",
+      "chat_id_masked": "558***13@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e574ecc6-6111-4d1d-8374-29f715f3d12d",
+      "chat_id_masked": "551***13@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "24d22983-e28a-44ec-8b41-dec7fa01c091",
+      "chat_id_masked": "551***41@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "da9d70f3-f10e-4f8e-bc87-1ca30ee4c5fb",
+      "chat_id_masked": "558***00@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "6cdcdb11-cb10-44c7-81ac-3b77670f21aa",
+      "chat_id_masked": "551***69@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f3e04c60-5011-4ec8-a145-1bebbe60f978",
+      "chat_id_masked": "553***29@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e010e2b0-af3b-45eb-999c-dd9bddd736c8",
+      "chat_id_masked": "558***58@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0dd49fae-6c46-455e-9a6a-8739fc2fce63",
+      "chat_id_masked": "551***45@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "112d9b99-eb54-4502-9d5c-dd69e91e793d",
+      "chat_id_masked": "551***74@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "55bc0e02-08ea-443e-834a-c80e5690fd2e",
+      "chat_id_masked": "558***84@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "70982c1d-c222-481a-8d26-9462b5287215",
+      "chat_id_masked": "553***70@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "95618f17-01ec-4320-9c71-eb80a55a777e",
+      "chat_id_masked": "120***96@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "53431700-b498-40d8-ac60-8b4d6ea0ce73",
+      "chat_id_masked": "120***52@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "02be39a8-7e97-49ce-bd01-05adf2cccc73",
+      "chat_id_masked": "551***74@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "184adb79-371f-47d2-8d09-f10ea96a47d9",
+      "chat_id_masked": "558***27@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "eca996d2-1a87-4d90-8df2-f74ae38111c1",
+      "chat_id_masked": "558***37@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "664c3260-ff6a-4a77-87b3-0dcf486ae201",
+      "chat_id_masked": "558***95@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "3d1e262d-33e0-4c83-8494-4c8438f269e3",
+      "chat_id_masked": "558***16@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "58c291ec-fe4d-4bb7-8960-22a25a478960",
+      "chat_id_masked": "558***62@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "704bb243-eda9-401d-85f0-dadd51974331",
+      "chat_id_masked": "558***53@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "a5728b12-6919-4c03-b6ac-cdac552ab721",
+      "chat_id_masked": "558***10@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "61ed4e5d-5b8a-45d2-a563-bf7c2fe7da35",
+      "chat_id_masked": "558***65@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "b07d4a53-0433-4e3e-9536-431763c3bb9d",
+      "chat_id_masked": "558***03@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "9bfe6f4b-f790-41f2-87d5-322babb98417",
+      "chat_id_masked": "558***84@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d2d68a52-ea92-4442-ae94-c2e0e9731de2",
+      "chat_id_masked": "558***69@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "2f8ee85b-1a56-4bd6-9bf8-5bbca5e7f7fd",
+      "chat_id_masked": "558***02@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "b993ac44-111e-44d5-955a-ce287a24073d",
+      "chat_id_masked": "558***54@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "4f81ab68-853d-4817-aa4f-f9c14953f613",
+      "chat_id_masked": "558***55@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "148178cc-4122-4a45-8608-4d875e58eaa0",
+      "chat_id_masked": "558***72@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "8d062c31-ed5e-4ba3-b39d-7b3d941cf66d",
+      "chat_id_masked": "558***73@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "026bc8b6-15aa-4dce-928e-6c0fbf00fb8d",
+      "chat_id_masked": "558***52@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "37ca3e91-b341-4af2-95da-da4112356c0e",
+      "chat_id_masked": "120***19@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "0b2f1ba3-cbb5-4045-8481-325c0d9000d1",
+      "chat_id_masked": "551***04@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "4e9a9b28-3d51-4dfa-8cee-21b2d7308b6b",
+      "chat_id_masked": "551***04@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f49f3309-b8e6-4449-82fd-6925f153358d",
+      "chat_id_masked": "558***15@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "894c598d-6e75-4d66-a296-dcfde0b2d291",
+      "chat_id_masked": "552***53@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d08e5bac-8e16-43e0-8a36-528a32790d09",
+      "chat_id_masked": "120***56@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f98890e6-4bd1-48a8-86b1-5440d0360d4c",
+      "chat_id_masked": "558***09@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "5d539c8d-95d7-4cf2-9b5c-6b676ea192be",
+      "chat_id_masked": "120***89@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "58a6b96c-60e8-46c4-83da-2079669c6cc0",
+      "chat_id_masked": "120***00@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f88a0929-c2aa-49cf-b31d-f64d84fb7f2d",
+      "chat_id_masked": "558***76@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f3be3928-80d7-4667-9b84-0c0b71a6d6cf",
+      "chat_id_masked": "554***06@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "7a5ca259-51f0-470a-8656-af096a4a1f4a",
+      "chat_id_masked": "558***83@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "27e1e098-f18b-4cf6-904c-777ac5295b29",
+      "chat_id_masked": "558***35@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "783e7976-aba3-436d-973d-b2acecbaff70",
+      "chat_id_masked": "558***06@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3ef5c513-5b75-485a-b3f8-2706a3cb9a34",
+      "chat_id_masked": "558***47@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "149d1893-006a-4296-b93b-b62b20eca1dc",
+      "chat_id_masked": "558***07@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "2f555323-e6d2-4505-80da-cd8502b45719",
+      "chat_id_masked": "558***35@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "2f65e758-217c-4822-8b65-88a7051c2d64",
+      "chat_id_masked": "558***33@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f998c264-9d3e-4eb1-b0bc-4c74f301f2e8",
+      "chat_id_masked": "551***36@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "e0d25994-f495-4004-bb0c-09fc03b84295",
+      "chat_id_masked": "558***05@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "94b55524-2366-4564-8a6f-9a7fd5bc1d02",
+      "chat_id_masked": "558***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "da3e87dc-aaf0-48ba-920c-45bdd693b99f",
+      "chat_id_masked": "554***87@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c9bf6522-0d06-444d-9c71-5a035b28b0f0",
+      "chat_id_masked": "659***72@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "9891a552-49c1-491b-b447-a43126376449",
+      "chat_id_masked": "558***98@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "33ee9cb8-2f23-4b67-9d6b-4db245379015",
+      "chat_id_masked": "558***35@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0adb2342-0e0d-4ec3-abe1-06cd5009ba1c",
+      "chat_id_masked": "558***24@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "e8a9c76e-0b45-46c4-8b5e-2e1bb0d0eae2",
+      "chat_id_masked": "551***18@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "db80cb18-09a2-4fb8-86a0-516af53ef310",
+      "chat_id_masked": "120***79@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "909a4880-41ff-4a07-8231-8fab42c3a0bf",
+      "chat_id_masked": "120***38@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "19865d0d-65bb-4074-8726-05199169638c",
+      "chat_id_masked": "558***71@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c6c3c42d-4a5a-4d2a-aa88-c47906f5dfa7",
+      "chat_id_masked": "555***61@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e2352684-31c4-40b4-b24b-48ae98ecbbbb",
+      "chat_id_masked": "558***19@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "268a632d-2b61-4177-93d5-147681c6338a",
+      "chat_id_masked": "558***31@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "44a88365-0529-42f8-966f-c092cd26595f",
+      "chat_id_masked": "558***94@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "dd718013-0a09-443e-a985-caa91bd3d213",
+      "chat_id_masked": "558***48@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e149d4b8-f80f-491b-b9b0-e9837e0ec8ae",
+      "chat_id_masked": "558***67@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "942741f2-27be-4d97-8212-41e1cddf1081",
+      "chat_id_masked": "124***07@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e5e86779-351a-42b9-92a7-d2ee649aaef4",
+      "chat_id_masked": "131***02@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "217128cd-c5a8-4533-b9f1-ddffae1eaf8f",
+      "chat_id_masked": "558***23@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "dbb60bfa-065d-4cb8-8541-ff816c6d48cf",
+      "chat_id_masked": "551***01@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "4f99c814-3064-4e13-a831-95e13b6efb34",
+      "chat_id_masked": "558***39@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "2fcb5e1b-ce4d-4b35-8a8b-e3ba4a27928f",
+      "chat_id_masked": "558***01@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "73aba14b-4e3a-4940-bde8-b924f2fdd64e",
+      "chat_id_masked": "558***41@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "b200d8bd-8bf1-4c9f-8531-7e288670b033",
+      "chat_id_masked": "558***98@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "66ea24be-883e-49c0-b51e-4c8976a45818",
+      "chat_id_masked": "552***18@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "44ef3b62-6994-40eb-9936-ae66efec84ea",
+      "chat_id_masked": "558***37@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d68b67b1-0a7f-4aa0-a6dc-ab4ec2530c74",
+      "chat_id_masked": "558***70@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "805c04ec-abdc-4b46-b607-53cbce98636c",
+      "chat_id_masked": "558***29@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "dc72762f-14bb-4c14-982f-42195141e21e",
+      "chat_id_masked": "558***49@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "4af94b4a-4f3b-4e25-93a7-1e21538b0b57",
+      "chat_id_masked": "558***31@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "52635b97-876c-46cd-be85-9c59733f2b80",
+      "chat_id_masked": "558***70@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "332de349-c1a5-477d-a575-2a8d21dce683",
+      "chat_id_masked": "558***67@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "356a479b-38ad-453f-8ae2-6e41dbd99aeb",
+      "chat_id_masked": "558***74@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "dcae5e29-4d75-4c67-b1ac-7fd8f3a1aaaf",
+      "chat_id_masked": "558***27@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "79c25648-9338-4fc5-8791-8a071494d038",
+      "chat_id_masked": "558***62@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0435066a-428c-4cad-856b-c3690d905731",
+      "chat_id_masked": "558***33@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3beb108d-9847-476e-b0d3-21ca17a78860",
+      "chat_id_masked": "557***90@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "a5091190-fd7b-4e83-b195-38f7dd0649b9",
+      "chat_id_masked": "558***67@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "df12fcde-c846-46fc-811e-a423af6a8698",
+      "chat_id_masked": "558***35@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ac208dff-d6cc-425e-8e6d-4bcb12f3b046",
+      "chat_id_masked": "558***28@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8d6859bc-44f5-4fc4-9d48-675b0ea5b95b",
+      "chat_id_masked": "558***23@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d854a326-1505-4d5e-9d4c-2ae56192185b",
+      "chat_id_masked": "558***10@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "87bc982e-2ea2-4e79-a546-d3a67f58d39f",
+      "chat_id_masked": "558***68@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f729534e-bd5b-4931-9499-d4af4903a55a",
+      "chat_id_masked": "558***64@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "8463c067-a107-44f6-a8b2-4e600c47384b",
+      "chat_id_masked": "558***22@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "257fa4c4-458e-4b59-a81c-48a7f3637dd9",
+      "chat_id_masked": "558***19@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "79d23255-156d-40c1-9c94-9760d9eb92a0",
+      "chat_id_masked": "558***48@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "613e8ee3-0b50-4142-84bc-c81c0644449c",
+      "chat_id_masked": "558***60@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "53e7dc15-8b38-411f-9829-660ee25d1fba",
+      "chat_id_masked": "558***71@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "fae16815-d953-4d83-912b-87085890c7df",
+      "chat_id_masked": "558***52@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "43f76341-e480-4f78-8198-787624678482",
+      "chat_id_masked": "558***21@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "aaae4226-276f-4217-95bd-57795e4d43fb",
+      "chat_id_masked": "120***96@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "8e7fcce5-5860-41c0-b824-214d54f55903",
+      "chat_id_masked": "558***29@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e2cf67a2-08b2-403f-95d5-1808378cece6",
+      "chat_id_masked": "558***84@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "414afa10-ee79-463d-b996-402dafafcd69",
+      "chat_id_masked": "558***03@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8f1c1b21-fc01-4729-8f01-379dadd2ecad",
+      "chat_id_masked": "120***25@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "400c48ec-6611-4cf4-b6cb-3d694408a560",
+      "chat_id_masked": "558***29@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "37af7e75-c879-48a8-8699-18670cae0ae2",
+      "chat_id_masked": "551***25@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "804c4e31-a513-4e7c-b516-dd5a4216fe6d",
+      "chat_id_masked": "558***90@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "3e09f910-1c4d-491f-a96e-fc18c298aa2b",
+      "chat_id_masked": "558***62@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "87aa0127-945b-4804-81ec-a41338b3793c",
+      "chat_id_masked": "558***99@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0ecca2c2-97e3-4e68-a0a3-7e964c31bcd4",
+      "chat_id_masked": "558***34@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d0dee55d-dedc-40c3-8fdf-271569b06812",
+      "chat_id_masked": "558***86@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "6a7b864d-51c7-4e89-84f4-21b8f4bbe687",
+      "chat_id_masked": "558***83@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "8111cb19-7626-4468-ad77-6faa5fc49bff",
+      "chat_id_masked": "558***17@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "2eacbdcc-ffd4-47fe-913c-06c749c20799",
+      "chat_id_masked": "558***53@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f0aa24be-c921-472b-8f98-b1b9d7bd78cf",
+      "chat_id_masked": "551***52@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c4ea9edc-73e1-4cec-9f6b-e41e3195cc59",
+      "chat_id_masked": "558***15@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "516d3a53-98b4-4e20-a8a3-b4033021b662",
+      "chat_id_masked": "558***24@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "07180036-3c9f-47fa-b9f6-b895e17dd2d2",
+      "chat_id_masked": "558***89@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f6e84a42-9144-4913-9c90-a789855fd678",
+      "chat_id_masked": "558***31@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "5e003c1f-d644-4d7a-aed6-5bfa2c670e97",
+      "chat_id_masked": "558***96@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "bca43101-cc9e-4f7f-996b-b1ba4d42dd13",
+      "chat_id_masked": "120***11@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "071f2674-a7ad-417c-98c1-fd099170552e",
+      "chat_id_masked": "558***70@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "8bebfb49-c60a-44cb-8019-3b6196d4e86c",
+      "chat_id_masked": "558***67@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "b0529d58-b684-432c-93b5-9bc0d4cbe225",
+      "chat_id_masked": "551***28@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "528dc5a9-523b-493d-922d-c83b080e3625",
+      "chat_id_masked": "558***23@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "5d4d9c74-7551-4ab0-b4dd-beb98f242224",
+      "chat_id_masked": "558***10@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "9e4bd00a-ab84-459e-9c89-ade7a2a69a2d",
+      "chat_id_masked": "558***06@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "749ee836-f6e5-4990-92e8-2fa3de435c11",
+      "chat_id_masked": "558***62@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "81caf4ab-5782-491e-8ce7-7bff857db0a7",
+      "chat_id_masked": "558***34@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "7913e4f2-37b4-48b0-93bb-2f9df9cf0503",
+      "chat_id_masked": "558***07@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d000dd33-c78f-44ec-b158-a48f1c5bbc7e",
+      "chat_id_masked": "558***32@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3f716f81-4d39-469c-b4c9-9335d446fb92",
+      "chat_id_masked": "558***26@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ee126d57-55d6-433b-bc59-faac15b76ed1",
+      "chat_id_masked": "551***00@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8405e12d-1710-43ee-b0b1-0917e2014f00",
+      "chat_id_masked": "558***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f13c0e0c-24b6-49dc-961a-ab5c0c46c827",
+      "chat_id_masked": "558***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3c1b0e29-230d-4797-be75-96c80b7fbd08",
+      "chat_id_masked": "558***94@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e3c04698-b2ed-4a53-99cd-0fb282058dd8",
+      "chat_id_masked": "558***41@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f0d61ce2-5822-4679-b78c-78bb78adea26",
+      "chat_id_masked": "558***55@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "350c8fb5-f87c-48fc-add6-37f3add671fa",
+      "chat_id_masked": "559***63@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ffe7d04e-ee57-4c8b-ac6a-1dd9a36bcec0",
+      "chat_id_masked": "558***49@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "1a2e5f6a-de6d-4d1b-b53a-f10c2045c058",
+      "chat_id_masked": "558***86@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "7797c3af-77b6-4b8e-9d2c-b2339c361f36",
+      "chat_id_masked": "558***14@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c2f9c1c5-34f1-4fae-a80c-cce249b7faaa",
+      "chat_id_masked": "558***27@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0fddcce5-0dbc-4d85-97d1-34cdb2762299",
+      "chat_id_masked": "558***22@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "59569921-d7d6-4160-a31c-63b41f881cc3",
+      "chat_id_masked": "141***48@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "db424d6c-f64a-46ab-916b-4e242655aa88",
+      "chat_id_masked": "558***54@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "36025680-740f-48a2-b697-87912a7a00e1",
+      "chat_id_masked": "120***73@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "2a6107b2-bc48-40d4-b51c-bcbf41d33689",
+      "chat_id_masked": "558***82@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "4773501e-3dcb-4e8b-a3fc-60a5b966bc21",
+      "chat_id_masked": "551***51@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "a34f1e2d-4004-4d79-a831-f04ef38ee74d",
+      "chat_id_masked": "558***38@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "bfb3620d-a110-402f-803e-cef1e7a49b01",
+      "chat_id_masked": "558***85@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "8452fee6-c28f-4306-a91c-5f5f44448629",
+      "chat_id_masked": "558***95@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "bf044150-bc21-49e3-9787-bbf4383d83ca",
+      "chat_id_masked": "559***98@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "1c2b8386-bdfe-435a-b627-359fdf67b1c5",
+      "chat_id_masked": "551***28@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "8ebe4b74-ade4-4856-b621-20374bef6f41",
+      "chat_id_masked": "183***89@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "abe10868-d6a5-4920-9fb1-d95914ad1e6f",
+      "chat_id_masked": "558***22@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "58aa27cb-b889-4fa9-8098-6e02dbdeac9b",
+      "chat_id_masked": "558***35@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d27b08f7-0f36-4bea-852a-1006849b761f",
+      "chat_id_masked": "558***64@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c72de6cb-bae2-4f51-bd03-61d904b5ee3f",
+      "chat_id_masked": "447***95@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "874d7d4a-13b1-4f52-98f8-0f073baf892f",
+      "chat_id_masked": "558***38@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d7f21e9d-3fff-42d2-be09-3ce2b9876bc6",
+      "chat_id_masked": "120***00@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c31ca419-50da-4edc-b16f-99a4a88303b7",
+      "chat_id_masked": "120***53@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "b55b2b6a-cb6c-435b-8e8c-810a755f3b6d",
+      "chat_id_masked": "558***99@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "4cc240c8-b7b9-440a-bda3-e2d1830f60cb",
+      "chat_id_masked": "558***79@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "9e631214-25c2-4f6d-bd7f-22d4509fdc98",
+      "chat_id_masked": "551***23@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ccc774d8-96a8-4c91-bc0c-71695c8eba35",
+      "chat_id_masked": "558***11@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "718b38c6-4576-4072-a735-fa41de5f30fc",
+      "chat_id_masked": "120***83@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "23407b8d-fde2-4c32-94fe-ac6da2b8e234",
+      "chat_id_masked": "558***77@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d4b0b81b-3adb-4ecc-8198-7d98f2f8e860",
+      "chat_id_masked": "558***70@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "25099c26-a9a0-426c-a4ad-05c5829c2746",
+      "chat_id_masked": "558***33@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "6cdec4af-d61c-4e87-923f-94b8df27cffb",
+      "chat_id_masked": "557***90@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0d128d14-093f-4f2c-bab9-a4386f417165",
+      "chat_id_masked": "558***23@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "3b6329bb-a379-4084-8c96-a867f051fc68",
+      "chat_id_masked": "558***43@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "805e3f61-cded-4d4b-a1bf-e33bfd66ea92",
+      "chat_id_masked": "558***13@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "e9b7d3d4-5acd-4e26-ae5a-fcc0201926d6",
+      "chat_id_masked": "120***22@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ddc757f1-195d-4d00-8f53-57c2f48994cb",
+      "chat_id_masked": "558***86@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "8c03785c-95a2-4b93-a6fe-239b47dc3d1d",
+      "chat_id_masked": "558***93@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "203b099d-3905-4090-888a-34c4c7e54691",
+      "chat_id_masked": "558***56@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "358179a0-48ce-4940-b30b-b6a7d6c40aa6",
+      "chat_id_masked": "558***23@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c9589abc-cc7a-41ec-900f-dd9197e7b5cd",
+      "chat_id_masked": "120***34@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "5a2e20f9-9558-4ec9-a93c-cdb53c40e127",
+      "chat_id_masked": "558***99@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d9072d5b-4ec7-4e8e-aa6f-7d891a074d4a",
+      "chat_id_masked": "558***47@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "60d13e7a-c515-4dec-b51c-864e1711d44d",
+      "chat_id_masked": "552***31@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "eb2b0e20-c36a-4a5e-8785-b9ecf8dcacf5",
+      "chat_id_masked": "558***71@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c30525a1-1769-433b-9760-8ee0dc9b1ae7",
+      "chat_id_masked": "558***68@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ec1ff447-e706-42fd-b562-7f14b0eb0925",
+      "chat_id_masked": "558***86@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d0589884-3e72-4341-8aa1-46bdd8f76895",
+      "chat_id_masked": "880***61@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "970719c9-fc9f-4a8c-93f4-59c731702be1",
+      "chat_id_masked": "558***79@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "3031a616-20fa-4a48-b2d3-0704435a4bdc",
+      "chat_id_masked": "558***03@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8b7558b9-4856-4aa6-ad28-e291859f3cbf",
+      "chat_id_masked": "558***01@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "f89ed476-caf3-48ce-b245-e1b4ae0a2934",
+      "chat_id_masked": "558***21@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "ca66c854-7ce2-4901-97e1-6dcc7ee1c4c7",
+      "chat_id_masked": "558***48@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "group_participant_without_outbound_direct_evidence;_WAHA_chat_list_required_before_quarantine",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "5807cfb5-1a53-4d1a-a0fd-98014ea64740",
+      "chat_id_masked": "558***99@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c8d3702e-54ca-4c02-aedc-9eba6f5d1151",
+      "chat_id_masked": "120***39@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "e28570a5-c53d-4c1e-a76e-616f0c6d92a2",
+      "chat_id_masked": "120***99@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "4c61d963-5ae1-46a8-a943-b264da67f62a",
+      "chat_id_masked": "120***09@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d10ae027-1f22-4654-aaae-010b128e2fea",
+      "chat_id_masked": "120***08@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "00131155-b932-4bdc-a6df-ee4f2f94c023",
+      "chat_id_masked": "120***75@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "de7ec268-b207-4837-a85b-7fd36d44ebd3",
+      "chat_id_masked": "120***11@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e3f661d1-d4e1-445b-ae1f-137e57fa879e",
+      "chat_id_masked": "120***21@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "0abae5ff-241d-4cfd-ae10-9a6cb3546fb6",
+      "chat_id_masked": "558***92@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c50210e3-75de-4054-8f58-13abccd069b7",
+      "chat_id_masked": "557***97@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "16d3373d-c8e4-49b4-90e9-1d7120ac68ba",
+      "chat_id_masked": "551***45@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8f2410be-dfec-4538-8f8c-aca9d7c7c253",
+      "chat_id_masked": "558***97@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "4cff3f5a-1609-483d-a7f5-4d4d0bac8bed",
+      "chat_id_masked": "558***79@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "544cd9e4-d6d6-47f9-8ff9-3c1b652cdd86",
+      "chat_id_masked": "558***89@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "80f04444-26d1-4168-9763-bf641d3b74e6",
+      "chat_id_masked": "551***91@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "a31bcbe9-eab6-4e7e-b192-af4baff1dd81",
+      "chat_id_masked": "558***24@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d2232061-f09b-47ac-9a97-f849e4351059",
+      "chat_id_masked": "120***25@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "dbd09b2f-17f4-4e67-a4e2-7cd64b4d802e",
+      "chat_id_masked": "558***63@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "4693ec9a-51ac-4e4a-ad1b-3ca6c848dd9d",
+      "chat_id_masked": "557***25@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "a3744330-fa16-4230-8b8f-e22fa6b5d691",
+      "chat_id_masked": "558***32@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c5438c60-92d5-486e-8326-4b42d5adf0f2",
+      "chat_id_masked": "558***68@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "245e1925-b590-4dd8-9241-9f3d9717f214",
+      "chat_id_masked": "558***09@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "18770b48-fc40-4c7f-a017-72959cb244d8",
+      "chat_id_masked": "554***22@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "132bd0ff-27a9-4c11-a4d8-a666656f1bf8",
+      "chat_id_masked": "558***39@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "f53fd4c8-e1af-4084-835e-2053f3d5361d",
+      "chat_id_masked": "558***00@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "26808e59-f531-4045-b00d-0534960ab2d8",
+      "chat_id_masked": "558***42@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c0f84493-529b-407e-aa43-9e4d4be70cc4",
+      "chat_id_masked": "558***30@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "3e79e05c-c2c9-4c0d-b0b9-d6b1e3d23a09",
+      "chat_id_masked": "556***62@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "a39150a6-1f3e-47f4-b9f1-92d8be9192c2",
+      "chat_id_masked": "558***05@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "b36357c5-7cad-4bf1-868b-a49ab5c7e692",
+      "chat_id_masked": "556***37@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "a6bbdbe1-954c-4da9-b87b-93b1b1135682",
+      "chat_id_masked": "120***02@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "ec77f5ce-795a-4ca3-bd86-30e291590b6e",
+      "chat_id_masked": "558***02@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "2e6c773f-5df2-4131-b0d4-dd88ba4e4aaf",
+      "chat_id_masked": "558***17@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "06f2aaee-7fe2-4321-bfc3-305f37cac533",
+      "chat_id_masked": "558***64@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "0633cb7e-18d7-4d2f-ae92-b356f12e6666",
+      "chat_id_masked": "558***19@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3415dded-38b6-4789-8237-05ff07e1b0af",
+      "chat_id_masked": "557***19@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "af6ea764-c702-4b0f-b5cc-ba09137cad35",
+      "chat_id_masked": "558***50@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "3984dc1d-713b-41f8-8aaf-9a52a29579f7",
+      "chat_id_masked": "558***78@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "cb77bea4-2b15-4236-8c8c-83b367d73c8b",
+      "chat_id_masked": "558***18@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "e348e8e8-60ec-4a70-b660-adfd73946e5d",
+      "chat_id_masked": "558***85@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "5394d5da-e746-4bcc-97c8-4a505f53a78b",
+      "chat_id_masked": "558***41@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "5969dbac-7dc6-47ee-915e-aabe5ad881af",
+      "chat_id_masked": "558***41@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "1b85cfca-84ad-4e88-bcd3-123ab9a57513",
+      "chat_id_masked": "558***88@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "9fec6cf1-052c-44c9-8617-f9c4f7b37561",
+      "chat_id_masked": "557***34@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "7dc5115f-1d98-4711-8656-d953c1f65d89",
+      "chat_id_masked": "558***00@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "22ba142e-44e3-4893-b7bb-b01f619e4553",
+      "chat_id_masked": "551***39@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f3542590-ff9f-40ed-8d7e-c26c0df6d588",
+      "chat_id_masked": "558***41@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c356708a-daf2-44de-af48-3dba02879551",
+      "chat_id_masked": "551***09@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "ccd3381e-f512-4145-9301-9f21fa8392c8",
+      "chat_id_masked": "558***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "8a85c845-fbef-4787-9fac-a79d8534a3a5",
+      "chat_id_masked": "551***29@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "41d6da07-3206-4047-b44d-dac72e043b3d",
+      "chat_id_masked": "558***29@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "f7bb4ca2-1deb-4909-b492-975133f0a520",
+      "chat_id_masked": "558***61@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "506efebc-a6bf-4298-b72c-523f885561d6",
+      "chat_id_masked": "557***96@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "dd1140b8-d688-464c-bf84-2e10eceb4714",
+      "chat_id_masked": "558***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3a990977-0728-4036-9c11-b4bc84aae92f",
+      "chat_id_masked": "558***94@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "d3332520-186f-4cb9-9bf7-0e2066a7d771",
+      "chat_id_masked": "558***07@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3ce703ce-9b6f-404e-beff-35d6a03dc58e",
+      "chat_id_masked": "558***34@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "11e065d1-97aa-48f5-b9e6-1e5bf241d9b4",
+      "chat_id_masked": "558***76@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "08e4fa1e-ef48-45b9-ad7f-c540966a8b56",
+      "chat_id_masked": "197***09@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "aef32c9b-942e-4f5e-82b6-cd085b602709",
+      "chat_id_masked": "558***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "cc93c996-a394-4193-9e83-584fe80c13e2",
+      "chat_id_masked": "558***15@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "c59e8cc3-92db-468f-b82c-1a2c55c26d94",
+      "chat_id_masked": "120***47@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "2b697917-01b1-444d-bb14-542ad03b434d",
+      "chat_id_masked": "558***63@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "20533956-bb78-4cab-b9db-8d6ef580fced",
+      "chat_id_masked": "557***86@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "0df68b21-c6a9-4b6b-be7d-3f0e6f9b6a4c",
+      "chat_id_masked": "551***08@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "cd82c019-5c74-4d5e-b620-e7957782e073",
+      "chat_id_masked": "120***48@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "4eea7671-a128-4fae-afd3-3b2ca4f6b9b3",
+      "chat_id_masked": "551***88@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "886947a5-49da-4f4b-abe2-1a86476d0ba3",
+      "chat_id_masked": "120***28@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "4f7ba921-aa18-4884-af7a-1dfc764cc502",
+      "chat_id_masked": "557***38@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "9a0f1157-b7a0-4161-95b1-3fa7033fd10b",
+      "chat_id_masked": "558***94@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "d6ef8fc7-6a6d-425e-90bf-ccae4937ddb0",
+      "chat_id_masked": "558***94@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "dfa97b64-6e86-4e12-ad52-02d02dbf1bc9",
+      "chat_id_masked": "120***75@g.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_group",
+      "reason": "group_chat_id",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "734fe1b1-d1cb-42f1-aa00-097763299b23",
+      "chat_id_masked": "558***14@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "385d304e-8033-4cf9-9afe-c29e5ca18515",
+      "chat_id_masked": "558***98@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "ec441d66-50e2-482f-914d-b28d5f29c298",
+      "chat_id_masked": "558***33@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "c8844744-612b-4cf0-a241-682ebaa08507",
+      "chat_id_masked": "558***29@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "8d43a6df-7ec8-4def-ae91-35beecbc27ae",
+      "chat_id_masked": "558***24@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "3b01daa9-0394-4fb7-8d2e-ce88a86a77c1",
+      "chat_id_masked": "558***63@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "45040a00-8400-403b-85f3-f3ae34d24206",
+      "chat_id_masked": "558***63@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "9a16e8c0-d4c6-4083-b619-8b4e9f6a74ac",
+      "chat_id_masked": "558***20@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "957bedaa-3b8c-4020-ac60-8372b7d30a7e",
+      "chat_id_masked": "558***13@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "0427140c-c4e5-4b36-b6a4-a90c428c95be",
+      "chat_id_masked": "558***33@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "inconclusive",
+      "reason": "insufficient_evidence",
+      "message_count": 1,
+      "outbound_count": 1
+    },
+    {
+      "conversation_id": "e9fc265f-4bc8-4198-823c-aa9c9bd5f473",
+      "chat_id_masked": "551***81@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    },
+    {
+      "conversation_id": "182a8acc-5e82-47df-8e62-e15c6d7945fa",
+      "chat_id_masked": "558***37@c.us",
+      "workspace_id": "default-workspace",
+      "waha_session": "chatpro-42217e8d030af3c738f272559e67befaf1533633",
+      "classification": "valid_direct",
+      "reason": "direct_chat_messages_present",
+      "message_count": 1,
+      "outbound_count": 0
+    }
+  ]
+}
