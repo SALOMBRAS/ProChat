@@ -17,7 +17,7 @@ export const notImplementedErrorSchema = apiErrorSchema.refine(value => value.er
 
 export const sessionStatusSchema = z.enum(['disconnected','connecting','waiting_qr','connected','stopped','error']);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
-export const whatsAppSessionSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), name: z.string().min(1), status: sessionStatusSchema, createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
+export const whatsAppSessionSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), name: z.string().min(1), status: sessionStatusSchema, createdAt: z.string().datetime(), updatedAt: z.string().datetime(), wahaName: z.string().min(1).optional(), managed: z.boolean().optional() });
 export type WhatsAppSession = z.infer<typeof whatsAppSessionSchema>;
 // The caller owns this key so retrying a request whose response was lost does
 // not create a second WAHA session. It is also used as the public session id.
@@ -25,7 +25,7 @@ export const createSessionRequestSchema = z.object({ name: z.string().trim().min
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export const connectSessionRequestSchema = z.object({ forceQrRefresh: z.boolean().optional().default(false) });
 export type ConnectSessionRequest = z.infer<typeof connectSessionRequestSchema>;
-export const sessionSummarySchema = whatsAppSessionSchema.pick({ id: true, workspaceId: true, name: true, status: true, updatedAt: true });
+export const sessionSummarySchema = whatsAppSessionSchema.pick({ id: true, workspaceId: true, name: true, status: true, updatedAt: true, wahaName: true, managed: true });
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 
 export const contactSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), displayName: z.string().min(1), phoneNumber: z.string().min(1), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });

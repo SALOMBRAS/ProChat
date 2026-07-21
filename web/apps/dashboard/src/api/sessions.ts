@@ -1,6 +1,6 @@
 import { ApiClient, ApiError } from './client';
 export type SessionStatus = 'disconnected' | 'connecting' | 'waiting_qr' | 'connected' | 'stopped' | 'error';
-export interface Session { id:string; name:string; status:SessionStatus; createdAt?:string; updatedAt:string; }
+export interface Session { id:string; name:string; status:SessionStatus; createdAt?:string; updatedAt:string; wahaName?:string; managed?:boolean; }
 export type SessionQr = { sessionId:string; qr:string; expiresAt:string };
 export class SessionApiError extends ApiError {}
 export class SessionsApi {

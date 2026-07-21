@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-export type WahaSessionRegistryEntry = { workspaceId: string; sessionId: string; name: string; wahaName: string };
+export type WahaSessionRegistryEntry = { workspaceId: string; sessionId: string; name: string; wahaName: string; aliases?: string[] };
 export class FileWahaSessionRegistry {
   private readonly file: string;
   constructor(dataDir: string) { this.file = path.join(dataDir, 'waha-sessions.json'); }
@@ -14,4 +14,4 @@ export class FileWahaSessionRegistry {
     await writeFile(temporary, JSON.stringify(entries), 'utf8'); await rename(temporary, this.file);
   }
 }
-function isEntry(value: unknown): value is WahaSessionRegistryEntry { return Boolean(value && typeof value === 'object' && ['workspaceId', 'sessionId', 'name', 'wahaName'].every(key => typeof (value as Record<string, unknown>)[key] === 'string' && String((value as Record<string, unknown>)[key]).length)); }
+function isEntry(value: unknown): value is WahaSessionRegistryEntry { if (!value || typeof value !== 'object') return false; const record = value as Record<string, unknown>; const aliases = record.aliases; return ['workspaceId', 'sessionId', 'name', 'wahaName'].every(key => typeof record[key] === 'string' && String(record[key]).length > 0) && (aliases === undefined || (Array.isArray(aliases) && aliases.every((item: unknown) => typeof item === 'string' && item.length > 0))); }
