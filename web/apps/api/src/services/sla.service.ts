@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { SqliteDatabase } from '../persistence/database.js';
 import type { RealtimeHub } from '../realtime.js';
+import { log } from '../logging.js';
 
 export type SlaStatus = 'waiting_operator' | 'waiting_customer' | 'answered' | 'resolved' | 'expired' | 'archived';
 export type SlaConfig = { firstResponseThresholdMs: number; operatorWaitingThresholdMs: number; customerWaitingThresholdMs: number; warningRatio: number };
@@ -35,7 +36,7 @@ export class SlaService {
   async metrics(workspaceId: string, conversationId: string) { const row = await this.store.get(workspaceId, conversationId); return row ? projectSla(row, await this.store.getConfig(workspaceId)) : undefined; }
   async summary(workspaceId: string) { const rows = await this.store.listDue(workspaceId); const config = await this.store.getConfig(workspaceId); const values = rows.map(row => projectSla(row, config)); return { total: values.length, waitingOperator: values.filter(x => x.status === 'waiting_operator' || x.status === 'expired').length, waitingCustomer: values.filter(x => x.status === 'waiting_customer').length, expired: values.filter(x => x.slaIndicator === 'red').length, metrics: values }; }
   async config(workspaceId: string, input?: Partial<SlaConfig>) { if (!input) return this.store.getConfig(workspaceId); return this.store.saveConfig(workspaceId, { ...await this.store.getConfig(workspaceId), ...input }); }
-  async tick() { for (const row of await this.store.listDue()) { const config = await this.store.getConfig(row.workspaceId); const projected = projectSla(row, config); if (projected.slaIndicator === 'red' && row.slaStatus !== 'expired') { row.slaStatus = 'expired'; row.updatedAt = new Date().toISOString(); await this.store.save(row); await this.publish(row.workspaceId, row); } } }
+  async tick() { const rows = await this.store.listDue(); let failed = 0; for (const row of rows) try { const config = await this.store.getConfig(row.workspaceId); const projected = projectSla(row, config); if (projected.slaIndicator === 'red' && row.slaStatus !== 'expired') { row.slaStatus = 'expired'; row.updatedAt = new Date().toISOString(); await this.store.save(row); await this.publish(row.workspaceId, row); } } catch (error) { failed++; log('error', 'SLA tick item failed', { workspaceId: row.workspaceId, conversationId: row.conversationId, error: error instanceof Error ? error.stack ?? error.message : String(error) }); } if (failed) log('error', 'SLA tick completed with failures', { due: rows.length, failed }); }
   private async publish(workspaceId: string, row: Row) { this.realtime.publish(workspaceId, 'conversation.sla.updated', { conversationId: row.conversationId, metrics: projectSla(row, await this.store.getConfig(workspaceId)) }); }
 }
 export class SqliteSlaStore implements SlaStore {

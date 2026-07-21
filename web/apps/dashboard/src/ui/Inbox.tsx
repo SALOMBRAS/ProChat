@@ -537,7 +537,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                 Conversas <span>{conversationPage.total}</span>
               </h2>
               <small>
-                Histórico: {syncJob ? `${syncJob.progressLabel} (${syncJob.chatsProcessed} conversas, ${syncJob.messagesProcessed} mensagens)` : "não sincronizado"}
+          Histórico: {syncJob ? `${syncJob.progressLabel}${syncJob.status === 'running' ? ` (${syncJob.chatsProcessed} conversas, ${syncJob.messagesProcessed} mensagens)` : ''}` : "não sincronizado"}
               </small>
             </div>
             <button
