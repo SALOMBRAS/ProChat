@@ -34,6 +34,7 @@ import { SlaService, SqliteSlaStore, SupabaseSlaStore } from './services/sla.ser
 import { KanbanService } from './services/kanban.service.js';
 import { SupabaseKanbanService } from './services/supabase-kanban.service.js';
 import { KanbanAutomationCoordinator } from './services/kanban-automation.service.js';
+import { log } from './logging.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
   const realtimeHub = new RealtimeHub(); app.locals.realtimeHub = realtimeHub;
@@ -86,13 +87,13 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const kanbanAutomation = new KanbanAutomationCoordinator(kanban);
     webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite, kanbanAutomation) : new SupabaseWahaWebhookStore(supabase!, kanbanAutomation);
     const mediaPersistence = new WhatsAppMediaPersistenceService(webhookStore, permanentMedia, { baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey });
-    if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void sla.tick(); }, 60_000); timer.unref(); }
+    if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void sla.tick().catch(error => log('error', 'SLA tick failed', { error: error instanceof Error ? error.stack ?? error.message : String(error) })); }, 60_000); timer.unref(); }
     const routing = new RoutingService(routingStore, webhookStore, directory, realtimeHub, database ? new SqliteRoutingJobStore(database.sqlite) : undefined);
     const attachments = new AttachmentOutboxService(webhookStore, outboxStore, attachmentStorage, workerClient);
     // A restart must never turn stored work into provider calls. Old rows
     // without provider acceptance are retained and made terminal for review.
     await attachments.reconcileStartup();
-    if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void attachments.cleanupExpired(); }, 60 * 60 * 1000); timer.unref(); }
+    if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void attachments.cleanupExpired().catch(error => log('error', 'Attachment cleanup failed', { error: error instanceof Error ? error.stack ?? error.message : String(error) })); }, 60 * 60 * 1000); timer.unref(); }
     const identitySync = new WhatsAppIdentitySyncService(workerClient, identityStore, target => realtimeHub.publish(target.workspaceId, 'conversation.updated', { wahaSession: target.wahaSession, chatId: target.chatId, identitySynchronized: true }));
     if (config.nodeEnv !== 'test') identitySync.enqueueBackfill();
     app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }, identitySync, async (workspaceId, externalMessageId) => { await attachments.confirm(workspaceId, externalMessageId); }, mediaPersistence).receive); if (mediaPersistence.enabled) setImmediate(() => { void Promise.all([mediaPersistence.importPending(), mediaPersistence.repairStoredMime()]).catch(() => undefined); });

@@ -74,7 +74,14 @@ export class WhatsAppHistorySyncService {
     const key = this.key(job.workspaceId, job.wahaSession);
     if (this.active.has(key)) return;
     this.active.add(key);
-    setImmediate(() => { void this.run(job.workspaceId, job.wahaSession, limits).finally(() => this.active.delete(key)); });
+    setImmediate(() => {
+      // A detached task must always consume its own rejection. `finally` returns
+      // a rejecting promise too, which previously surfaced as an unhandled
+      // rejection and could terminate Node.
+      void this.run(job.workspaceId, job.wahaSession, limits)
+        .catch(error => log('error', 'WhatsApp history synchronization failed', { workspaceId: job.workspaceId, wahaSession: job.wahaSession, error: error instanceof Error ? error.stack ?? error.message : String(error) }))
+        .finally(() => this.active.delete(key));
+    });
   }
 
   private async run(workspaceId: string, wahaSession: string, limits: Required<HistorySyncRunLimits>): Promise<void> {

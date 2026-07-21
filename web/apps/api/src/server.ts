@@ -10,3 +10,10 @@ server.listen(config.port, () => log('info', 'API listening', { port: config.por
 let closing = false;
 function shutdown(signal: string): void { if (closing) return; closing = true; log('info', 'API shutting down', { signal }); wss.close(() => server.close(() => { app.locals.persistenceDatabase?.close(); process.exit(0); })); setTimeout(() => process.exit(1), 10_000).unref(); }
 process.on('SIGINT', () => shutdown('SIGINT')); process.on('SIGTERM', () => shutdown('SIGTERM'));
+// Last-resort diagnostics only. Every background task is expected to handle its
+// own failure; this guard keeps an unexpected provider object rejection from
+// taking the API down while retaining useful evidence in the logs.
+process.on('unhandledRejection', reason => {
+  const error = reason instanceof Error ? reason : new Error(typeof reason === 'string' ? reason : JSON.stringify(reason));
+  log('error', 'Unhandled promise rejection', { error: error.stack ?? error.message });
+});

@@ -75,6 +75,19 @@ const Avatar = ({
     )}
   </span>
 );
+let activeAudio: HTMLAudioElement | undefined;
+const AudioPlayer = ({ url, message }: { url: string; message: InboxMessage }) => {
+  const audio = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(message.duration ?? 0);
+  const [speed, setSpeed] = useState(1);
+  const [unavailable, setUnavailable] = useState(false);
+  const format = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+  const toggle = async () => { const node = audio.current; if (!node) return; if (node.paused) { if (activeAudio && activeAudio !== node) activeAudio.pause(); activeAudio = node; try { await node.play(); } catch { setUnavailable(true); } } else node.pause(); };
+  const changeSpeed = () => { const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1; setSpeed(next); if (audio.current) audio.current.playbackRate = next; };
+  return <div className="audio-player" aria-label="Mensagem de áudio"><audio ref={audio} preload="metadata" onLoadedMetadata={() => setDuration(audio.current?.duration || message.duration || 0)} onTimeUpdate={() => setCurrent(audio.current?.currentTime || 0)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCurrent(0); }} onError={() => setUnavailable(true)}><source src={url} type={message.mediaMimeType ?? undefined} /></audio>{unavailable ? <span className="media-error" role="status">Áudio indisponível.</span> : <><button type="button" className="audio-play" onClick={() => void toggle()} aria-label={playing ? "Pausar áudio" : "Reproduzir áudio"}>{playing ? "Ⅱ" : "▶"}</button><span className="audio-mark" aria-hidden="true">♬</span><input aria-label="Progresso do áudio" type="range" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(current, duration || 0)} onChange={event => { const value = Number(event.target.value); if (audio.current) audio.current.currentTime = value; setCurrent(value); }} /><time>{format(current)} / {format(duration)}</time><button type="button" className="audio-speed" onClick={changeSpeed} aria-label={`Velocidade ${speed}x`}>{speed}x</button></>}</div>;
+};
 const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
   const [url, setUrl] = useState<string>();
   const [failed, setFailed] = useState(false);
@@ -122,11 +135,7 @@ const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
     message.messageType === "audio" ||
     message.mediaMimeType?.startsWith("audio/")
   )
-    return (
-      <audio className="message-media audio" controls preload="metadata">
-        <source src={url} type={message.mediaMimeType ?? undefined} />
-      </audio>
-    );
+    return <AudioPlayer url={url} message={message} />;
   return (
     <a className="message-document" href={url} download={message.mediaFilename ?? undefined}>
       <span>▧</span>
@@ -176,6 +185,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const scrollAfterRender = useRef(false);
   const loadedContextId = useRef<string>();
   const activeConversationId = useRef<string>();
+  const selectedRef = useRef<InboxConversation>();
   const contextRequest = useRef(0);
   const refreshConversations = async () => {
     setLoadingConversations(true);
@@ -190,12 +200,9 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const loadLatest = async (conversationId: string, stickToEnd: boolean) => {
     setLoadingMessages(true);
     try {
-      const first = await api.messages(conversationId, 1, pageSize);
-      const lastPage = Math.max(1, Math.ceil(first.total / pageSize));
-      const latest =
-        lastPage === 1
-          ? first
-          : await api.messages(conversationId, lastPage, pageSize);
+      // The API returns the most recent reverse-cursor page first. Do not
+      // request the whole history merely to find its final offset page.
+      const latest = await api.messages(conversationId, 1, pageSize);
       setMessages(latest.items);
       setMessagePage(latest.page);
       scrollAfterRender.current = stickToEnd;
@@ -278,6 +285,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   }, [conversationPage]);
   useEffect(() => {
     activeConversationId.current = selected?.id;
+    selectedRef.current = selected;
     contextRequest.current += 1;
     setContext(undefined);
     setActivity([]);
@@ -290,15 +298,16 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     () =>
       connectRealtime((event) => {
         if (event.eventType === "conversation.context.updated") {
-          if (selected && String(event.payload.conversationId) === selected.id)
-            void loadContext(selected.id);
+          const current = selectedRef.current;
+          if (current && String(event.payload.conversationId) === current.id)
+            void loadContext(current.id);
           return;
         }
         if (event.eventType === "conversation.management.updated") {
           const conversation = event.payload.conversation as InboxConversation | undefined;
           if (conversation?.id) {
             setConversationPage((current) => ({ ...current, items: current.items.map((item) => item.id === conversation.id ? conversation : item) }));
-            if (selected?.id === conversation.id) { setSelected(conversation); void loadActivity(conversation.id); }
+            if (selectedRef.current?.id === conversation.id) { setSelected(conversation); void loadActivity(conversation.id); }
           }
           return;
         }
@@ -340,9 +349,9 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
         )
           return;
         void refreshConversations();
-        if (selected && atBottomRef.current) void loadLatest(selected.id, true);
+        if (selectedRef.current && atBottomRef.current) void loadLatest(selectedRef.current.id, true);
       }),
-    [selected?.id, api],
+    [api],
   );
   useEffect(() => {
     const conversationId = selected?.id;

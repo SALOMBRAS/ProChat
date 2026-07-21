@@ -34,7 +34,7 @@
 .chat-inbox .message-media.video { max-height: 360px; }
 .chat-inbox .media-loading, .chat-inbox .media-error { display: block; margin-bottom: 7px; color: #bdb6c9; font-size: 11px; }
 .chat-inbox .media-error { color: #ff9c9c; }
-.chat-inbox .message-media.audio { width: min(300px, 100%); height: 38px; }
+.chat-inbox .audio-player { display:flex; align-items:center; gap:8px; min-width:300px; max-width:440px; padding:10px; margin-bottom:7px; border-radius:12px; background:#090910; }.chat-inbox .audio-play,.chat-inbox .audio-speed { padding:6px 8px!important; border-radius:999px!important; background:#8b5cf6!important; color:#fff!important; }.chat-inbox .audio-mark { color:#d9bdff; font-size:18px; }.chat-inbox .audio-player input { min-width:0; padding:0; accent-color:#b879ff; }.chat-inbox .audio-player time { color:#bbb3ca; font-size:10px; white-space:nowrap; }.chat-inbox .audio-speed { background:#ffffff18!important; font-size:10px!important; }
 .chat-inbox .attachment-input { display: none; }
 .chat-inbox .attachment-preview, .chat-inbox .attachment-status { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #bbb3ca; font-size: 10px; }
 .chat-inbox .attachment-image-preview { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; }

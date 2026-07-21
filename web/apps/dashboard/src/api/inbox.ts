@@ -2,7 +2,7 @@ import { ApiClient } from './client';
 import type { InboxConversation as SharedInboxConversation, InboxMessage as SharedInboxMessage, InboxOutboxJob } from '@chatpro/contracts';
 export type InboxConversation = SharedInboxConversation;
 export type InboxMessage = SharedInboxMessage;
-export type Page<T> = { items:T[]; page:number; pageSize:number; total:number };
+export type Page<T> = { items:T[]; page:number; pageSize:number; total:number; nextCursor?: string | null; hasMore?: boolean };
 export type ConversationContext = { notes: string | null; tags: string[]; firstInteractionAt: string; lastInteractionAt: string };
 export type HistorySyncJob = { id: string; jobId: string; wahaSession: string; status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'; chatsProcessed: number; messagesProcessed: number; currentChat: string | null; hasMore: boolean; progressLabel: string; lastErrorSafe: string | null; updatedAt: string };
 export type ConversationStatus = 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'archived';
@@ -14,8 +14,8 @@ export type KanbanBoard = { id:string; name:string; isDefault:boolean; stages:Ka
 export type KanbanCard = { conversationId:string; maskedId:string; lastMessage:string; lastMessageAt:string; unreadCount:number; conversationType:'direct'|'group'; assignedUserId:string|null; assignedTeamId:string|null; routingQueueId:string|null; tags:string[]; slaStatus:string|null; stageId:string; position:number; updatedAt:string };
 export class InboxApi {
   constructor(private readonly http = new ApiClient()) {}
-  conversations=(page=1,pageSize=50)=>this.http.get<Page<InboxConversation>>(`/api/v1/inbox/conversations?page=${page}&pageSize=${pageSize}`);
-  messages=(id:string,page=1,pageSize=100)=>this.http.get<Page<InboxMessage>>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages?page=${page}&pageSize=${pageSize}`);
+  conversations=(page=1,pageSize=100,cursor?:string,search?:string)=>this.http.get<Page<InboxConversation>>(`/api/v1/inbox/conversations?page=${page}&pageSize=${pageSize}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}`);
+  messages=(id:string,page=1,pageSize=50,cursor?:string)=>this.http.get<Page<InboxMessage>>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages?page=${page}&pageSize=${pageSize}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
   mediaUrl=(messageId:string)=>this.http.get<{ url: string; expiresAt: string }>(`/api/v1/inbox/messages/${encodeURIComponent(messageId)}/media/access`);
   sendMessage=(id:string,text:string)=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages`, { text });
   sendAttachment=(id:string,file:File,clientRequestId:string,caption?:string)=>{ const body = new FormData(); body.set('file', file); body.set('clientRequestId', clientRequestId); if (caption?.trim()) body.set('caption', caption.trim()); return this.http.postForm<InboxOutboxJob>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/attachments`, body); };
