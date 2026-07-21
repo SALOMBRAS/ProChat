@@ -19,7 +19,9 @@ export const sessionStatusSchema = z.enum(['disconnected','connecting','waiting_
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 export const whatsAppSessionSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), name: z.string().min(1), status: sessionStatusSchema, createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
 export type WhatsAppSession = z.infer<typeof whatsAppSessionSchema>;
-export const createSessionRequestSchema = z.object({ name: z.string().trim().min(1).max(120).optional() });
+// The caller owns this key so retrying a request whose response was lost does
+// not create a second WAHA session. It is also used as the public session id.
+export const createSessionRequestSchema = z.object({ name: z.string().trim().min(1).max(120).optional(), clientRequestId: z.string().uuid().optional() });
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export const connectSessionRequestSchema = z.object({ forceQrRefresh: z.boolean().optional().default(false) });
 export type ConnectSessionRequest = z.infer<typeof connectSessionRequestSchema>;
