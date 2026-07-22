@@ -1,0 +1,23 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { SqlitePersistenceDatabase } from '../src/persistence/database.js';
+import { RealtimeHub } from '../src/realtime.js';
+import { KanbanService } from '../src/services/kanban.service.js';
+
+const directories:string[]=[];
+const migrations=join(process.cwd(),'migrations');
+function setup(){const directory=mkdtempSync(join(tmpdir(),'chatpro-kanban-'));directories.push(directory);const database=new SqlitePersistenceDatabase(join(directory,'db.sqlite'),migrations);database.migrate();const realtime=new RealtimeHub();const sla={status:async()=>undefined} as any;return {database,realtime,service:new KanbanService(database.sqlite,realtime,sla)};}
+function conversation(database:SqlitePersistenceDatabase,workspaceId:string,id:string){const now=new Date().toISOString();database.sqlite.prepare('INSERT INTO conversations (id,workspaceId,wahaSession,chatId,contactId,status,lastMessage,lastMessageAt,unreadCount,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(id,workspaceId,'primary',`${id}@c.us`,null,'open','Olá',now,0,now,now);}
+afterEach(()=>directories.splice(0).forEach(directory=>rmSync(directory,{recursive:true,force:true})));
+
+describe('operational Kanban',()=>{
+  it('loads a default board with all standard stages and remains idempotent',async()=>{const {database,service}=setup();try{const first=await service.boards('workspace-a');const second=await service.boards('workspace-a');expect(first).toHaveLength(1);expect(second[0].id).toBe(first[0].id);expect(first[0].stages.map(stage=>stage.key)).toEqual(['new','in_progress','waiting_customer','waiting_operator','resolved','archived']);expect(database.sqlite.prepare('SELECT count(*) total FROM kanban_stages WHERE boardId=?').get(first[0].id)).toMatchObject({total:6});}finally{database.close();}});
+
+  it('repairs a workspace default board that exists without stages or card states',async()=>{const {database,service}=setup();try{const now=new Date().toISOString();conversation(database,'workspace-a','00000000-0000-4000-8000-000000000011');database.sqlite.prepare('INSERT INTO kanban_boards (id,workspaceId,name,isDefault,createdAt,updatedAt) VALUES (?,?,?,?,?,?)').run('00000000-0000-4000-8000-000000000012','workspace-a','Operação',1,now,now);const [board]=await service.boards('workspace-a');expect(board.stages).toHaveLength(6);expect(database.sqlite.prepare('SELECT count(*) total FROM conversation_kanban_state WHERE workspaceId=? AND boardId=?').get('workspace-a',board.id)).toMatchObject({total:1});}finally{database.close();}});
+
+  it('persists movement and emits the workspace-scoped realtime event',async()=>{const {database,realtime,service}=setup();try{const sent:string[]=[];realtime.add({readyState:1,send:value=>sent.push(value)},'workspace-a');conversation(database,'workspace-a','00000000-0000-4000-8000-000000000021');const [board]=await service.boards('workspace-a');const target=board.stages.find(stage=>stage.key==='in_progress')!;await service.move('workspace-a','00000000-0000-4000-8000-000000000022','00000000-0000-4000-8000-000000000021',{boardId:board.id,stageId:target.id,source:'manual'});expect(database.sqlite.prepare('SELECT stageId,manualOverride FROM conversation_kanban_state WHERE conversationId=? AND boardId=?').get('00000000-0000-4000-8000-000000000021',board.id)).toMatchObject({stageId:target.id,manualOverride:1});expect(await service.history('workspace-a','00000000-0000-4000-8000-000000000021')).toHaveLength(1);expect(JSON.parse(sent[0]).eventType).toBe('conversation.kanban.moved');}finally{database.close();}});
+
+  it('keeps boards and cards isolated between workspaces',async()=>{const {database,service}=setup();try{conversation(database,'workspace-a','00000000-0000-4000-8000-000000000031');conversation(database,'workspace-b','00000000-0000-4000-8000-000000000032');const [a]=await service.boards('workspace-a');const [b]=await service.boards('workspace-b');expect(a.id).not.toBe(b.id);const cards=await service.conversations('workspace-a',a.id,a.stages[0].id,1,30,{});expect(cards.items.map(card=>card.conversationId)).toEqual(['00000000-0000-4000-8000-000000000031']);await expect(service.detail('workspace-b',a.id)).rejects.toMatchObject({status:404});}finally{database.close();}});
+});
