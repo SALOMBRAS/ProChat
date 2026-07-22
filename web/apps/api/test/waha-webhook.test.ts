@@ -189,6 +189,19 @@ describe('WAHA webhook ingress', () => {
     await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(200);
     const db = app.locals.persistenceDatabase.sqlite; expect(db.prepare('SELECT count(*) total FROM contacts').get()).toEqual({ total: 0 }); expect(db.prepare('SELECT identifier FROM pending_contact_identities').all()).toEqual([{ identifier: lid }]);
   });
+  it('accepts a real WAHA private message whose chat identity is sent as remoteJid', async () => {
+    const app = await appFor(); const body = { id: 'evt-remote-jid', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-remote-jid', remoteJid: '5511999990000@c.us', body: 'Formato alternativo' } }; const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT chatId FROM whatsapp_messages WHERE externalMessageId=?').get('message-remote-jid')).toEqual({ chatId: '5511999990000@c.us' });
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) total FROM conversations').get()).toEqual({ total: 1 });
+  });
+  it('records the event but does not create a conversation when no valid chat identity exists', async () => {
+    const app = await appFor(); const body = { id: 'evt-no-chat', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-no-chat', participant: '5511999990000@c.us', body: 'Não inferir participante' } }; const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) total FROM waha_webhook_events').get()).toEqual({ total: 1 });
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) total FROM whatsapp_messages').get()).toEqual({ total: 0 });
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) total FROM conversations').get()).toEqual({ total: 0 });
+  });
   it('hides quarantined conversations from Inbox and restores them without touching messages', async () => {
     const app = await appFor(); const body = { id: 'evt-quarantine', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-quarantine', chatId: '5511999990000@c.us', body: 'preservar' } }; const requestBody = signed(body);
     await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
