@@ -51,7 +51,7 @@ export const persistenceContactSchema = persistedEntitySchema.extend({ displayNa
 export const tagSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(80), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable() });
 export const optOutHistorySchema = persistedEntitySchema.extend({ contactId: z.string().uuid(), source: z.string().trim().min(1).max(80), reason: z.string().trim().max(500).nullable(), occurredAt: z.string().datetime() });
 export const templateVariablesSchema = z.array(z.string().trim().min(1).max(80)).max(50).superRefine((variables, ctx) => { if (new Set(variables).size !== variables.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Template variables must be unique' }); });
-export const persistenceTemplateSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(120), content: z.string().min(1).max(10_000), variables: templateVariablesSchema });
+export const persistenceTemplateSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(120), content: z.string().min(1).max(10_000), variables: templateVariablesSchema.default([]) });
 export const pipelineSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(120) });
 export const stageSchema = persistedEntitySchema.extend({ pipelineId: z.string().uuid(), name: z.string().trim().min(1).max(120), position: z.number().int().nonnegative() });
 export const leadSchema = persistedEntitySchema.extend({ stageId: z.string().uuid(), contactId: z.string().uuid().nullable(), title: z.string().trim().min(1).max(160) });
