@@ -195,6 +195,15 @@ describe('WAHA webhook ingress', () => {
     expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT chatId FROM whatsapp_messages WHERE externalMessageId=?').get('message-remote-jid')).toEqual({ chatId: '5511999990000@c.us' });
     expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) total FROM conversations').get()).toEqual({ total: 1 });
   });
+  it('persists a private @lid received only through sender/from and emits Inbox realtime events', async () => {
+    const app = await appFor(); const chatId = '153073372647624@lid'; const socket = { readyState: 1, messages: [] as string[], send(data: string) { this.messages.push(data); } }; app.locals.realtimeHub.add(socket, 'workspace-a');
+    const body = { id: 'evt-sender-lid', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-sender-lid', sender: chatId, from: chatId, body: 'Mensagem pelo LID' } }; const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    const db = app.locals.persistenceDatabase.sqlite; const conversation = db.prepare('SELECT id, chatId, conversationType FROM conversations WHERE chatId=?').get(chatId) as { id: string; chatId: string; conversationType: string };
+    expect(db.prepare('SELECT externalMessageId, chatId, direction FROM whatsapp_messages WHERE externalMessageId=?').get('message-sender-lid')).toEqual({ externalMessageId: 'message-sender-lid', chatId, direction: 'inbound' });
+    expect(conversation).toMatchObject({ chatId, conversationType: 'direct' });
+    expect(socket.messages.map(raw => JSON.parse(raw)).filter((event: { eventType: string }) => event.eventType === 'message.received' || event.eventType === 'conversation.updated')).toHaveLength(2);
+  });
   it('records the event but does not create a conversation when no valid chat identity exists', async () => {
     const app = await appFor(); const body = { id: 'evt-no-chat', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-no-chat', participant: '5511999990000@c.us', body: 'Não inferir participante' } }; const requestBody = signed(body);
     await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);

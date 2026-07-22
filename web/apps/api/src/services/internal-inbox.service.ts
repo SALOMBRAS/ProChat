@@ -21,9 +21,42 @@ export class InternalInboxService {
     if (!sent.sentMessage) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Internal worker returned an invalid response');
     log('info', 'Inbox message send accepted', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id ?? null, pending: sent.sentMessage.pending === true });
     if (!sent.sentMessage.id) return { id: `pending:${context.correlationId}`, direction: 'outbound', content: text, timestamp: sent.sentMessage.timestamp, status: 'sent', messageType: 'text', chatId: conversation.chatId, senderWhatsappId: conversation.chatId, metadata: { pending: true } };
-    const persisted = await this.conversations.recordOutbound({ workspaceId: context.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId, externalMessageId: sent.sentMessage.id, text, occurredAt: sent.sentMessage.timestamp });
+    log('info', 'Inbox outbound persistence started', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id, chatId: conversation.chatId });
+    let persisted;
+    try {
+      persisted = await this.conversations.recordOutbound({ workspaceId: context.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId, externalMessageId: sent.sentMessage.id, text, occurredAt: sent.sentMessage.timestamp });
+    } catch (error) {
+      log('error', 'Inbox outbound persistence failed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id, chatId: conversation.chatId, ...errorDiagnostics(error) });
+      throw error;
+    }
+    log('info', 'Inbox outbound persistence completed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, persistedConversationId: persisted.persistence.conversationId ?? null, externalMessageId: sent.sentMessage.id, messageInserted: persisted.persistence.messageInserted, duplicate: persisted.persistence.duplicate });
     const { persistence, ...message } = persisted;
-    if (persistence.messageInserted && persistence.conversationId) await this.automation?.run({ workspaceId: context.workspaceId, conversationId: persistence.conversationId, messageId: persisted.id, direction: 'outbound', replay: persistence.duplicate, visible: !persistence.quarantined, technical: persistence.technical, quarantined: persistence.quarantined });
-    this.realtime.publish(context.workspaceId, 'message.sent', { conversationId, message }); this.realtime.publish(context.workspaceId, 'conversation.updated', { conversationId }); return message;
+    try {
+      if (persistence.messageInserted && persistence.conversationId) await this.automation?.run({ workspaceId: context.workspaceId, conversationId: persistence.conversationId, messageId: persisted.id, direction: 'outbound', replay: persistence.duplicate, visible: !persistence.quarantined, technical: persistence.technical, quarantined: persistence.quarantined });
+      log('info', 'Inbox outbound automation completed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, messageId: persisted.id, automationRan: persistence.messageInserted && Boolean(persistence.conversationId) });
+    } catch (error) {
+      log('error', 'Inbox outbound automation failed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, messageId: persisted.id, ...errorDiagnostics(error) });
+      throw error;
+    }
+    try {
+      this.realtime.publish(context.workspaceId, 'message.sent', { conversationId, message });
+      this.realtime.publish(context.workspaceId, 'conversation.updated', { conversationId });
+      log('info', 'Inbox outbound realtime completed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, messageId: persisted.id });
+    } catch (error) {
+      log('error', 'Inbox outbound realtime failed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, messageId: persisted.id, ...errorDiagnostics(error) });
+      throw error;
+    }
+    return message;
   }
+}
+
+function errorDiagnostics(error: unknown): Record<string, unknown> {
+  const value = error && typeof error === 'object' ? error as Record<string, unknown> : undefined;
+  return {
+    errorClass: error instanceof Error ? error.name : typeof error,
+    errorMessage: error instanceof Error ? error.message : String(error),
+    errorStack: error instanceof Error ? error.stack?.slice(0, 4_000) ?? null : null,
+    databaseCode: typeof value?.code === 'string' ? value.code : null,
+    databaseDetails: typeof value?.details === 'string' ? value.details.slice(0, 2_000) : null,
+  };
 }
