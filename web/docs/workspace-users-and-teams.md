@@ -8,6 +8,6 @@ Os endpoints ficam sob `/api/v1/workspace/users` e `/api/v1/workspace/teams`. To
 
 ## Desenvolvimento sem autenticação
 
-Enquanto a autenticação real não estiver conectada, configure `CHATPRO_DEVELOPMENT_USER_ID` com o UUID de um operador de desenvolvimento. Na primeira operação desse UUID em cada workspace, o backend cria somente esse operador temporário como `owner`; outros usuários devem ser criados pelo diretório. Não use este fallback em produção e não exponha credenciais de service role ao frontend.
+Enquanto a autenticação real não estiver conectada, o ambiente `development` usa o mesmo UUID padrão do dashboard como operador temporário. Opcionalmente, configure `CHATPRO_DEVELOPMENT_USER_ID` para usar outro UUID. Na primeira operação desse UUID, o backend cria somente esse operador temporário como `owner`; ele representa um membro de um único workspace. Outros usuários devem ser criados pelo diretório. Em produção não há UUID padrão: configure a autenticação e os vínculos de usuário do workspace, e não exponha credenciais de service role ao frontend.
 
 O modelo já contém `assigned_team_id`, membros de equipe e funções para sustentar filas, round robin e distribuição automática em uma etapa futura. Esses mecanismos não são executados por esta entrega.
