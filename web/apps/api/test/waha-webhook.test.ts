@@ -164,6 +164,30 @@ describe('WAHA webhook ingress', () => {
     const messages = await request(app).get(`/api/v1/inbox/conversations/${conversations.body.items[0].id}/messages`).set('x-workspace-id', 'workspace-a').expect(200);
     expect(messages.body.items.map((item: { senderWhatsappId: string }) => item.senderWhatsappId).sort()).toEqual(['5511999990001@lid', '5511999990002@lid']);
     expect(app.locals.persistenceDatabase.sqlite.prepare("SELECT count(*) AS total FROM conversations WHERE chatId LIKE '%@lid'").get()).toEqual({ total: 0 });
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS total FROM contacts').get()).toEqual({ total: 0 });
+  });
+  it('recognizes @c.us, @lid and raw phone as one contact and persists every alias', async () => {
+    const app = await appFor(); const db = app.locals.persistenceDatabase.sqlite; const phone = '5511999990000'; const canonical = `${phone}@c.us`; const lid = '100000000000001@lid';
+    const body = { id: 'identity-phone-event', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'identity-phone-message', chatId: canonical, body: 'Oi' } }; const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    const { SqliteWhatsAppIdentityStore } = await import('../src/services/whatsapp-identity-sync.service.js');
+    await new SqliteWhatsAppIdentityStore(db).persist({ workspaceId: 'workspace-a', wahaSession: 'waha-a', chatId: lid }, { identity: { whatsappId: lid, canonicalWhatsappId: canonical, phone, name: 'Pessoa', pushName: 'Pessoa', shortName: null, profilePictureUrl: null }, group: null });
+    expect(db.prepare('SELECT count(*) total FROM contacts WHERE phoneNumber=?').get(phone)).toEqual({ total: 1 });
+    expect(db.prepare('SELECT identifier FROM contact_identifiers ORDER BY identifier').all()).toEqual([{ identifier: lid }, { identifier: phone }, { identifier: canonical }]);
+  });
+  it('adds a newly discovered alias to an existing contact without creating another', async () => {
+    const app = await appFor(); const db = app.locals.persistenceDatabase.sqlite; const phone = '5511999990000'; const canonical = `${phone}@c.us`; const lid = '100000000000002@lid';
+    db.prepare('INSERT INTO contacts (id,workspaceId,displayName,phoneNumber,email,company,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?)').run('contact-existing', 'workspace-a', 'Existente', phone, null, null, new Date().toISOString(), new Date().toISOString());
+    const { SqliteWhatsAppIdentityStore } = await import('../src/services/whatsapp-identity-sync.service.js');
+    await new SqliteWhatsAppIdentityStore(db).persist({ workspaceId: 'workspace-a', wahaSession: 'waha-a', chatId: lid }, { identity: { whatsappId: lid, canonicalWhatsappId: canonical, phone, name: null, pushName: null, shortName: null, profilePictureUrl: null }, group: null });
+    expect(db.prepare('SELECT count(*) total FROM contacts').get()).toEqual({ total: 1 });
+    expect(db.prepare('SELECT count(*) total FROM contact_identifiers WHERE contactId=?').get('contact-existing')).toEqual({ total: 3 });
+  });
+  it('keeps unresolved direct aliases pending and makes duplicate events idempotent', async () => {
+    const app = await appFor(); const lid = '100000000000003@lid'; const body = { id: 'pending-identity-event', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'pending-identity-message', chatId: lid, body: 'Oi' } }; const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(200);
+    const db = app.locals.persistenceDatabase.sqlite; expect(db.prepare('SELECT count(*) total FROM contacts').get()).toEqual({ total: 0 }); expect(db.prepare('SELECT identifier FROM pending_contact_identities').all()).toEqual([{ identifier: lid }]);
   });
   it('hides quarantined conversations from Inbox and restores them without touching messages', async () => {
     const app = await appFor(); const body = { id: 'evt-quarantine', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-quarantine', chatId: '5511999990000@c.us', body: 'preservar' } }; const requestBody = signed(body);
