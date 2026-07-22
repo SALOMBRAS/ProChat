@@ -59,10 +59,10 @@ describe('WAHA webhook ingress', () => {
     for (const body of [{ ...base, id: 'evt-message', event: 'message' }, { ...base, id: 'evt-message-any', event: 'message.any' }]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
     const database = app.locals.persistenceDatabase.sqlite; expect(database.prepare('SELECT count(*) AS total FROM waha_webhook_events').get()).toMatchObject({ total: 2 }); expect(database.prepare('SELECT count(*) AS total FROM whatsapp_messages').get()).toMatchObject({ total: 1 });
   });
-  it('keeps an outbound WAHA confirmation in the recipient conversation when chatId differs', async () => {
+  it('uses chatId, not transport fields, for an outbound WAHA confirmation', async () => {
     const app = await appFor(); const contactA = '5511999990000@c.us'; const contactB = '5511888880000@c.us';
     const inbound = { id: 'evt-contact-a', timestamp: Date.now() - 1_000, event: 'message' as const, session: 'waha-a', payload: { id: 'message-contact-a', chatId: contactA, body: 'Oi' } };
-    const outbound = { id: 'evt-outbound-a', timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload: { id: 'message-outbound-a', chatId: contactB, to: contactA, fromMe: true, body: 'Resposta para A' } };
+    const outbound = { id: 'evt-outbound-a', timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload: { id: 'message-outbound-a', chatId: contactA, to: contactB, fromMe: true, body: 'Resposta para A' } };
     for (const body of [inbound, outbound]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
     const database = app.locals.persistenceDatabase.sqlite;
     expect(database.prepare('SELECT chatId FROM whatsapp_messages WHERE externalMessageId = ?').get('message-outbound-a')).toEqual({ chatId: contactA });
@@ -156,13 +156,14 @@ describe('WAHA webhook ingress', () => {
     await request(app).get(`/api/v1/inbox/conversations/${groupConversation.id}/context`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body).toMatchObject({ notes: null, tags: [] }));
     await request(app).get(`/api/v1/inbox/conversations/${directConversation.id}/context`).set('x-workspace-id', 'workspace-b').expect(404);
   });
-  it('keeps different group participants as authors in one conversation', async () => {
+  it('keeps different group @lid participants as authors and never creates a private conversation', async () => {
     const app = await appFor(); const group = '120363000000@g.us';
-    for (const [id, participant] of [['group-a', '5511999990001@c.us'], ['group-b', '5511999990002@c.us']] as const) { const body = { id: `evt-${id}`, timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id, chatId: group, participant, body: 'grupo' } }; const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    for (const [id, participant] of [['group-a', '5511999990001@lid'], ['group-b', '5511999990002@lid']] as const) { const body = { id: `evt-${id}`, timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id, chatId: group, participant, body: 'grupo' } }; const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
     const conversations = await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200);
     expect(conversations.body).toMatchObject({ total: 1, items: [{ chatId: group, conversationType: 'group' }] });
     const messages = await request(app).get(`/api/v1/inbox/conversations/${conversations.body.items[0].id}/messages`).set('x-workspace-id', 'workspace-a').expect(200);
-    expect(messages.body.items.map((item: { senderWhatsappId: string }) => item.senderWhatsappId).sort()).toEqual(['5511999990001@c.us', '5511999990002@c.us']);
+    expect(messages.body.items.map((item: { senderWhatsappId: string }) => item.senderWhatsappId).sort()).toEqual(['5511999990001@lid', '5511999990002@lid']);
+    expect(app.locals.persistenceDatabase.sqlite.prepare("SELECT count(*) AS total FROM conversations WHERE chatId LIKE '%@lid'").get()).toEqual({ total: 0 });
   });
   it('hides quarantined conversations from Inbox and restores them without touching messages', async () => {
     const app = await appFor(); const body = { id: 'evt-quarantine', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'message-quarantine', chatId: '5511999990000@c.us', body: 'preservar' } }; const requestBody = signed(body);

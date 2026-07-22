@@ -4,6 +4,7 @@ import { InternalWorkerClient } from '../internal-worker-client.js';
 import type { ConversationStore, InboxMessage } from './waha-webhook.service.js';
 import type { RealtimeHub } from '../realtime.js';
 import type { KanbanAutomationCoordinator } from './kanban-automation.service.js';
+import { log } from '../logging.js';
 
 const statusFor = (code: string): number => ({ VALIDATION_ERROR: 400, NOT_FOUND: 404, CONFLICT: 409, TIMEOUT: 504, SERVICE_UNAVAILABLE: 503, PROVIDER_CONTRACT_ERROR: 502 }[code] ?? 503);
 
@@ -12,10 +13,13 @@ export class InternalInboxService {
   async send(context: RequestContext, conversationId: string, text: string): Promise<InboxMessage> {
     const conversation = await this.conversations.getConversation(context.workspaceId, conversationId);
     if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
-    const response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, command: { type: 'message.send', payload: { wahaSession: conversation.whatsappSessionId, chatId: conversation.deliveryChatId ?? conversation.chatId, text } } });
+    const deliveryChatId = conversation.deliveryChatId ?? conversation.chatId;
+    log('info', 'Inbox message send started', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId });
+    const response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, timeoutMs: 30_000, command: { type: 'message.send', payload: { wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId, text } } });
     if (!response.success) throw new AppError(statusFor(response.error.code), response.error.code, response.error.message, response.error.details);
     const sent = response.data as { sentMessage?: { id?: string; timestamp: string; pending?: boolean } };
     if (!sent.sentMessage) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Internal worker returned an invalid response');
+    log('info', 'Inbox message send accepted', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id ?? null, pending: sent.sentMessage.pending === true });
     if (!sent.sentMessage.id) return { id: `pending:${context.correlationId}`, direction: 'outbound', content: text, timestamp: sent.sentMessage.timestamp, status: 'sent', messageType: 'text', chatId: conversation.chatId, senderWhatsappId: conversation.chatId, metadata: { pending: true } };
     const persisted = await this.conversations.recordOutbound({ workspaceId: context.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId, externalMessageId: sent.sentMessage.id, text, occurredAt: sent.sentMessage.timestamp });
     const { persistence, ...message } = persisted;
