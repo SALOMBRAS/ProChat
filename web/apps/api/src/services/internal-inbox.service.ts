@@ -15,8 +15,17 @@ export class InternalInboxService {
     if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
     const deliveryChatId = conversation.deliveryChatId ?? conversation.chatId;
     log('info', 'Inbox message send started', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId });
-    const response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, timeoutMs: 30_000, command: { type: 'message.send', payload: { wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId, text } } });
-    if (!response.success) throw new AppError(statusFor(response.error.code), response.error.code, response.error.message, response.error.details);
+    let response;
+    try {
+      response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, timeoutMs: 30_000, command: { type: 'message.send', payload: { wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId, text } } });
+    } catch (error) {
+      log('error', 'Inbox outbound worker transport failed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, stage: 'worker_transport', ...errorDiagnostics(error) });
+      throw error;
+    }
+    if (!response.success) {
+      log('error', 'Inbox outbound worker rejected send', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, stage: 'worker_delivery', workerCode: response.error.code, workerMessage: response.error.message });
+      throw new AppError(statusFor(response.error.code), response.error.code, response.error.message, response.error.details);
+    }
     const sent = response.data as { sentMessage?: { id?: string; timestamp: string; pending?: boolean } };
     if (!sent.sentMessage) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Internal worker returned an invalid response');
     log('info', 'Inbox message send accepted', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id ?? null, pending: sent.sentMessage.pending === true });
