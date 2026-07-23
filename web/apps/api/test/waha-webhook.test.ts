@@ -59,6 +59,15 @@ describe('WAHA webhook ingress', () => {
     for (const body of [{ ...base, id: 'evt-message', event: 'message' }, { ...base, id: 'evt-message-any', event: 'message.any' }]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
     const database = app.locals.persistenceDatabase.sqlite; expect(database.prepare('SELECT count(*) AS total FROM waha_webhook_events').get()).toMatchObject({ total: 2 }); expect(database.prepare('SELECT count(*) AS total FROM whatsapp_messages').get()).toMatchObject({ total: 1 });
   });
+  it('updates a conversation from a newer duplicate message without inserting that message again', async () => {
+    const app = await appFor(); const chatId = '5511999990000@c.us';
+    const first = { id: 'evt-older-message', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'reused-message-id', chatId, body: 'Preview antigo', timestamp: '2026-07-22T12:00:00.000Z' } };
+    const replay = { id: 'evt-newer-message', timestamp: Date.now() + 1, event: 'message.any' as const, session: 'waha-a', payload: { id: 'reused-message-id', chatId, body: 'Preview mais recente', timestamp: '2026-07-23T12:00:00.000Z' } };
+    for (const body of [first, replay]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    const database = app.locals.persistenceDatabase.sqlite;
+    expect(database.prepare('SELECT count(*) AS total FROM whatsapp_messages WHERE externalMessageId=?').get('reused-message-id')).toEqual({ total: 1 });
+    expect(database.prepare('SELECT lastMessage, lastMessageAt, unreadCount FROM conversations WHERE chatId=?').get(chatId)).toEqual({ lastMessage: 'Preview mais recente', lastMessageAt: '2026-07-23T12:00:00.000Z', unreadCount: 2 });
+  });
   it('uses chatId, not transport fields, for an outbound WAHA confirmation', async () => {
     const app = await appFor(); const contactA = '5511999990000@c.us'; const contactB = '5511888880000@c.us';
     const inbound = { id: 'evt-contact-a', timestamp: Date.now() - 1_000, event: 'message' as const, session: 'waha-a', payload: { id: 'message-contact-a', chatId: contactA, body: 'Oi' } };
