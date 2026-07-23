@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session, SessionsApi } from '../api/sessions';
 import type { InboxApi } from '../api/inbox';
+import { ApiError } from '../api/client';
 import { Devices, Inbox } from './App';
 
 const realtime = vi.hoisted(() => ({ handler: undefined as undefined | ((event: any) => void) }));
@@ -43,6 +44,7 @@ describe('Inbox', () => {
   const conversation = (id: string, chatId: string, conversationType: 'direct' | 'group' = 'direct') => ({ id, whatsappSessionId: 'session-a', chatId, contactId: null, conversationType, status: 'open' as const, lastMessage: null, lastMessageAt: '2026-07-16T18:00:00.000Z', unreadCount: 0, createdAt: '2026-07-16T18:00:00.000Z', updatedAt: '2026-07-16T18:00:00.000Z' });
   const page = (items: any[]) => ({ items, page: 1, pageSize: 50, total: items.length });
   const emptyMessages = { items: [], page: 1, pageSize: 50, total: 0 };
+  afterEach(() => history.replaceState({}, '', '/inbox'));
   it('opens a conversation addressed by the Inbox conversationId URL parameter', async () => {
     const item = conversation('conversation-a', '5511999999999@c.us');
     const api = {
@@ -56,7 +58,46 @@ describe('Inbox', () => {
     render(<Inbox api={api} />);
 
     await waitFor(() => expect(api.messages).toHaveBeenCalledWith('conversation-a', 1, 50));
-    expect(location.pathname).toBe('/inbox');
+    expect(location.href).toContain('/inbox?conversationId=conversation-a');
+    expect(api.conversation).toBeUndefined();
+  });
+
+  it('resolves an unloaded conversation with one targeted request and does not fetch additional pages', async () => {
+    const id = '10000000-0000-4000-8000-000000000010';
+    const item = conversation(id, '5511999999999@c.us');
+    const api = { conversations: vi.fn().mockResolvedValue(page([])), conversation: vi.fn().mockResolvedValue(item), messages: vi.fn().mockResolvedValue(emptyMessages), sendMessage: vi.fn(), markRead: vi.fn() } as unknown as InboxApi;
+    history.replaceState({}, '', `/inbox?conversationId=${id}`);
+    render(<Inbox api={api} />);
+    await waitFor(() => expect(api.conversation).toHaveBeenCalledTimes(1));
+    expect(api.conversation).toHaveBeenCalledWith(id, expect.any(AbortSignal));
+    await waitFor(() => expect(api.messages).toHaveBeenCalledWith(id, 1, 50));
+    expect(api.conversations).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the newest direct link when an older lookup resolves late', async () => {
+    const first = '10000000-0000-4000-8000-000000000011'; const second = '10000000-0000-4000-8000-000000000012';
+    let resolveFirst!: (value: any) => void;
+    const api = { conversations: vi.fn().mockResolvedValue(page([])), conversation: vi.fn((id: string) => id === first ? new Promise((resolve) => { resolveFirst = resolve; }) : Promise.resolve(conversation(second, '5511888888888@c.us'))), messages: vi.fn().mockResolvedValue(emptyMessages), sendMessage: vi.fn(), markRead: vi.fn() } as unknown as InboxApi;
+    history.replaceState({}, '', `/inbox?conversationId=${first}`);
+    render(<Inbox api={api} />);
+    await waitFor(() => expect(api.conversation).toHaveBeenCalledWith(first, expect.any(AbortSignal)));
+    history.pushState({}, '', `/inbox?conversationId=${second}`);
+    fireEvent.popState(window);
+    await waitFor(() => expect(api.conversation).toHaveBeenCalledWith(second, expect.any(AbortSignal)));
+    await act(async () => { resolveFirst(conversation(first, '5511999999999@c.us')); });
+    await waitFor(() => expect(api.messages).toHaveBeenCalledWith(second, 1, 50));
+    expect(api.messages).not.toHaveBeenCalledWith(first, 1, 50);
+  });
+
+  it('shows a controlled unavailable state and permits a manual retry', async () => {
+    const id = '10000000-0000-4000-8000-000000000013';
+    const api = { conversations: vi.fn().mockResolvedValue(page([])), conversation: vi.fn().mockRejectedValueOnce(new ApiError('REQUEST_FAILED', 'not found', { status: 404 })).mockResolvedValueOnce(conversation(id, '5511999999999@c.us')), messages: vi.fn().mockResolvedValue(emptyMessages), sendMessage: vi.fn(), markRead: vi.fn() } as unknown as InboxApi;
+    history.replaceState({}, '', `/inbox?conversationId=${id}`);
+    render(<Inbox api={api} />);
+    expect(await screen.findByText('A conversa não está disponível.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }));
+    await waitFor(() => expect(api.conversation).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.messages).toHaveBeenCalledWith(id, 1, 50));
   });
 
   it('switches between the conversation list and Kanban without changing routes', async () => {
@@ -85,6 +126,7 @@ describe('Inbox', () => {
     render(<Inbox api={api} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Abrir conversa 5511999999999@c.us' }));
     expect(await screen.findByText(/Recebida/)).toBeInTheDocument();
+    expect(location.href).toContain('/inbox?conversationId=conversation-a');
     await waitFor(() => expect(api.markRead).toHaveBeenCalledWith('conversation-a'));
     expect(api.messages).toHaveBeenCalledWith('conversation-a', 1, 50);
     fireEvent.change(screen.getByRole('textbox', { name: 'Mensagem' }), { target: { value: 'Resposta' } });

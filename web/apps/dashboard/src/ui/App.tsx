@@ -12,6 +12,7 @@ import RoutingQueues from './RoutingQueues.js';
 import { InboxKanban } from './InboxKanban.js';
 import { AppNavigation, routes } from './AppNavigation.js';
 import { HomeDashboard } from './HomeDashboard.js';
+import { inboxUrlForConversation } from './conversationNavigation.js';
 
 const domain = new DomainApi(); const sessionsApi = new SessionsApi(); const inboxApi = new InboxApi();
 const Inbox = InboxScreen;
@@ -106,14 +107,14 @@ export function App() {
 
 function Dashboard() {
   const openInbox = () => {
-    history.pushState({}, "", "/inbox");
+    history.pushState({}, "", inboxUrlForConversation());
     dispatchEvent(new PopStateEvent("popstate"));
   };
   const openConversation = (conversationId: string) => {
     history.pushState(
       { conversationId },
       "",
-      `/inbox?conversationId=${encodeURIComponent(conversationId)}`,
+      inboxUrlForConversation(conversationId),
     );
     dispatchEvent(new PopStateEvent("popstate"));
   };

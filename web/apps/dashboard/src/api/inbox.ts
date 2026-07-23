@@ -18,6 +18,7 @@ export type KanbanCard = { conversationId:string; maskedId:string; lastMessage:s
 export class InboxApi {
   constructor(private readonly http = new ApiClient()) {}
   conversations=(page=1,pageSize=100,cursor?:string,search?:string)=>this.http.get<Page<InboxConversation>>(`/api/v1/inbox/conversations?page=${page}&pageSize=${pageSize}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}`);
+  conversation=(id:string,signal?:AbortSignal)=>this.http.get<InboxConversation>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}`,signal);
   messages=(id:string,page=1,pageSize=50,cursor?:string)=>this.http.get<Page<InboxMessage>>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages?page=${page}&pageSize=${pageSize}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
   mediaUrl=(messageId:string)=>this.http.get<{ url: string; expiresAt: string }>(`/api/v1/inbox/messages/${encodeURIComponent(messageId)}/media/access`);
   sendMessage=(id:string,text:string)=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages`, { text });

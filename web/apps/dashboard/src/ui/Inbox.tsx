@@ -16,6 +16,7 @@ import { ApiError } from "../api/client.js";
 import { WorkspaceApi } from "../api/workspace.js";
 import type { Team, WorkspaceUser } from "@chatpro/contracts";
 import { InboxKanban } from "./InboxKanban.js";
+import { conversationIdFromLocation, inboxUrlForConversation } from "./conversationNavigation.js";
 
 const defaultApi = new InboxApi();
 const workspaceApi = new WorkspaceApi();
@@ -232,6 +233,10 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [visualQueue, setVisualQueue] = useState("");
   const [slaMetrics, setSlaMetrics] = useState<SlaMetrics>();
   const [loadingSla, setLoadingSla] = useState(false);
+  const [requestedConversationId, setRequestedConversationId] = useState(() => conversationIdFromLocation());
+  const [resolvingConversationId, setResolvingConversationId] = useState<string>();
+  const [deepLinkError, setDeepLinkError] = useState("");
+  const [deepLinkAttempt, setDeepLinkAttempt] = useState(0);
   const slaCache = useRef(new Map<string, SlaMetrics>());
   const slaRequest = useRef(0);
   const slaAbort = useRef<AbortController>();
@@ -269,6 +274,23 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const activeConversationId = useRef<string>();
   const selectedRef = useRef<InboxConversation>();
   const contextRequest = useRef(0);
+  const deepLinkAbort = useRef<AbortController>();
+  const deepLinkRequest = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; deepLinkAbort.current?.abort(); }, []);
+  useEffect(() => {
+    const sync = () => {
+      const conversationId = conversationIdFromLocation();
+      setRequestedConversationId(conversationId);
+      if (!conversationId) {
+        activeConversationId.current = undefined;
+        setSelected(undefined);
+        setMessages([]);
+      }
+    };
+    addEventListener("popstate", sync);
+    return () => removeEventListener("popstate", sync);
+  }, []);
   const loadSla = async (conversationId: string) => {
     if (!api.slaMetrics) return;
     const cached = slaCache.current.get(conversationId);
@@ -494,7 +516,11 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     }, 650);
     return () => window.clearTimeout(timer);
   }, [notes, selected?.id, context?.notes, api]);
-  const openConversation = async (conversation: InboxConversation) => {
+  const openConversation = async (conversation: InboxConversation, syncUrl = true) => {
+    if (syncUrl) {
+      history.pushState({ conversationId: conversation.id }, "", inboxUrlForConversation(conversation.id));
+      setRequestedConversationId(conversation.id);
+    }
     activeConversationId.current = conversation.id;
     contextRequest.current += 1;
     setContext(undefined);
@@ -517,17 +543,30 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     ]);
   };
   useEffect(() => {
-    const conversationId = new URLSearchParams(location.search).get(
-      "conversationId",
-    );
-    if (!conversationId || selected?.id === conversationId) return;
-    const conversation = conversationPage.items.find(
-      (item) => item.id === conversationId,
-    );
-    if (!conversation) return;
-    history.replaceState(history.state, "", "/inbox");
-    void openConversation(conversation);
-  }, [conversationPage.items, selected?.id]);
+    if (loadingConversations || !requestedConversationId || selected?.id === requestedConversationId) return;
+    const loaded = conversationPage.items.find((item) => item.id === requestedConversationId);
+    if (loaded) { void openConversation(loaded, false); return; }
+    deepLinkAbort.current?.abort();
+    const controller = new AbortController();
+    deepLinkAbort.current = controller;
+    const request = ++deepLinkRequest.current;
+    setResolvingConversationId(requestedConversationId);
+    setDeepLinkError("");
+    void api.conversation(requestedConversationId, controller.signal)
+      .then((conversation) => {
+        if (!mounted.current || request !== deepLinkRequest.current || requestedConversationId !== conversationIdFromLocation()) return;
+        void openConversation(conversation, false);
+      })
+      .catch((nextError) => {
+        if (!mounted.current || controller.signal.aborted || request !== deepLinkRequest.current) return;
+        const status = nextError instanceof ApiError ? Number(nextError.details.status) : 0;
+        setDeepLinkError(status === 404 ? "A conversa não está disponível." : "Não foi possível abrir esta conversa. Tente novamente.");
+      })
+      .finally(() => {
+        if (mounted.current && request === deepLinkRequest.current) setResolvingConversationId(undefined);
+      });
+    return () => controller.abort();
+  }, [api, conversationPage.items, deepLinkAttempt, loadingConversations, requestedConversationId, selected?.id]);
   const submitMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected || sending) return;
@@ -766,6 +805,8 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
               {error}
             </p>
           )}
+          {resolvingConversationId && <p className="inbox-loading" role="status">Abrindo conversa…</p>}
+          {deepLinkError && <div className="alert" role="alert"><span>{deepLinkError}</span><button type="button" className="secondary" onClick={() => setDeepLinkAttempt((attempt) => attempt + 1)}>Tentar novamente</button></div>}
           {loadingConversations ? (
             <p className="inbox-loading">Carregando conversas…</p>
           ) : (

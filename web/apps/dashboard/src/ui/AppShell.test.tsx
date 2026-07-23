@@ -20,7 +20,7 @@ vi.mock("./Inbox.js", () => ({
 }));
 
 vi.mock("./SlaOperationalDashboard.js", () => ({
-  SlaOperationalDashboard: () => <section aria-label="SLA operacional" />,
+  SlaOperationalDashboard: ({ onOpenConversation }: { onOpenConversation: (id: string) => void }) => <section aria-label="SLA operacional"><button type="button" onClick={() => onOpenConversation("10000000-0000-4000-8000-000000000010")}>Abrir alerta SLA</button></section>,
 }));
 
 import { App } from "./App.js";
@@ -93,5 +93,12 @@ describe("App shell", () => {
     expect(await screen.findByLabelText("Inbox atual")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Inbox" })).toBeInTheDocument();
     expect(shellMocks.dashboard).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the Inbox with a shareable conversationId from the SLA callback", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir alerta SLA" }));
+    expect(await screen.findByLabelText("Inbox atual")).toBeInTheDocument();
+    expect(location.href).toContain("/inbox?conversationId=10000000-0000-4000-8000-000000000010");
   });
 });

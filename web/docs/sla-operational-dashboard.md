@@ -32,10 +32,12 @@ de 60 segundos. Eventos `conversation.sla.updated`,
 antes de uma única atualização do resumo.
 
 Os itens críticos usam a ordem devolvida pelo servidor e navegam para a Inbox
-com `conversationId` na URL. A seleção é feita sem pré-carregar mensagens e
-sem buscar métricas individuais; quando a conversa ainda não está na página
-atual da Inbox, a tela é aberta sem seleção adicional.
+com `conversationId` na URL. A seleção é feita sem pré-carregar mensagens ou
+métricas individuais. Quando a conversa ainda não está na página atual, a Inbox
+faz uma única consulta direcionada a
+`GET /api/v1/inbox/conversations/:conversationId` e reutiliza o carregamento
+normal de mensagens.
 
 ## Limitações atuais
 
-O schema SLA não guarda nome, responsável ou fila no registro de métrica. A lista crítica mantém IDs seguros e pode receber esses dados por projeção paginada futura, sem consultas individuais. Validar visualmente amanhã: estados vazio/erro, abertura de conversa fora da primeira página, atualização realtime agrupada, layout mobile e atualização multiusuário.
+O schema SLA não guarda nome, responsável ou fila no registro de métrica. A lista crítica mantém IDs seguros e pode receber esses dados por projeção paginada futura, sem consultas individuais. Validar visualmente amanhã: estados vazio/erro, abertura por link direto, atualização realtime agrupada, layout mobile e atualização multiusuário.
