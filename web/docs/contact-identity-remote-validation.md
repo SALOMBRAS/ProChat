@@ -1,25 +1,58 @@
-# Remote validation — contact identity RPC
+# Validação remota — RPC de identidade de contato
 
-Date: 2026-07-23 (America/Sao_Paulo)
+Data: 2026-07-23 (America/Sao_Paulo)
 Project ref: `vhfixhqfwusobczmubfu`
 
-## Result
+## Resultado
 
-**Not applied; no rollback required.** The pre-application PostgREST probe
-returned `PGRST202` for
-`public.chatpro_resolve_contact_identity(p_workspace_id, p_phone_number,
-p_display_name, p_identifiers, p_source)`, as expected before migration.
+Aplicada com sucesso a migration `20260723000100_contact_identity_atomic.sql`.
+O acesso automatizado foi feito com `npx supabase@2.109.1 db query --linked`,
+usando a sessão administrativa já autenticada e o projeto já vinculado. Nenhuma
+outra migration foi executada.
 
-The requested schema reload, RPC invocation, concurrency test, workspace
-isolation test, and identity mutation tests were not run because this session
-lacks an administrative SQL execution channel and cannot safely inspect the
-remote schema first. No data, contacts, aliases, pending identities, webhook
-records, frontend files, deployment, or remote migration state was changed.
+O primeiro ciclo de validação detectou duas referências ambíguas de
+`phone_number` no SQL. O rollback automático removeu a função e seu registro
+de histórico, sem dados remanescentes. A migration foi então corrigida para
+qualificar `public.contacts.phone_number` e usar a constraint
+`contacts_workspace_id_phone_number_key` no conflito de telefone. O segundo
+dry-run e a aplicação final passaram.
 
-## Required next step
+## Preflight e dry-run
 
-Run the target SQL and its dry-run through an authenticated Supabase CLI,
-Dashboard SQL Editor, or PostgreSQL connection with schema-inspection rights;
-then execute `NOTIFY pgrst, 'reload schema';` and repeat the validation matrix.
-Use `20260723000100_contact_identity_atomic.rollback.sql` only if one of the
-specified critical rollback conditions is observed.
+- A migration não constava em `supabase_migrations.schema_migrations` e a RPC
+  ainda não existia antes da aplicação.
+- Os campos `id`, `workspace_id` e `contact_id` das tabelas envolvidas são
+  `text`; as PKs, FK composta e unicidades por workspace esperadas estavam
+  presentes.
+- O dry-run executou `BEGIN`, criou a função, concedeu `EXECUTE` a
+  `service_role`, invocou a RPC e executou `ROLLBACK`.
+- Após o rollback, não havia função remanescente.
+
+## Confirmações pós-aplicação
+
+- Assinatura: `public.chatpro_resolve_contact_identity(text, text, text, jsonb, text)`.
+- A função usa `SECURITY DEFINER` com `search_path=public` e
+  `service_role` tem `EXECUTE`.
+- Foi executado `NOTIFY pgrst, 'reload schema'`.
+- A chamada HTTP à RPC via PostgREST retornou HTTP 200, sem `PGRST202` nem
+  `PGRST205`. O caso usado (`phone_number` nulo e identificadores vazios) não
+  cria ou altera dados.
+
+## Matriz remota
+
+Em uma transação revertida, foram validados: criação e reutilização de contato
+existente, reutilização por alias, isolamento entre workspaces, LID sem
+telefone permanecendo pendente e identidade de grupo sem criação de contato.
+Não houve erro `23503` nem chave duplicada não tratada.
+
+Não foi executado um teste remoto de duas conexões concorrentes: o canal de
+Management API não mantém transações entre chamadas e a política da tarefa não
+permite persistir registros artificiais para esse ensaio. A função foi
+validada no dry-run e nos testes locais de caracterização, e seus advisory
+locks permanecem parte da implementação aplicada.
+
+## Limites operacionais
+
+Não houve deploy, push, backfill, merge, limpeza de dados de produção ou
+alteração de frontend. O rollback inicial foi necessário apenas para corrigir
+a migration antes da aplicação final; não há rollback pendente.

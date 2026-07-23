@@ -29,7 +29,7 @@ BEGIN
   v_aliases := ARRAY(SELECT DISTINCT value FROM unnest(v_aliases) AS value ORDER BY value);
 
   IF p_phone_number IS NOT NULL THEN
-    SELECT * INTO v_contact FROM public.contacts WHERE workspace_id=p_workspace_id AND phone_number=p_phone_number LIMIT 1;
+    SELECT * INTO v_contact FROM public.contacts WHERE workspace_id=p_workspace_id AND public.contacts.phone_number=p_phone_number LIMIT 1;
     IF v_contact.id IS NOT NULL THEN v_source := 'phone'; END IF;
   END IF;
   IF v_contact.id IS NULL AND cardinality(v_aliases) > 0 THEN
@@ -39,7 +39,7 @@ BEGIN
   IF v_contact.id IS NULL AND p_phone_number IS NOT NULL THEN
     INSERT INTO public.contacts (id,workspace_id,display_name,phone_number,email,company,created_at,updated_at)
     VALUES (gen_random_uuid()::text,p_workspace_id,coalesce(nullif(p_display_name,''),p_phone_number),p_phone_number,NULL,NULL,now(),now())
-    ON CONFLICT (workspace_id,phone_number) DO UPDATE SET updated_at=public.contacts.updated_at
+    ON CONFLICT ON CONSTRAINT contacts_workspace_id_phone_number_key DO UPDATE SET updated_at=public.contacts.updated_at
     RETURNING * INTO v_contact;
     v_created := true; v_source := 'created';
   END IF;
