@@ -35,28 +35,27 @@ describe('contact identity characterization baseline', () => {
     expect(database.prepare('SELECT count(*) AS total FROM contact_identifiers').get()).toEqual({ total: 0 });
   });
 
-  it('persists a Supabase contact before aliases, avoiding the observed 23503 foreign-key failure', async () => {
-    const calls: string[] = []; let contactInserted = false;
-    const client = {
-      from(table: string) {
-        const query: any = {
-          select() { return query; }, eq() { return query; }, in() { return query; }, limit() { return query; },
-          maybeSingle: async () => ({ data: null, error: null }),
-          single: async () => ({ data: { id: 'contact-supabase', phone_number: '5511999990000' }, error: null }),
-          upsert: (_rows: any) => {
-            calls.push(`${table}:upsert`);
-            if (table === 'contacts') contactInserted = true;
-            if (table === 'contact_identifiers' && !contactInserted) return { error: { code: '23503', message: 'foreign key violation' } };
-            if (table === 'contacts') return { select() { return { single: async () => ({ data: { id: 'contact-supabase', phone_number: '5511999990000' }, error: null }) }; } };
-            return { error: null };
-          },
-          delete() { calls.push(`${table}:delete`); return query; }
-        };
-        return query;
-      }
-    };
+  it('uses one Supabase RPC so contacts and aliases commit together without 23503', async () => {
+    const calls: string[] = [];
+    const client = { rpc(name: string, args: Record<string, unknown>) { calls.push(name); expect(args.p_identifiers).toEqual([{ identifier: '5511999990000@c.us', type: 'whatsapp' }, { identifier: '5511999990000', type: 'phone' }]); return Promise.resolve({ data: { contact_id: 'contact-supabase', phone_number: '5511999990000', resolution_source: 'created', created_contact: true, attached_identifiers: ['5511999990000@c.us', '5511999990000'] }, error: null }); } };
     const resolver = new SupabaseContactIdentityResolver(client as any);
     await expect(resolver.resolve({ workspaceId: 'workspace-a', identifier: '5511999990000@c.us', source: 'characterization' })).resolves.toEqual({ id: 'contact-supabase', phoneNumber: '5511999990000' });
-    expect(calls).toEqual(['contacts:upsert', 'contact_identifiers:upsert', 'pending_contact_identities:delete']);
+    expect(calls).toEqual(['chatpro_resolve_contact_identity']);
+  });
+
+  it('normalizes @s.whatsapp.net, number, and @c.us into one SQLite contact', async () => {
+    const database = sqlite(); const resolver = new SqliteContactIdentityResolver(database);
+    const first = await resolver.resolve({ workspaceId: 'workspace-a', identifier: '5511999990000:12@s.whatsapp.net', source: 'test' });
+    const second = await resolver.resolve({ workspaceId: 'workspace-a', identifier: '5511999990000@c.us', source: 'test' });
+    expect(first?.id).toBe(second?.id);
+    expect(database.prepare('SELECT identifier FROM contact_identifiers ORDER BY identifier').all()).toEqual([{ identifier: '5511999990000' }, { identifier: '5511999990000@c.us' }]);
+  });
+
+  it('keeps LID without a phone pending and resolves it with its later phone alias', async () => {
+    const database = sqlite(); const resolver = new SqliteContactIdentityResolver(database);
+    await expect(resolver.resolve({ workspaceId: 'workspace-a', identifier: 'opaque@lid', source: 'test' })).resolves.toBeUndefined();
+    const resolved = await resolver.resolve({ workspaceId: 'workspace-a', identifier: 'opaque@lid', aliases: ['5511999990000@c.us'], source: 'test' });
+    expect(resolved?.phoneNumber).toBe('5511999990000');
+    expect(database.prepare('SELECT count(*) total FROM pending_contact_identities').get()).toEqual({ total: 0 });
   });
 });

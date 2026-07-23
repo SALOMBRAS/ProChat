@@ -23,13 +23,13 @@ export type ResolvedConversationIdentity = {
  */
 export function resolveConversationIdentity(input: ConversationIdentityInput): ResolvedConversationIdentity | undefined {
   if (isTechnicalInput(input)) return undefined;
-  const chatId = input.chatId;
+  const chatId = normalizeWhatsAppIdentifier(input.chatId);
   if (isGroupChatId(chatId)) return { conversationChatId: chatId, deliveryChatId: chatId, conversationType: 'group' };
   return isDirectChatId(chatId) && !isOwnChatId(chatId, input.ownWhatsappNumbers) ? { conversationChatId: chatId, deliveryChatId: chatId, conversationType: 'direct' } : undefined;
 }
 
-export function isGroupChatId(value: unknown): value is string { return typeof value === 'string' && value.endsWith('@g.us'); }
-export function isDirectChatId(value: unknown): value is string { return typeof value === 'string' && (value.endsWith('@c.us') || value.endsWith('@lid')); }
+export function isGroupChatId(value: unknown): value is string { return typeof value === 'string' && value.toLowerCase().endsWith('@g.us'); }
+export function isDirectChatId(value: unknown): value is string { return typeof value === 'string' && (value.toLowerCase().endsWith('@c.us') || value.toLowerCase().endsWith('@lid') || value.toLowerCase().endsWith('@s.whatsapp.net')); }
 export function isConversationChatId(value: unknown): value is string { return isGroupChatId(value) || isDirectChatId(value); }
 
 function isTechnicalInput(input: ConversationIdentityInput): boolean {
@@ -42,3 +42,4 @@ function isOwnChatId(chatId: string, ownWhatsappNumbers: readonly string[] | und
   const number = chatId.split('@', 1)[0].replace(/\D/g, '');
   return Boolean(number) && (ownWhatsappNumbers ?? []).some(value => value.replace(/\D/g, '') === number);
 }
+import { normalizeWhatsAppIdentifier } from './whatsapp-identifier.js';

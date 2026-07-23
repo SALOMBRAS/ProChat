@@ -45,3 +45,8 @@ A cobertura existente em `conversation-identity.test.ts` e `waha-webhook.test.ts
 Não houve falha reproduzida no SQLite da baseline. O teste Supabase cobre a sequência observável do provider com um double de PostgREST que simula a FK; ele não consulta nem altera Supabase remoto, conforme escopo desta fase.
 
 O risco conhecido continua sendo estrutural: o resolver e a reconciliação Supabase usam várias requisições independentes, sem uma RPC/transação única. Sob falha ou concorrência real, ainda pode existir janela entre criar/confirmar contato, gravar aliases, apagar pendências e reconciliar conversas. A próxima fase deve tratar isso com testes contra PostgreSQL/Supabase efêmero e uma operação transacional, sem alterar os contratos atuais.
+# Atualização: resolução atômica
+
+O baseline continua preservado. A resolução agora normaliza `@s.whatsapp.net`,
+`@c.us`, `@lid` e números puros centralmente; LIDs sem telefone continuam
+pendentes e grupos/participantes não criam contatos diretos.
