@@ -7,6 +7,7 @@ import { WorkspaceApi } from "../api/workspace.js";
 const api = new InboxApi();
 const workspaceApi = new WorkspaceApi();
 const pageSize = 30;
+const workspaceId = import.meta.env.VITE_WORKSPACE_ID || "default-workspace";
 type CardsByStage = Record<string, KanbanCard[]>;
 
 const priorityLabel: Record<KanbanCard["priority"], string> = {
@@ -25,19 +26,16 @@ function initials(card: KanbanCard) {
   return (digits.slice(-2) || "CP").toUpperCase();
 }
 
-function slaDot(status: string | null) {
-  if (status === "expired" || status === "archived") return "sla-2";
-  if (status === "waiting_customer" || status === "waiting_operator") return "sla-1";
-  return "sla-0";
-}
-
-function slaLabel(status: string | null) {
-  if (status === "expired") return "SLA atrasado";
-  if (status === "waiting_customer") return "Aguardando cliente";
-  if (status === "waiting_operator") return "Aguardando atendente";
-  if (status === "resolved") return "SLA resolvido";
-  return "SLA dentro do prazo";
-}
+const slaClass = (card: KanbanCard) => card.sla ? `sla-${card.sla.indicator}` : "sla-neutral";
+const minutesLabel = (milliseconds: number) => { const minutes = Math.max(0, Math.floor(milliseconds / 60_000)); return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)}h ${minutes % 60}min`; };
+const slaLabel = (card: KanbanCard, now: number) => {
+  if (!card.sla) return "Sem métrica SLA";
+  if (card.sla.status === "waiting_operator") return card.sla.deadlineAt && new Date(card.sla.deadlineAt).getTime() < now ? `Atrasado há ${minutesLabel(now - new Date(card.sla.deadlineAt).getTime())}` : "Aguardando atendente";
+  if (card.sla.status === "waiting_customer") return "Aguardando cliente";
+  if (card.sla.status === "resolved") return "Resolvido";
+  if (card.sla.status === "archived") return "Arquivado";
+  return card.sla.indicator === "yellow" ? "Atenção" : card.sla.indicator === "red" ? "Atrasado" : "Dentro do prazo";
+};
 
 function timeLabel(value: string) {
   const date = new Date(value);
@@ -52,6 +50,7 @@ export function InboxKanban() {
   const [error, setError] = useState("");
   const [movingId, setMovingId] = useState<string>();
   const [draggedCard, setDraggedCard] = useState<KanbanCard>();
+  const [clock, setClock] = useState(() => Date.now());
   const requestVersion = useRef(0);
 
   const load = useCallback(async () => {
@@ -80,9 +79,25 @@ export function InboxKanban() {
     void load();
     void workspaceApi.users().then((directory) => setUsers(Object.fromEntries(directory.map((user) => [user.id, user])))).catch(() => undefined);
     return connectRealtime((event) => {
+      if (event.workspaceId !== workspaceId) return;
+      if (event.eventType === "conversation.sla.updated") {
+        const conversationId = typeof event.payload.conversationId === "string" ? event.payload.conversationId : "";
+        const metrics = event.payload.metrics as { status?: KanbanCard["slaStatus"]; slaIndicator?: "green" | "yellow" | "red"; deadlineAt?: string | null } | undefined;
+        const status = metrics?.status;
+        const indicator = metrics?.slaIndicator;
+        if (conversationId && status && indicator) setCards((current) => Object.fromEntries(Object.entries(current).map(([stageId, items]) => [stageId, items.map((card) => card.conversationId === conversationId ? { ...card, slaStatus: status, sla: { status: status as NonNullable<KanbanCard["sla"]>["status"], indicator, deadlineAt: metrics?.deadlineAt ?? null } } : card)])));
+        return;
+      }
       if (["conversation.kanban.moved", "kanban.stage.created", "kanban.stage.updated", "kanban.stage.reordered"].includes(event.eventType)) void load();
     });
   }, [load]);
+  useEffect(() => {
+    const refreshClock = () => setClock(Date.now());
+    const onVisibilityChange = () => { if (!document.hidden) refreshClock(); };
+    const timer = window.setInterval(refreshClock, 60_000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisibilityChange); };
+  }, []);
 
   const move = async (card: KanbanCard, targetStageId: string) => {
     if (!board || movingId || card.stageId === targetStageId) return;
@@ -135,8 +150,9 @@ export function InboxKanban() {
             {stageCards.map((card) => {
               const assignee = card.assignedUserId ? users[card.assignedUserId] : undefined;
               return <article className="local-kanban-card" key={card.conversationId} draggable={movingId === undefined} aria-grabbed={draggedCard?.conversationId === card.conversationId} onDragStart={() => setDraggedCard(card)} onDragEnd={() => setDraggedCard(undefined)}>
-                <div className="local-kanban-card-head"><span className="local-kanban-avatar">{initials(card)}</span><div><strong title={cardName(card)}>{cardName(card)}</strong><time>{timeLabel(card.lastMessageAt)}</time></div><i className={`local-sla ${slaDot(card.slaStatus)}`} title={slaLabel(card.slaStatus)} /></div>
+                <div className="local-kanban-card-head"><span className="local-kanban-avatar">{initials(card)}</span><div><strong title={cardName(card)}>{cardName(card)}</strong><time>{timeLabel(card.lastMessageAt)}</time></div><i className={`local-sla ${slaClass(card)}`} title={slaLabel(card, clock)} /></div>
                 <p>{card.lastMessage || "Sem mensagem de texto"}</p>
+                <small className={`local-kanban-sla-copy ${slaClass(card)}`}>{slaLabel(card, clock)}</small>
                 <div className="local-kanban-meta"><span title={assignee?.displayName ?? "Nenhum responsável atribuído"}>{assignee ? `Responsável: ${assignee.displayName}` : "Sem responsável"}</span><b className={`priority-${card.priority}`}>{priorityLabel[card.priority]}</b></div>
                 <div className="local-kanban-tags">{card.tags.length ? card.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>) : <span>Sem etiquetas</span>}</div>
               </article>;

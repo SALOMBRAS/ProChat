@@ -8,6 +8,7 @@ import type {
   InboxConversation,
   InboxMessage,
   Page,
+  SlaMetrics,
 } from "../api/inbox.js";
 import { InboxApi } from "../api/inbox.js";
 import { connectRealtime } from "../api/realtime.js";
@@ -19,8 +20,16 @@ import { InboxKanban } from "./InboxKanban.js";
 const defaultApi = new InboxApi();
 const workspaceApi = new WorkspaceApi();
 const pageSize = 50;
+const workspaceId = import.meta.env.VITE_WORKSPACE_ID || "default-workspace";
 const errorMessage = (error: unknown) =>
   error instanceof ApiError ? error.message : "Ocorreu um erro inesperado.";
+const durationLabel = (milliseconds: number) => {
+  const minutes = Math.max(0, Math.floor(milliseconds / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}min`;
+};
+const slaStatusLabel: Record<SlaMetrics["status"], string> = { waiting_operator: "Aguardando atendente", waiting_customer: "Aguardando cliente", answered: "Respondida", resolved: "Resolvida", archived: "Arquivada", expired: "Atrasada" };
 const isGroup = (value: InboxConversation) =>
   value.conversationType === "group";
 const phoneFallback = (value: InboxConversation) =>
@@ -221,6 +230,11 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [conversationSearchTerm, setConversationSearchTerm] = useState("");
   const [activeConversationMatch, setActiveConversationMatch] = useState(0);
   const [visualQueue, setVisualQueue] = useState("");
+  const [slaMetrics, setSlaMetrics] = useState<SlaMetrics>();
+  const [loadingSla, setLoadingSla] = useState(false);
+  const slaCache = useRef(new Map<string, SlaMetrics>());
+  const slaRequest = useRef(0);
+  const slaAbort = useRef<AbortController>();
   useEffect(() => { if (!attachment?.type.startsWith('image/')) { setAttachmentPreview(undefined); return; } const url = URL.createObjectURL(attachment); setAttachmentPreview(url); return () => URL.revokeObjectURL(url); }, [attachment]);
   useEffect(() => () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
@@ -255,6 +269,25 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const activeConversationId = useRef<string>();
   const selectedRef = useRef<InboxConversation>();
   const contextRequest = useRef(0);
+  const loadSla = async (conversationId: string) => {
+    if (!api.slaMetrics) return;
+    const cached = slaCache.current.get(conversationId);
+    if (cached) { setSlaMetrics(cached); setLoadingSla(false); return; }
+    slaAbort.current?.abort();
+    const controller = new AbortController();
+    slaAbort.current = controller;
+    const request = ++slaRequest.current;
+    setLoadingSla(true);
+    try {
+      const metrics = await api.slaMetrics(conversationId, controller.signal);
+      slaCache.current.set(conversationId, metrics);
+      if (activeConversationId.current === conversationId && request === slaRequest.current) setSlaMetrics(metrics);
+    } catch {
+      if (activeConversationId.current === conversationId && request === slaRequest.current) setSlaMetrics(undefined);
+    } finally {
+      if (activeConversationId.current === conversationId && request === slaRequest.current) setLoadingSla(false);
+    }
+  };
   const refreshConversations = async () => {
     setLoadingConversations(true);
     try {
@@ -357,14 +390,26 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     contextRequest.current += 1;
     setContext(undefined);
     setActivity([]);
+    setSlaMetrics(undefined);
+    setLoadingSla(Boolean(selected));
     setNotes("");
     setTag("");
     loadedContextId.current = undefined;
-    if (selected) { void loadContext(selected.id); void loadActivity(selected.id); }
+    if (selected) { void loadContext(selected.id); void loadActivity(selected.id); void loadSla(selected.id); }
   }, [selected?.id, api]);
   useEffect(
     () =>
       connectRealtime((event) => {
+        if (event.workspaceId !== workspaceId) return;
+        if (event.eventType === "conversation.sla.updated") {
+          const conversationId = typeof event.payload.conversationId === "string" ? event.payload.conversationId : "";
+          const metrics = event.payload.metrics as SlaMetrics | undefined;
+          if (conversationId && metrics?.conversationId === conversationId) {
+            slaCache.current.set(conversationId, metrics);
+            if (selectedRef.current?.id === conversationId) { setSlaMetrics(metrics); setLoadingSla(false); }
+          }
+          return;
+        }
         if (event.eventType === "conversation.context.updated") {
           const current = selectedRef.current;
           if (current && String(event.payload.conversationId) === current.id)
@@ -873,6 +918,10 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                   <strong className="customer-channel"><i /> WhatsApp</strong>
                 </div>
                 <div className="customer-future-fields"><div className="customer-section-title">CAMPOS PERSONALIZADOS</div><div><span>Empresa</span><strong>Não informado</strong></div><div><span>Origem do lead</span><strong>Não informado</strong></div><div><span>Responsável</span><strong>{workspaceUsers.find((user) => user.id === selected.assignedUserId)?.displayName ?? teams.find((team) => team.id === selected.assignedTeamId)?.name ?? "Não atribuído"}</strong></div><div><span>Status</span><strong>{statusLabel[selected.status]}</strong></div><div><span>Informações extras</span><strong>Disponível em breve</strong></div></div>
+              </div>
+              <div className="conversation-context sla-detail" aria-live="polite">
+                <div className="context-heading"><span>SLA OPERACIONAL</span><small>{loadingSla ? "Atualizando…" : "Tempo real"}</small></div>
+                {slaMetrics ? <div className={`sla-detail-card sla-${slaMetrics.slaIndicator}`}><span className="sla-detail-dot" /><div><strong>{slaStatusLabel[slaMetrics.status]}</strong><small>{slaMetrics.deadlineAt ? new Date(slaMetrics.deadlineAt).getTime() <= Date.now() ? `Atrasado há ${durationLabel(Date.now() - new Date(slaMetrics.deadlineAt).getTime())}` : `Prazo restante: ${durationLabel(new Date(slaMetrics.deadlineAt).getTime() - Date.now())}` : slaMetrics.frozenAt ? "Métrica congelada" : `Em espera há ${durationLabel(slaMetrics.waitingTime)}`}</small></div></div> : !loadingSla ? <p className="sla-detail-empty">Sem métrica SLA para esta conversa.</p> : <p className="sla-detail-empty">Carregando SLA…</p>}
               </div>
               <div className="conversation-context team-operations">
                 <div className="context-heading"><span>OPERAÇÃO DA CONVERSA</span><small>Visual local</small></div>

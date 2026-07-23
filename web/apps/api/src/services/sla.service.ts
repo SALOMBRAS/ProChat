@@ -5,7 +5,8 @@ import { log } from '../logging.js';
 
 export type SlaStatus = 'waiting_operator' | 'waiting_customer' | 'answered' | 'resolved' | 'expired' | 'archived';
 export type SlaConfig = { firstResponseThresholdMs: number; operatorWaitingThresholdMs: number; customerWaitingThresholdMs: number; warningRatio: number };
-export type SlaMetrics = { conversationId: string; status: SlaStatus; firstInboundAt: string; firstResponseAt: string | null; lastInboundAt: string; lastOutboundAt: string | null; lastActivityAt: string; firstResponseTime: number | null; averageResponseTime: number | null; waitingTime: number; conversationDuration: number; idleTime: number; slaIndicator: 'green' | 'yellow' | 'red'; frozenAt: string | null };
+export type SlaMetrics = { conversationId: string; status: SlaStatus; firstInboundAt: string; firstResponseAt: string | null; lastInboundAt: string; lastOutboundAt: string | null; lastActivityAt: string; firstResponseTime: number | null; averageResponseTime: number | null; waitingTime: number; conversationDuration: number; idleTime: number; slaIndicator: 'green' | 'yellow' | 'red'; deadlineAt: string | null; frozenAt: string | null };
+export type SlaCardProjection = { status: SlaStatus; indicator: 'green' | 'yellow' | 'red' | 'neutral'; deadlineAt: string | null };
 type Row = { workspaceId: string; conversationId: string; slaStatus: SlaStatus; firstInboundAt: string; firstResponseAt: string | null; lastInboundAt: string; lastOutboundAt: string | null; lastActivityAt: string; waitingSinceAt: string | null; operatorWaitingMs: number; customerWaitingMs: number; totalResponseMs: number; responseCount: number; resolvedAt: string | null; archivedAt: string | null; frozenAt: string | null; updatedAt: string };
 export interface SlaStore { getConfig(workspaceId: string): Promise<SlaConfig>; saveConfig(workspaceId: string, input: SlaConfig): Promise<SlaConfig>; get(workspaceId: string, conversationId: string): Promise<Row | undefined>; save(row: Row): Promise<void>; listDue(workspaceId?: string): Promise<Row[]>; conversationIdForMessage(workspaceId: string, session: string, messageId: string): Promise<string | undefined>; }
 const defaults: SlaConfig = { firstResponseThresholdMs: 300000, operatorWaitingThresholdMs: 900000, customerWaitingThresholdMs: 86400000, warningRatio: .8 };
@@ -17,7 +18,15 @@ export function projectSla(row: Row, config: SlaConfig, now = new Date().toISOSt
   const waiting = row.slaStatus === 'waiting_customer' ? customer : operator;
   const threshold = row.slaStatus === 'waiting_customer' ? config.customerWaitingThresholdMs : !row.firstResponseAt ? config.firstResponseThresholdMs : config.operatorWaitingThresholdMs;
   const indicator = row.slaStatus === 'expired' || waiting >= threshold ? 'red' : waiting >= threshold * config.warningRatio ? 'yellow' : 'green';
-  return { conversationId: row.conversationId, status: row.slaStatus, firstInboundAt: row.firstInboundAt, firstResponseAt: row.firstResponseAt, lastInboundAt: row.lastInboundAt, lastOutboundAt: row.lastOutboundAt, lastActivityAt: row.lastActivityAt, firstResponseTime: row.firstResponseAt ? ms(row.firstResponseAt, row.firstInboundAt) : null, averageResponseTime: row.responseCount ? Math.round(row.totalResponseMs / row.responseCount) : null, waitingTime: waiting, conversationDuration: ms(row.frozenAt ?? now, row.firstInboundAt), idleTime: ms(now, row.lastActivityAt), slaIndicator: indicator, frozenAt: row.frozenAt };
+  return { conversationId: row.conversationId, status: row.slaStatus, firstInboundAt: row.firstInboundAt, firstResponseAt: row.firstResponseAt, lastInboundAt: row.lastInboundAt, lastOutboundAt: row.lastOutboundAt, lastActivityAt: row.lastActivityAt, firstResponseTime: row.firstResponseAt ? ms(row.firstResponseAt, row.firstInboundAt) : null, averageResponseTime: row.responseCount ? Math.round(row.totalResponseMs / row.responseCount) : null, waitingTime: waiting, conversationDuration: ms(row.frozenAt ?? now, row.firstInboundAt), idleTime: ms(now, row.lastActivityAt), slaIndicator: indicator, deadlineAt: row.frozenAt || row.slaStatus === 'resolved' || row.slaStatus === 'archived' || !row.waitingSinceAt ? null : new Date(new Date(row.waitingSinceAt).getTime() + threshold).toISOString(), frozenAt: row.frozenAt };
+}
+export function projectSlaCard(row: Pick<Row, 'slaStatus' | 'waitingSinceAt' | 'firstResponseAt' | 'frozenAt'>, config: SlaConfig, now = new Date().toISOString()): SlaCardProjection {
+  if (row.frozenAt || row.slaStatus === 'resolved' || row.slaStatus === 'archived') return { status: row.slaStatus, indicator: 'neutral', deadlineAt: null };
+  const threshold = row.slaStatus === 'waiting_customer' ? config.customerWaitingThresholdMs : !row.firstResponseAt ? config.firstResponseThresholdMs : config.operatorWaitingThresholdMs;
+  const deadlineAt = row.waitingSinceAt ? new Date(new Date(row.waitingSinceAt).getTime() + threshold).toISOString() : null;
+  const elapsed = row.waitingSinceAt ? ms(now, row.waitingSinceAt) : 0;
+  const indicator = row.slaStatus === 'expired' || elapsed >= threshold ? 'red' : elapsed >= threshold * config.warningRatio ? 'yellow' : 'green';
+  return { status: row.slaStatus, indicator, deadlineAt };
 }
 export class SlaService {
   constructor(private readonly store: SlaStore, private readonly realtime: RealtimeHub) {}

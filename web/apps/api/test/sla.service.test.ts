@@ -6,7 +6,7 @@ import { SqlitePersistenceDatabase } from '../src/persistence/database.js';
 import { RealtimeHub } from '../src/realtime.js';
 import { InternalInboxService } from '../src/services/internal-inbox.service.js';
 import { SlaMessageCoordinator } from '../src/services/sla-message-coordinator.service.js';
-import { SlaService, SqliteSlaStore } from '../src/services/sla.service.js';
+import { projectSlaCard, SlaService, SqliteSlaStore } from '../src/services/sla.service.js';
 import { SqliteWahaWebhookStore, webhookRecord } from '../src/services/waha-webhook.service.js';
 
 const directories: string[] = [];
@@ -32,6 +32,12 @@ function conversation(database: SqlitePersistenceDatabase) {
 afterEach(() => directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })));
 
 describe('operational SLA lifecycle', () => {
+  it('projects card severity and deadline independently from the SLA cycle status', () => {
+    const config = { firstResponseThresholdMs: 300_000, operatorWaitingThresholdMs: 900_000, customerWaitingThresholdMs: 86_400_000, warningRatio: .8 };
+    expect(projectSlaCard({ slaStatus: 'waiting_operator', waitingSinceAt: inboundAt, firstResponseAt: null, frozenAt: null }, config, '2026-07-23T10:04:00.000Z')).toEqual({ status: 'waiting_operator', indicator: 'yellow', deadlineAt: '2026-07-23T10:05:00.000Z' });
+    expect(projectSlaCard({ slaStatus: 'waiting_customer', waitingSinceAt: inboundAt, firstResponseAt: inboundAt, frozenAt: null }, config, '2026-07-24T10:01:00.000Z')).toMatchObject({ status: 'waiting_customer', indicator: 'red', deadlineAt: '2026-07-24T10:00:00.000Z' });
+    expect(projectSlaCard({ slaStatus: 'resolved', waitingSinceAt: null, firstResponseAt: inboundAt, frozenAt: inboundAt }, config)).toEqual({ status: 'resolved', indicator: 'neutral', deadlineAt: null });
+  });
   it('starts operator waiting after a persisted inbound message', async () => {
     const { database, service } = setup();
     try {
