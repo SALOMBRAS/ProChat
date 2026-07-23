@@ -6,6 +6,7 @@ import { Devices, Inbox } from './App';
 
 const realtime = vi.hoisted(() => ({ handler: undefined as undefined | ((event: any) => void) }));
 vi.mock('../api/realtime.js', () => ({ connectRealtime: (handler: (event: any) => void) => { realtime.handler = handler; return () => undefined; } }));
+vi.mock('./InboxKanban.js', () => ({ InboxKanban: () => <div>Kanban operacional</div> }));
 
 const waiting: Session = { id: 'session-a', name: 'Atendimento', status: 'waiting_qr', updatedAt: '2026-07-16T18:00:00.000Z' };
 const connected: Session = { ...waiting, status: 'connected' };
@@ -42,6 +43,22 @@ describe('Inbox', () => {
   const conversation = (id: string, chatId: string, conversationType: 'direct' | 'group' = 'direct') => ({ id, whatsappSessionId: 'session-a', chatId, contactId: null, conversationType, status: 'open' as const, lastMessage: null, lastMessageAt: '2026-07-16T18:00:00.000Z', unreadCount: 0, createdAt: '2026-07-16T18:00:00.000Z', updatedAt: '2026-07-16T18:00:00.000Z' });
   const page = (items: any[]) => ({ items, page: 1, pageSize: 50, total: items.length });
   const emptyMessages = { items: [], page: 1, pageSize: 50, total: 0 };
+  it('switches between the conversation list and Kanban without changing routes', async () => {
+    const api = {
+      conversations: vi.fn().mockResolvedValue(page([])),
+      messages: vi.fn().mockResolvedValue(emptyMessages),
+      sendMessage: vi.fn(),
+      markRead: vi.fn(),
+    } as unknown as InboxApi;
+
+    render(<Inbox api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Abrir Kanban' }));
+    expect(screen.getByText('Kanban operacional')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lista' }));
+    expect(await screen.findByRole('button', { name: 'Abrir Kanban' })).toBeInTheDocument();
+  });
+
   it('loads a selected conversation, marks it as read and displays the history', async () => {
     const api = {
       conversations: vi.fn().mockResolvedValue({ items: [{ id: 'conversation-a', whatsappSessionId: 'session-a', chatId: '5511999999999@c.us', contactId: null, status: 'open', lastMessage: 'Olá', lastMessageAt: '2026-07-16T18:00:00.000Z', unreadCount: 2 }], page: 1, pageSize: 50, total: 1 }),

@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Campaign, Lead, PersistenceContact as Contact, PersistenceTemplate as Template, Pipeline, Stage } from '@chatpro/contracts';
 import { ApiError } from '../api/client';
-import { DomainApi, connectedSessionsCount } from '../api/domain';
+import { DomainApi } from '../api/domain';
 import { SessionsApi } from '../api/sessions';
 import { InboxApi, type InboxConversation } from '../api/inbox';
 import { connectRealtime } from '../api/realtime';
@@ -10,12 +10,12 @@ import InboxScreen from './Inbox.js';
 import { TeamDirectory } from './TeamDirectory.js';
 import RoutingQueues from './RoutingQueues.js';
 import { InboxKanban } from './InboxKanban.js';
+import { AppNavigation, routes } from './AppNavigation.js';
+import { HomeDashboard } from './HomeDashboard.js';
 
 const domain = new DomainApi(); const sessionsApi = new SessionsApi(); const inboxApi = new InboxApi();
 const Inbox = InboxScreen;
 export { Inbox };
-const routes = [['/dashboard', 'Painel', '▦'], ['/inbox', 'Inbox', '◌'], ['/devices', 'Dispositivos', '◈'], ['/team', 'Equipe', '◉'], ['/queues', 'Filas', 'Q'], ['/crm', 'CRM', '◇'], ['/contacts', 'Contatos', '◎'], ['/templates', 'Modelos de mensagem', '✦'], ['/campaigns', 'Campanhas', '◒'], ['/settings', 'Configurações', '⚙']] as const;
-const futureRoutes = [['Automações', '↗'], ['Relatórios', '◫']] as const;
 const message = (error: unknown) => error instanceof ApiError ? error.message : 'Ocorreu um erro inesperado.';
 const stableDependencies: unknown[] = [];
 function useResource<T>(load: () => Promise<T>, deps: unknown[] = stableDependencies) { const [data, setData] = useState<T>(); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const refresh = async () => { setLoading(true); setError(''); try { setData(await load()); } catch (e) { setError(message(e)); } finally { setLoading(false); } }; useEffect(() => { void refresh(); }, deps); return { data, error, loading, refresh }; }
@@ -30,9 +30,92 @@ const GlobalSearch = () => {
   return <div className="global-search-wrap"><div className="global-search"><span>⌕</span><input value={input} onFocus={() => setOpen(true)} onChange={(event) => { setInput(event.target.value); setOpen(true); }} placeholder="Buscar no ChatPro" aria-label="Buscar no ChatPro" /><kbd>⌘ K</kbd></div>{open && <div className="global-search-panel"><div className="global-search-panel-head"><strong>Pesquisa global</strong><button type="button" onClick={() => setOpen(false)} aria-label="Fechar pesquisa">×</button></div>{query ? <><p>Consulta “{query}” preparada para relevância e paginação.</p><div className="global-search-category"><b>◉ Contatos</b><span>Nome, telefone e avatar aparecerão aqui.</span></div><div className="global-search-category"><b>▤ Mensagens</b><span>Trecho, data e conversa relacionada.</span></div><div className="global-search-category"><b>▣ Arquivos</b><span>Nome, tipo e conversa relacionada.</span></div><small>Até 100 resultados por consulta · carregar mais sob demanda</small></> : <p>Pesquise contatos, mensagens ou arquivos.</p>}</div>}</div>;
 };
 
-export function App() { const [path, setPath] = useState(() => routes.some(([p]) => p === location.pathname) ? location.pathname : '/dashboard'); const [open, setOpen] = useState(false); useEffect(() => { const sync = () => setPath(location.pathname); addEventListener('popstate', sync); return () => removeEventListener('popstate', sync); }, []); const go = (to: string) => { history.pushState({}, '', to); setPath(to); setOpen(false); }; const Page = path === '/dashboard' ? Dashboard : path === '/inbox' ? Inbox : path === '/devices' ? Devices : path === '/team' ? TeamDirectory : path === '/queues' ? RoutingQueues : path === '/crm' ? Crm : path === '/contacts' ? Contacts : path === '/templates' ? Templates : path === '/campaigns' ? Campaigns : Settings; const pageName = routes.find(([to]) => to === path)?.[1]; return <div className="shell"><button className="menu-button" onClick={() => setOpen(true)} aria-label="Abrir navegação">☰</button><aside className={open ? 'sidebar open' : 'sidebar'}><div className="brand"><span className="brand-mark">✦</span><span>Chat</span><b>Pro</b></div><p className="nav-label">CENTRAL</p>{routes.slice(0, 3).map(([to, name, icon]) => <button key={to} className={path === to ? 'nav active' : 'nav'} onClick={() => go(to)}><i>{icon}</i>{name}</button>)}<p className="nav-label">GESTÃO</p>{routes.slice(3, -1).map(([to, name, icon]) => <button key={to} className={path === to ? 'nav active' : 'nav'} onClick={() => go(to)}><i>{icon}</i>{name}</button>)}{futureRoutes.map(([name, icon]) => <button key={name} className="nav future" disabled title="Recurso visual preparado para uma futura etapa"><i>{icon}</i>{name}<small>Em breve</small></button>)}<div className="nav-spacer" />{routes.slice(-1).map(([to, name, icon]) => <button key={to} className={path === to ? 'nav active' : 'nav'} onClick={() => go(to)}><i>{icon}</i>{name}</button>)}<div className="sidebar-upgrade"><span>✦</span><div><strong>ChatPro IA</strong><p>Automação que escala.</p></div></div></aside><main><header><div className="page-heading"><p className="eyebrow">WORKSPACE</p><h1>{pageName}</h1></div><div className="topbar-actions"><GlobalSearch /><button className="icon-button" aria-label="Notificações">♧<b /></button><button className="profile-button" aria-label="Perfil do usuário"><span>SP</span><i>⌄</i></button></div></header><Page /></main></div>; }
+export function App() {
+  const [path, setPath] = useState(() =>
+    routes.some(([route]) => route === location.pathname)
+      ? location.pathname
+      : "/dashboard",
+  );
+  const [open, setOpen] = useState(false);
 
-function Dashboard() { const { data, error, loading } = useResource(() => domain.dashboard()); if (loading) return <p className="page loading-page">Carregando seu painel…</p>; if (error) return <section className="page"><ErrorNotice error={error} /></section>; const d = data!; const sessionsByStatus = Array.isArray(d.sessionsByStatus) ? d.sessionsByStatus : []; const sessions = connectedSessionsCount(sessionsByStatus); const metrics = [['◌', 'Conversas', 'Conversas ativas e pendentes', d.leads], ['◈', 'WhatsApps conectados', 'Sessões WhatsApp disponíveis', sessions], ['✉', 'Mensagens', 'Quantidade de mensagens processadas', d.recentActivities.length], ['◎', 'Contatos', 'Clientes cadastrados', d.contacts]]; const openInbox = () => { history.pushState({}, '', '/inbox'); dispatchEvent(new PopStateEvent('popstate')); }; return <section className="page dashboard-page"><section className="hero"><div><p className="hero-kicker">✦ INTELIGÊNCIA COMERCIAL</p><h2>Bem-vindo ao <em>ChatPro</em></h2><p>Sua central inteligente de atendimento, automação e vendas pelo WhatsApp.</p><button onClick={openInbox}>Abrir Inbox <span>→</span></button></div><div className="hero-orbit" aria-hidden="true"><span>✦</span><i /><b /></div></section><div className="stats">{metrics.map(([icon, name, description, total]) => <article className="stat" key={String(name)}><span className="stat-icon">{icon}</span><div><span>{name}</span><strong>{total}</strong><small>{description}</small></div></article>)}</div><section className="section-heading"><div><p className="eyebrow">CENTRAL DE OPERAÇÕES</p><h2>Tudo que você precisa para crescer</h2></div><span>Atualizado em tempo real <i>●</i></span></section><div className="feature-grid">{[['◌', 'Atendimento', 'Gerencie conversas e equipes.', 'Inbox'], ['✦', 'Inteligência Artificial', 'Automatize respostas e fluxos.', 'Em breve'], ['◒', 'Campanhas', 'Organize disparos e resultados.', 'Campanhas'], ['◇', 'CRM', 'Controle clientes e oportunidades.', 'CRM']].map(([icon, title, description, action]) => <article className="feature-card" key={title}><span>{icon}</span><h3>{title}</h3><p>{description}</p><button className="text-button">{action} <b>→</b></button></article>)}</div><div className="dashboard-grid"><Panel title="Leads por etapa">{d.leadsByStage.length ? d.leadsByStage.map(x => <p className="metric" key={x.stageId}><span>{x.name}</span><b>{x.total}</b></p>) : <Empty>Nenhuma etapa inicializada.</Empty>}</Panel><Panel title="Atividades recentes">{d.recentActivities.length ? d.recentActivities.map(x => <p key={x.id}>{x.type}</p>) : <Empty>Sem atividades recentes.</Empty>}</Panel><Panel title="Campanhas por status">{d.campaignsByStatus.length ? d.campaignsByStatus.map(x => <p className="metric" key={x.status}><span>{x.status}</span><b>{x.total}</b></p>) : <Empty>Sem campanhas.</Empty>}</Panel><Panel title="Sessões por status">{sessionsByStatus.length ? sessionsByStatus.map(x => <p className="metric" key={x.status}><span>{x.status}</span><b>{x.total}</b></p>) : <Empty>Sem sessões.</Empty>}</Panel></div></section>; }
+  useEffect(() => {
+    const sync = () => setPath(location.pathname);
+    addEventListener("popstate", sync);
+    return () => removeEventListener("popstate", sync);
+  }, []);
+
+  const go = (to: string) => {
+    history.pushState({}, "", to);
+    setPath(to);
+    setOpen(false);
+  };
+  const Page =
+    path === "/dashboard"
+      ? Dashboard
+      : path === "/inbox"
+        ? Inbox
+        : path === "/devices"
+          ? Devices
+          : path === "/team"
+            ? TeamDirectory
+            : path === "/queues"
+              ? RoutingQueues
+              : path === "/crm"
+                ? Crm
+                : path === "/contacts"
+                  ? Contacts
+                  : path === "/templates"
+                    ? Templates
+                    : path === "/campaigns"
+                      ? Campaigns
+                      : Settings;
+  const pageName = routes.find(([to]) => to === path)?.[1];
+
+  return (
+    <div className="shell">
+      <button
+        className="menu-button"
+        onClick={() => setOpen(true)}
+        aria-label="Abrir navegação"
+      >
+        ☰
+      </button>
+      <AppNavigation open={open} path={path} onNavigate={go} />
+      <main>
+        <header>
+          <div className="page-heading">
+            <p className="eyebrow">WORKSPACE</p>
+            <h1>{pageName}</h1>
+          </div>
+          <div className="topbar-actions">
+            <GlobalSearch />
+            <button className="icon-button" aria-label="Notificações">
+              ♧<b />
+            </button>
+            <button className="profile-button" aria-label="Perfil do usuário">
+              <span>SP</span>
+              <i>⌄</i>
+            </button>
+          </div>
+        </header>
+        <Page />
+      </main>
+    </div>
+  );
+}
+
+function Dashboard() {
+  const openInbox = () => {
+    history.pushState({}, "", "/inbox");
+    dispatchEvent(new PopStateEvent("popstate"));
+  };
+  return (
+    <HomeDashboard
+      loadDashboard={domain.dashboard}
+      onOpenInbox={openInbox}
+    />
+  );
+}
 const Panel = ({ title, children }: { title: string; children: ReactNode }) => <section className="panel"><h2>{title}</h2>{children}</section>;
 
 const time = (value: string) => new Date(value).toLocaleString();
