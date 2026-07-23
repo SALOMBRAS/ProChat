@@ -11,6 +11,7 @@ export type ConversationEvent = { id: string; conversationId: string; workspaceI
 export type ConversationManagementResult = { conversation: InboxConversation; event: ConversationEvent | null; changed: boolean };
 export type SlaMetrics = { conversationId:string; status:'waiting_operator'|'waiting_customer'|'answered'|'resolved'|'expired'|'archived'; firstInboundAt:string; firstResponseAt:string|null; lastInboundAt:string; lastOutboundAt:string|null; lastActivityAt:string; firstResponseTime:number|null; averageResponseTime:number|null; waitingTime:number; conversationDuration:number; idleTime:number; slaIndicator:'green'|'yellow'|'red'; deadlineAt:string|null; frozenAt:string|null };
 export type KanbanSla = { status:SlaMetrics['status']; indicator:SlaMetrics['slaIndicator']|'neutral'; deadlineAt:string|null };
+export type SlaOperationalSummary = { generatedAt:string; totals:{active:number;waitingOperator:number;waitingCustomer:number;withinSla:number;warning:number;overdue:number;frozen:number}; averages:{firstResponseSeconds:number|null;operatorWaitSeconds:number|null;customerWaitSeconds:number|null}; percentages:{withinSla:number}; critical:Array<{conversationId:string;contactName:string|null;assignedUserId:string|null;routingQueueId:string|null;status:SlaMetrics['status'];indicator:SlaMetrics['slaIndicator'];deadlineAt:string|null;lastActivityAt:string}> };
 export type KanbanStage = { id:string; boardId:string; key:string; name:string; position:number; count:number; isTerminal:boolean; isArchivedStage:boolean };
 export type KanbanBoard = { id:string; name:string; isDefault:boolean; stages:KanbanStage[] };
 export type KanbanCard = { conversationId:string; maskedId:string; lastMessage:string; lastMessageAt:string; unreadCount:number; conversationType:'direct'|'group'; assignedUserId:string|null; assignedTeamId:string|null; routingQueueId:string|null; priority:ConversationPriority; tags:string[]; slaStatus:string|null; sla:KanbanSla|null; stageId:string; position:number; updatedAt:string };
@@ -35,6 +36,7 @@ export class InboxApi {
   updatePriority=(id:string,priority:ConversationPriority)=>this.http.patch<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/priority`, { priority });
   activity=(id:string)=>this.http.get<ConversationEvent[]>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/activity`);
   slaMetrics=(id:string,signal?:AbortSignal)=>this.http.get<SlaMetrics>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/sla-metrics`,signal);
+  slaSummary=(signal?:AbortSignal)=>this.http.get<SlaOperationalSummary>('/api/v1/inbox/operations/sla-summary',signal);
   startSync=(wahaSession?:string)=>this.http.post<HistorySyncJob>('/api/v1/inbox/sync/start', wahaSession ? { wahaSession } : {});
   syncStatus=(wahaSession:string)=>this.http.get<HistorySyncJob>(`/api/v1/inbox/sync/status?wahaSession=${encodeURIComponent(wahaSession)}`);
   cancelSync=(wahaSession:string)=>this.http.post<HistorySyncJob>('/api/v1/inbox/sync/cancel', { wahaSession });
