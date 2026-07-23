@@ -109,10 +109,19 @@ function Dashboard() {
     history.pushState({}, "", "/inbox");
     dispatchEvent(new PopStateEvent("popstate"));
   };
+  const openConversation = (conversationId: string) => {
+    history.pushState(
+      { conversationId },
+      "",
+      `/inbox?conversationId=${encodeURIComponent(conversationId)}`,
+    );
+    dispatchEvent(new PopStateEvent("popstate"));
+  };
   return (
     <HomeDashboard
       loadDashboard={domain.dashboard}
       onOpenInbox={openInbox}
+      onOpenConversation={openConversation}
     />
   );
 }

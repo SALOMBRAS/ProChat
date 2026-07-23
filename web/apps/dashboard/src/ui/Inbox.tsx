@@ -516,6 +516,18 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
         : Promise.resolve(),
     ]);
   };
+  useEffect(() => {
+    const conversationId = new URLSearchParams(location.search).get(
+      "conversationId",
+    );
+    if (!conversationId || selected?.id === conversationId) return;
+    const conversation = conversationPage.items.find(
+      (item) => item.id === conversationId,
+    );
+    if (!conversation) return;
+    history.replaceState(history.state, "", "/inbox");
+    void openConversation(conversation);
+  }, [conversationPage.items, selected?.id]);
   const submitMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected || sending) return;

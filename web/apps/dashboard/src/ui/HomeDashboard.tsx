@@ -4,10 +4,12 @@ import {
   connectedSessionsCount,
   type Dashboard,
 } from "../api/domain.js";
+import { SlaOperationalDashboard } from "./SlaOperationalDashboard.js";
 
 type HomeDashboardProps = {
   loadDashboard: () => Promise<Dashboard>;
   onOpenInbox: () => void;
+  onOpenConversation: (conversationId: string) => void;
 };
 
 const errorMessage = (error: unknown) =>
@@ -35,6 +37,7 @@ const Panel = ({
 export function HomeDashboard({
   loadDashboard,
   onOpenInbox,
+  onOpenConversation,
 }: HomeDashboardProps) {
   const [data, setData] = useState<Dashboard>();
   const [error, setError] = useState("");
@@ -143,6 +146,8 @@ export function HomeDashboard({
           </article>
         ))}
       </div>
+
+      <SlaOperationalDashboard onOpenConversation={onOpenConversation} />
 
       <section className="section-heading">
         <div>

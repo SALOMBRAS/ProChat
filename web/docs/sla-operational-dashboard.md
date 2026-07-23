@@ -18,6 +18,24 @@ O dashboard deve consumir uma única requisição compacta na entrada e invalid�
 
 Não há N+1, mensagens completas, polling por card ou carregamento de toda a lista de métricas no navegador.
 
+## Dashboard visual
+
+`SlaOperationalDashboard` é composto pela `HomeDashboard` e consome apenas
+`GET /api/v1/inbox/operations/sla-summary`. A seção mantém os demais módulos da
+Home visíveis durante loading, preserva o último resumo válido em falhas de
+atualização e oferece retry manual isolado.
+
+O componente usa um único intervalo de 60 segundos, que não atualiza com a aba
+oculta. Ao retornar à aba, atualiza somente se o último carregamento tiver mais
+de 60 segundos. Eventos `conversation.sla.updated`,
+`conversation.kanban.moved` e `conversation.updated` são agrupados por 750 ms
+antes de uma única atualização do resumo.
+
+Os itens críticos usam a ordem devolvida pelo servidor e navegam para a Inbox
+com `conversationId` na URL. A seleção é feita sem pré-carregar mensagens e
+sem buscar métricas individuais; quando a conversa ainda não está na página
+atual da Inbox, a tela é aberta sem seleção adicional.
+
 ## Limitações atuais
 
-O schema SLA não guarda nome, responsável ou fila no registro de métrica. A lista crítica mantém IDs seguros e pode receber esses dados por projeção paginada futura, sem consultas individuais. Validar visualmente amanhã: estados vazio/erro, abertura da conversa, atualização realtime agrupada e layout mobile.
+O schema SLA não guarda nome, responsável ou fila no registro de métrica. A lista crítica mantém IDs seguros e pode receber esses dados por projeção paginada futura, sem consultas individuais. Validar visualmente amanhã: estados vazio/erro, abertura de conversa fora da primeira página, atualização realtime agrupada, layout mobile e atualização multiusuário.

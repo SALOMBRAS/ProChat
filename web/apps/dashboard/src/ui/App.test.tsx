@@ -43,6 +43,22 @@ describe('Inbox', () => {
   const conversation = (id: string, chatId: string, conversationType: 'direct' | 'group' = 'direct') => ({ id, whatsappSessionId: 'session-a', chatId, contactId: null, conversationType, status: 'open' as const, lastMessage: null, lastMessageAt: '2026-07-16T18:00:00.000Z', unreadCount: 0, createdAt: '2026-07-16T18:00:00.000Z', updatedAt: '2026-07-16T18:00:00.000Z' });
   const page = (items: any[]) => ({ items, page: 1, pageSize: 50, total: items.length });
   const emptyMessages = { items: [], page: 1, pageSize: 50, total: 0 };
+  it('opens a conversation addressed by the Inbox conversationId URL parameter', async () => {
+    const item = conversation('conversation-a', '5511999999999@c.us');
+    const api = {
+      conversations: vi.fn().mockResolvedValue(page([item])),
+      messages: vi.fn().mockResolvedValue(emptyMessages),
+      sendMessage: vi.fn(),
+      markRead: vi.fn(),
+    } as unknown as InboxApi;
+    history.replaceState({}, '', '/inbox?conversationId=conversation-a');
+
+    render(<Inbox api={api} />);
+
+    await waitFor(() => expect(api.messages).toHaveBeenCalledWith('conversation-a', 1, 50));
+    expect(location.pathname).toBe('/inbox');
+  });
+
   it('switches between the conversation list and Kanban without changing routes', async () => {
     const api = {
       conversations: vi.fn().mockResolvedValue(page([])),

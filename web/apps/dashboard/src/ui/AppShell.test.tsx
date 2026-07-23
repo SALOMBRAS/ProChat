@@ -19,6 +19,10 @@ vi.mock("./Inbox.js", () => ({
   default: () => <section aria-label="Inbox atual">Inbox atual</section>,
 }));
 
+vi.mock("./SlaOperationalDashboard.js", () => ({
+  SlaOperationalDashboard: () => <section aria-label="SLA operacional" />,
+}));
+
 import { App } from "./App.js";
 
 const dashboard = {
