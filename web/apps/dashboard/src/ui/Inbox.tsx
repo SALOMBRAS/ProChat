@@ -53,6 +53,12 @@ const priorityLabel: Record<ConversationPriority, string> = { low: "Baixa", norm
 const operationLabel: Record<ConversationEvent["action"], string> = { assigned: "Responsável alterado", unassigned: "Conversa sem responsável", status_changed: "Status alterado", priority_changed: "Prioridade alterada", archived: "Conversa arquivada", reopened: "Conversa reaberta" };
 type InboxFilter = "all" | "mine" | "unassigned" | "in_progress" | "waiting_customer" | "resolved" | "archived" | "high_priority";
 const currentUserId = import.meta.env.VITE_USER_ID || "00000000-0000-4000-8000-000000000001";
+const fileSizeLabel = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length);
+  return `${(bytes / 1024 ** index).toFixed(index === 1 ? 0 : 1)} ${units[index - 1]}`;
+};
 const Avatar = ({
   conversation,
   large = false,
@@ -76,7 +82,7 @@ const Avatar = ({
   </span>
 );
 let activeAudio: HTMLAudioElement | undefined;
-const AudioPlayer = ({ url, message }: { url: string; message: InboxMessage }) => {
+const AudioMessage = ({ url, message }: { url: string; message: InboxMessage }) => {
   const audio = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -87,6 +93,36 @@ const AudioPlayer = ({ url, message }: { url: string; message: InboxMessage }) =
   const toggle = async () => { const node = audio.current; if (!node) return; if (node.paused) { if (activeAudio && activeAudio !== node) activeAudio.pause(); activeAudio = node; try { await node.play(); } catch { setUnavailable(true); } } else node.pause(); };
   const changeSpeed = () => { const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1; setSpeed(next); if (audio.current) audio.current.playbackRate = next; };
   return <div className="audio-player" aria-label="Mensagem de áudio"><audio ref={audio} preload="metadata" onLoadedMetadata={() => setDuration(audio.current?.duration || message.duration || 0)} onTimeUpdate={() => setCurrent(audio.current?.currentTime || 0)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCurrent(0); }} onError={() => setUnavailable(true)}><source src={url} type={message.mediaMimeType ?? undefined} /></audio>{unavailable ? <span className="media-error" role="status">Áudio indisponível.</span> : <><button type="button" className="audio-play" onClick={() => void toggle()} aria-label={playing ? "Pausar áudio" : "Reproduzir áudio"}>{playing ? "Ⅱ" : "▶"}</button><span className="audio-mark" aria-hidden="true">♬</span><input aria-label="Progresso do áudio" type="range" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(current, duration || 0)} onChange={event => { const value = Number(event.target.value); if (audio.current) audio.current.currentTime = value; setCurrent(value); }} /><time>{format(current)} / {format(duration)}</time><button type="button" className="audio-speed" onClick={changeSpeed} aria-label={`Velocidade ${speed}x`}>{speed}x</button></>}</div>;
+};
+const documentIcon = (filename?: string | null, mimeType?: string | null) => {
+  const extension = filename?.split(".").pop()?.toLowerCase();
+  if (mimeType?.includes("pdf") || extension === "pdf") return "PDF";
+  if (["doc", "docx", "odt"].includes(extension ?? "")) return "DOC";
+  if (["xls", "xlsx", "csv"].includes(extension ?? "")) return "XLS";
+  if (["ppt", "pptx"].includes(extension ?? "")) return "PPT";
+  return "FILE";
+};
+const ImageMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
+  const [expanded, setExpanded] = useState(false);
+  const filename = message.mediaFilename?.trim();
+  const hasMeaningfulFilename = Boolean(filename && !/^(image|imagem)(\.[a-z0-9]+)?$/i.test(filename));
+  const label = hasMeaningfulFilename ? filename! : "Imagem";
+  return <>
+    <div className="message-image-card">
+      <button type="button" className="message-image-preview" onClick={() => setExpanded(true)} aria-label={`Ampliar ${label}`}><img src={url} alt={label} /></button>
+      <div className={`message-media-footer${hasMeaningfulFilename ? "" : " icon-only"}`}>{hasMeaningfulFilename && <span title={filename}>{filename}</span>}<a href={url} download={message.mediaFilename ?? undefined} aria-label={`Baixar ${label}`} title="Baixar imagem">⇩</a></div>
+    </div>
+    {expanded && <div className="media-modal-backdrop" role="presentation" onClick={() => setExpanded(false)}><section className="media-modal" role="dialog" aria-modal="true" aria-label={label} onClick={(event) => event.stopPropagation()}><div className="media-modal-head"><strong title={label}>{label}</strong><div><a href={url} download={message.mediaFilename ?? undefined} aria-label={`Baixar ${label}`} title="Baixar imagem">⇩</a><button type="button" onClick={() => setExpanded(false)} aria-label="Fechar imagem">×</button></div></div><img src={url} alt={label} /></section></div>}
+  </>;
+};
+const DocumentMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
+  const filename = message.mediaFilename ?? "Documento";
+  const type = documentIcon(message.mediaFilename, message.mediaMimeType);
+  return <a className="message-document-card" href={url} download={message.mediaFilename ?? undefined} aria-label={`Baixar ${filename}`}><span className="message-document-icon">{type}</span><span className="message-document-details"><strong title={filename}>{filename}</strong><span><small>{type}</small><small>{message.mediaSize != null ? fileSizeLabel(message.mediaSize) : "Tamanho não informado"}</small></span></span><span className="message-document-download" aria-hidden="true">⇩</span></a>;
+};
+const VideoMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
+  const [playbackError, setPlaybackError] = useState<string>();
+  return <div className="message-video-card"><video className="message-media video" controls preload="metadata" poster={message.thumbnailUrl ?? undefined} playsInline onLoadedMetadata={() => setPlaybackError(undefined)} onStalled={() => setPlaybackError("O vídeo está demorando para carregar.")} onError={() => setPlaybackError("Formato de vídeo inválido ou não suportado.")}><source src={url} type={message.mediaMimeType ?? undefined} /></video><div className="message-media-footer"><span title={message.mediaFilename ?? undefined}>{message.mediaFilename ?? "Vídeo"}</span><a href={url} download={message.mediaFilename ?? undefined} aria-label="Baixar vídeo" title="Baixar vídeo">⇩</a></div>{playbackError && <span className="media-error" role="status">{playbackError}</span>}</div>;
 };
 const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
   const [url, setUrl] = useState<string>();
@@ -100,20 +136,10 @@ const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
   if (failed) return <span className="media-error" role="status">NÃ£o foi possÃ­vel carregar a mÃ­dia.</span>;
   if (!url) return <span className="media-loading" role="status">Carregando mÃ­diaâ€¦</span>;
   if (message.messageType === "image" || message.messageType === "sticker")
-    return (
-      <a
-        className="message-media image"
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-      >
-        <img
-          src={url}
-          alt={message.mediaFilename ?? "Imagem recebida"}
-        />
-      </a>
-    );
+    return <ImageMessage message={message} url={url} />;
   if (message.messageType === "video")
+    return <VideoMessage message={message} url={url} />;
+  if (false)
     return (
       <>
       <video
@@ -135,8 +161,9 @@ const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
     message.messageType === "audio" ||
     message.mediaMimeType?.startsWith("audio/")
   )
-    return <AudioPlayer url={url} message={message} />;
-  return (
+    return <AudioMessage url={url} message={message} />;
+  return <DocumentMessage message={message} url={url} />;
+  if (false) return (
     <a className="message-document" href={url} download={message.mediaFilename ?? undefined}>
       <span>▧</span>
       <strong>{message.mediaFilename ?? "Documento"}</strong>
@@ -152,6 +179,17 @@ const statusIcon = (status: InboxMessage["status"]) =>
       : status === "sending"
         ? "◌"
         : "✓";
+const MessageBubble = ({ message, api, showAuthor, highlighted = false }: { message: InboxMessage; api: InboxApi; showAuthor: boolean; highlighted?: boolean }) => (
+  <article id={`conversation-search-result-${message.id}`} className={`message-bubble ${message.direction}${highlighted ? " search-highlighted" : ""}`}>
+    {showAuthor && <strong className="message-author">{senderName(message.senderWhatsappId)}:</strong>}
+    <Media message={message} api={api} />
+    {message.content && <p>{message.content}</p>}
+    <span className={`message-meta status-${message.status}`}>
+      {message.direction === "outbound" && <b aria-label={`Status: ${message.status}`}>{statusIcon(message.status)}{" "}</b>}
+      {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+    </span>
+  </article>
+);
 
 export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [conversationPage, setConversationPage] = useState<
@@ -167,7 +205,37 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [attachment, setAttachment] = useState<File>();
   const [attachmentPreview, setAttachmentPreview] = useState<string>();
   const [attachmentStatus, setAttachmentStatus] = useState("");
+  const [composerText, setComposerText] = useState("");
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [attachmentAccept, setAttachmentAccept] = useState<string>();
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder>();
+  const recordingStreamRef = useRef<MediaStream>();
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval>>();
+  const discardRecordingRef = useRef(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [copiedPhone, setCopiedPhone] = useState(false);
+  const [conversationSearchOpen, setConversationSearchOpen] = useState(false);
+  const [conversationSearchInput, setConversationSearchInput] = useState("");
+  const [conversationSearchTerm, setConversationSearchTerm] = useState("");
+  const [activeConversationMatch, setActiveConversationMatch] = useState(0);
+  const [visualQueue, setVisualQueue] = useState("");
   useEffect(() => { if (!attachment?.type.startsWith('image/')) { setAttachmentPreview(undefined); return; } const url = URL.createObjectURL(attachment); setAttachmentPreview(url); return () => URL.revokeObjectURL(url); }, [attachment]);
+  useEffect(() => () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    discardRecordingRef.current = true;
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setConversationSearchTerm(conversationSearchInput.trim().toLocaleLowerCase("pt-BR"));
+      setActiveConversationMatch(0);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [conversationSearchInput]);
+  useEffect(() => { setVisualQueue(""); }, [selected?.id]);
   const [context, setContext] = useState<ConversationContext>();
   const [notes, setNotes] = useState("");
   const [tag, setTag] = useState("");
@@ -423,6 +491,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
         setAttachment(undefined);
       } else await api.sendMessage(selected.id, text);
       form.reset();
+      setComposerText("");
       await Promise.all([
         loadLatest(selected.id, true),
         refreshConversations(),
@@ -432,6 +501,63 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       setError(errorMessage(nextError));
     } finally {
       setSending(false);
+    }
+  };
+  const clearAttachment = () => {
+    setAttachment(undefined);
+    setAttachmentStatus("");
+    if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+  };
+  const copyPhone = async () => {
+    if (!selected || isGroup(selected)) return;
+    const phone = selected.identity?.phone ?? phoneFallback(selected);
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard indisponível");
+      await navigator.clipboard.writeText(phone);
+      setCopiedPhone(true);
+      window.setTimeout(() => setCopiedPhone(false), 1800);
+    } catch {
+      setError("Não foi possível copiar o número.");
+    }
+  };
+  const finishRecording = (discard = false) => {
+    discardRecordingRef.current = discard;
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+  };
+  const startRecording = async () => {
+    if (sending || isRecording) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setError("A gravação de áudio não é suportada neste navegador.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+      discardRecordingRef.current = false;
+      recordingStreamRef.current = stream;
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+      recorder.onstop = () => {
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+        recordingStreamRef.current = undefined;
+        recorderRef.current = undefined;
+        setIsRecording(false);
+        if (!discardRecordingRef.current && chunks.length) {
+          const type = recorder.mimeType || "audio/webm";
+          const extension = type.includes("ogg") ? "ogg" : "webm";
+          setAttachment(new File([new Blob(chunks, { type })], `audio-${Date.now()}.${extension}`, { type }));
+          setAttachmentStatus("Áudio pronto para envio");
+        }
+      };
+      setRecordingSeconds(0);
+      setIsRecording(true);
+      recordingTimerRef.current = setInterval(() => setRecordingSeconds((seconds) => seconds + 1), 1000);
+      recorder.start();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? `Não foi possível acessar o microfone: ${nextError.message}` : "Não foi possível acessar o microfone.");
     }
   };
   const onScroll = () => {
@@ -504,6 +630,16 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       index === 0 ||
       dateLabel(messages[index - 1].timestamp) !== dateLabel(item.timestamp),
   }));
+  const conversationMatches = conversationSearchTerm
+    ? messages.filter((item) => item.content?.toLocaleLowerCase("pt-BR").includes(conversationSearchTerm)).slice(0, 100)
+    : [];
+  const activeMatchId = conversationMatches[activeConversationMatch]?.id;
+  const selectConversationMatch = (index: number) => {
+    if (!conversationMatches.length) return;
+    const next = (index + conversationMatches.length) % conversationMatches.length;
+    setActiveConversationMatch(next);
+    document.getElementById(`conversation-search-result-${conversationMatches[next].id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
   const applyManagement = async (operation: () => Promise<{ conversation: InboxConversation }>) => {
     if (!selected || changingManagement) return;
     setChangingManagement(true);
@@ -634,19 +770,21 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                   </div>
                 </div>
                 <div className="conversation-controls">
-                  <select aria-label="Responsável" value={selected.assignedUserId ?? ""} disabled={changingManagement} onChange={(event) => void applyManagement(() => event.target.value ? api.assign(selected.id, event.target.value) : api.unassign(selected.id))}>
+                  <label><span>Responsável</span><select aria-label="Responsável" value={selected.assignedUserId ?? ""} disabled={changingManagement} onChange={(event) => void applyManagement(() => event.target.value ? api.assign(selected.id, event.target.value) : api.unassign(selected.id))}>
                     <option value="">Sem responsável</option>{workspaceUsers.filter(user => user.status === "active").map(user => <option value={user.id} key={user.id}>{user.displayName}</option>)}
-                  </select>
-                  <select aria-label="Equipe responsável" value={selected.assignedTeamId ?? ""} disabled={changingManagement} onChange={(event) => void applyManagement(() => api.assignTeam(selected.id, event.target.value || null))}>
+                  </select></label>
+                  <label><span>Equipe</span><select aria-label="Equipe responsável" value={selected.assignedTeamId ?? ""} disabled={changingManagement} onChange={(event) => void applyManagement(() => api.assignTeam(selected.id, event.target.value || null))}>
                     <option value="">Sem equipe</option>{teams.filter(team => team.isActive).map(team => <option value={team.id} key={team.id}>{team.name}</option>)}
-                  </select>
-                  <select aria-label="Status da conversa" value={selected.status} disabled={changingManagement} onChange={(event) => void applyManagement(() => api.updateStatus(selected.id, event.target.value as ConversationStatus))}>
+                  </select></label>
+                  <label><span>Status</span><select aria-label="Status da conversa" value={selected.status} disabled={changingManagement} onChange={(event) => void applyManagement(() => api.updateStatus(selected.id, event.target.value as ConversationStatus))}>
                     {Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                  </select>
-                  <select aria-label="Prioridade da conversa" value={selected.priority} disabled={changingManagement} onChange={(event) => void applyManagement(() => api.updatePriority(selected.id, event.target.value as ConversationPriority))}>
+                  </select></label>
+                  <label><span>Prioridade</span><select aria-label="Prioridade da conversa" value={selected.priority} disabled={changingManagement} onChange={(event) => void applyManagement(() => api.updatePriority(selected.id, event.target.value as ConversationPriority))}>
                     {Object.entries(priorityLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                  </select>
+                  </select></label>
                 </div>
+                <button type="button" className="conversation-search-trigger" onClick={() => setConversationSearchOpen((open) => !open)} aria-expanded={conversationSearchOpen}>⌕ Buscar nesta conversa</button>
+                {conversationSearchOpen && <div className="conversation-search-panel"><div className="conversation-search-field"><span>⌕</span><input value={conversationSearchInput} onChange={(event) => setConversationSearchInput(event.target.value)} placeholder="Buscar nas mensagens carregadas" aria-label="Buscar nesta conversa" autoFocus /><button type="button" onClick={() => { setConversationSearchInput(""); setConversationSearchOpen(false); }} aria-label="Fechar busca">×</button></div>{conversationSearchTerm ? <div className="conversation-search-results"><div><span>{conversationMatches.length} resultado{conversationMatches.length === 1 ? "" : "s"} nesta página</span><span className="conversation-search-nav"><button type="button" onClick={() => selectConversationMatch(activeConversationMatch - 1)} disabled={!conversationMatches.length} aria-label="Resultado anterior">↑</button><button type="button" onClick={() => selectConversationMatch(activeConversationMatch + 1)} disabled={!conversationMatches.length} aria-label="Próximo resultado">↓</button></span></div>{conversationMatches.length ? <p>{conversationMatches[activeConversationMatch]?.content}</p> : <p>Nenhum resultado nas mensagens já carregadas.</p>}<small>A busca completa será paginada pela API, com até 100 resultados por consulta.</small></div> : <p className="conversation-search-hint">Digite para pesquisar somente a página atual; o termo é refinado após uma breve pausa.</p>}</div>}
               </div>
               <div className="message-list" ref={listRef} onScroll={onScroll}>
                 {loadingMessages ? (
@@ -659,26 +797,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                           {dateLabel(item.timestamp)}
                         </div>
                       )}
-                      <article className={`message-bubble ${item.direction}`}>
-                        {isGroup(selected) && item.direction === "inbound" && (
-                          <strong className="message-author">
-                            {senderName(item.senderWhatsappId)}:
-                          </strong>
-                        )}
-                        <Media message={item} api={api} />
-                        {item.content && <p>{item.content}</p>}
-                        <span className={`message-meta status-${item.status}`}>
-                          {item.direction === "outbound" && (
-                            <b aria-label={`Status: ${item.status}`}>
-                              {statusIcon(item.status)}{" "}
-                            </b>
-                          )}
-                          {new Date(item.timestamp).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </article>
+                      <MessageBubble message={item} api={api} showAuthor={isGroup(selected) && item.direction === "inbound"} highlighted={item.id === activeMatchId} />
                     </div>
                   ))
                 )}
@@ -687,19 +806,28 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                 className="message-composer"
                 onSubmit={(event) => void submitMessage(event)}
               >
-                <input className="attachment-input" type="file" aria-label="Anexar arquivo" onChange={(event) => { setAttachment(event.target.files?.[0]); setAttachmentStatus(''); }} disabled={sending} />
-                <button type="button" className="composer-action" onClick={(event) => (event.currentTarget.previousElementSibling as HTMLInputElement | null)?.click()} disabled={sending} aria-label="Anexar arquivo">⌕</button>
-                <textarea aria-label="Mensagem" name="text" placeholder={attachment ? 'Adicionar legenda (opcional)' : 'Digite uma mensagem'} maxLength={4096} disabled={sending} />
-                {attachment && <span className="attachment-preview" title={attachment.name}>{attachment.name}</span>}
-                {attachmentPreview && <img className="attachment-image-preview" src={attachmentPreview} alt="Prévia do anexo" />}
-                {attachmentStatus && <span className="attachment-status">{attachmentStatus}</span>}
-                <button
-                  className="send-button"
-                  disabled={sending}
-                  aria-label={sending ? "Enviando mensagem" : "Enviar"}
-                >
-                  {sending ? "…" : "↑"}
-                </button>
+                <input ref={attachmentInputRef} className="attachment-input" type="file" accept={attachmentAccept} aria-label="Selecionar anexo" onChange={(event) => { setAttachment(event.target.files?.[0]); setAttachmentStatus(""); setAttachmentMenuOpen(false); }} disabled={sending} />
+                {isRecording && <div className="composer-recording" role="status" aria-live="polite"><span className="composer-recording-indicator" aria-hidden="true" /><strong>Gravando áudio</strong><time>{`${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`}</time><button type="button" onClick={() => finishRecording(true)} aria-label="Cancelar gravação">Cancelar</button><button type="button" className="composer-recording-send" onClick={() => finishRecording()} aria-label="Concluir gravação">Enviar</button></div>}
+                {attachment && <div className="composer-pending-attachment" aria-label={`Anexo pendente: ${attachment.name}`}>
+                  {attachmentPreview ? <img className="composer-pending-thumbnail" src={attachmentPreview} alt={`Prévia de ${attachment.name}`} /> : <span className="composer-pending-file-icon" aria-hidden="true">{attachment.type.startsWith("video/") ? "▣" : "▤"}</span>}
+                  <div className="composer-pending-details"><strong title={attachment.name}>{attachment.name}</strong><span>{fileSizeLabel(attachment.size)}</span></div>
+                  <button type="button" className="composer-pending-remove" onClick={clearAttachment} disabled={sending} aria-label={`Remover ${attachment.name}`} title="Remover anexo">×</button>
+                </div>}
+                <div className="composer-attachment-menu">
+                  <button type="button" className="composer-action composer-add-action" onClick={() => setAttachmentMenuOpen((open) => !open)} disabled={sending} aria-label="Adicionar anexo" aria-expanded={attachmentMenuOpen} aria-controls="composer-attachment-options"><span aria-hidden="true">+</span></button>
+                  {attachmentMenuOpen && <div className="composer-attachment-options" id="composer-attachment-options" role="menu" aria-label="Opções de anexo">
+                    <button type="button" role="menuitem" onClick={() => { setAttachmentAccept(".pdf,.doc,.docx,.xls,.xlsx,.txt"); attachmentInputRef.current?.click(); }}><span className="attachment-option-icon document" aria-hidden="true">▤</span><span>Documento</span></button>
+                    <button type="button" role="menuitem" onClick={() => { setAttachmentAccept("image/*,video/*"); attachmentInputRef.current?.click(); }}><span className="attachment-option-icon media" aria-hidden="true">▣</span><span>Fotos/Vídeos</span></button>
+                    <button type="button" role="menuitem" className="future-option" title="Gravação de áudio será disponibilizada em breve"><span className="attachment-option-icon audio" aria-hidden="true">◖</span><span>Áudio</span><small>Em breve</small></button>
+                    <button type="button" role="menuitem" className="future-option" title="Captura pela câmera será disponibilizada em breve"><span className="attachment-option-icon camera" aria-hidden="true">◉</span><span>Câmera</span><small>Em breve</small></button>
+                  </div>}
+                </div>
+                <button type="button" className="composer-action composer-emoji-action" title="Emojis serão disponibilizados em breve" aria-label="Escolher emoji" disabled={sending}><span aria-hidden="true">☺</span></button>
+                <div className="composer-input-wrap">
+                  <textarea aria-label="Mensagem" name="text" value={composerText} onChange={(event) => setComposerText(event.target.value)} placeholder={attachment ? "Adicionar legenda (opcional)" : "Digite uma mensagem"} maxLength={4096} disabled={sending} />
+                  {attachmentStatus && <span className="attachment-status">{attachmentStatus}</span>}
+                </div>
+                {isRecording ? <button type="button" className="send-button composer-send-action" onClick={() => finishRecording()} aria-label="Concluir gravação">■</button> : composerText.trim() || attachment ? <button className="send-button composer-send-action" disabled={sending} aria-label={sending ? "Enviando mensagem" : "Enviar"}>{sending ? "…" : "➤"}</button> : <button type="button" className="composer-action composer-mic-action" onClick={() => void startRecording()} title="Gravar áudio" aria-label="Gravar áudio" disabled={sending}><span aria-hidden="true">♩</span></button>}
               </form>
             </>
           ) : (
@@ -720,15 +848,10 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
               </div>
               <div className="customer-profile">
                 <Avatar conversation={selected} customer />
-                <h3>{contactName(selected)}</h3>
-                <p>
-                  <i />{" "}
-                  {selected.identity?.syncStatus === "synced"
-                    ? "Dados do WhatsApp sincronizados"
-                    : "Sincronizando dados do WhatsApp"}
-                </p>
+                <div className="customer-profile-copy"><h3>{contactName(selected)}</h3><p>{isGroup(selected) ? "Grupo do WhatsApp" : selected.identity?.phone ?? phoneFallback(selected)}</p><span><i />{selected.identity?.syncStatus === "synced" ? "WhatsApp conectado" : "Sincronizando WhatsApp"}</span></div>
               </div>
               <div className="customer-details">
+                <div className="customer-section-title">PERFIL</div>
                 <div>
                   <span>
                     {isGroup(selected) ? "Nome do grupo" : "Nome WhatsApp"}
@@ -742,21 +865,20 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                 {!isGroup(selected) && (
                   <div>
                     <span>Número</span>
-                    <strong>
-                      {selected.identity?.phone ?? phoneFallback(selected)}
-                    </strong>
+                    <strong className="customer-phone"><b>{selected.identity?.phone ?? phoneFallback(selected)}</b><button type="button" onClick={() => void copyPhone()} aria-label="Copiar número">{copiedPhone ? "Copiado" : "Copiar"}</button></strong>
                   </div>
                 )}
                 <div>
-                  <span>Contato conhecido</span>
-                  <strong>
-                    {selected.identity?.knownContact ? "Sim" : "Não"}
-                  </strong>
-                </div>
-                <div>
                   <span>Canal</span>
-                  <strong>WhatsApp</strong>
+                  <strong className="customer-channel"><i /> WhatsApp</strong>
                 </div>
+                <div className="customer-future-fields"><div className="customer-section-title">CAMPOS PERSONALIZADOS</div><div><span>Empresa</span><strong>Não informado</strong></div><div><span>Origem do lead</span><strong>Não informado</strong></div><div><span>Responsável</span><strong>{workspaceUsers.find((user) => user.id === selected.assignedUserId)?.displayName ?? teams.find((team) => team.id === selected.assignedTeamId)?.name ?? "Não atribuído"}</strong></div><div><span>Status</span><strong>{statusLabel[selected.status]}</strong></div><div><span>Informações extras</span><strong>Disponível em breve</strong></div></div>
+              </div>
+              <div className="conversation-context team-operations">
+                <div className="context-heading"><span>OPERAÇÃO DA CONVERSA</span><small>Visual local</small></div>
+                <label className="queue-selector"><span>Fila</span><select value={visualQueue} onChange={(event) => setVisualQueue(event.target.value)} aria-label="Fila visual da conversa"><option value="">Sem fila definida</option><option value="Comercial">Comercial</option><option value="Suporte">Suporte</option><option value="Financeiro">Financeiro</option><option value="Jurídico">Jurídico</option></select></label>
+                <div className="team-panel-heading"><span>Equipe</span><small>Presença preparada</small></div>
+                <div className="team-members-preview">{workspaceUsers.length ? workspaceUsers.slice(0, 6).map((user) => <div key={user.id}><span className={`team-member-status ${user.status === "active" ? "online" : user.status === "invited" ? "away" : "offline"}`} /><strong>{user.displayName}</strong><small>{user.status === "active" ? "online" : user.status === "invited" ? "ausente" : "offline"}</small></div>) : <p>Nenhum atendente disponível no workspace.</p>}</div>
               </div>
               <div className="conversation-context">
                 <div className="context-heading">
@@ -807,12 +929,12 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                 />
               </div>
               <div className="conversation-context operational-history">
-                <div className="context-heading"><span>HISTÓRICO OPERACIONAL</span></div>
+                <div className="context-heading"><span>HISTÓRICO E ATIVIDADES</span></div>
                 {activity.length ? activity.map((event) => <div className="operational-event" key={event.id}><strong>{operationLabel[event.action]}</strong><span>{event.previousValue ?? "—"} → {event.newValue ?? "—"}</span><small>{event.userId} · {activityLabel(event.createdAt)}</small></div>) : <p>Nenhuma alteração operacional ainda.</p>}
               </div>
               <div className="conversation-context activity">
                 <div className="context-heading">
-                  <span>ATIVIDADE</span>
+                  <span>ÚLTIMAS INTERAÇÕES</span>
                 </div>
                 <div>
                   <span>Primeiro contato</span>
