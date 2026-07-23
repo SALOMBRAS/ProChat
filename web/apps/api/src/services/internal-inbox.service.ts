@@ -4,12 +4,13 @@ import { InternalWorkerClient } from '../internal-worker-client.js';
 import type { ConversationStore, InboxMessage } from './waha-webhook.service.js';
 import type { RealtimeHub } from '../realtime.js';
 import type { KanbanAutomationCoordinator } from './kanban-automation.service.js';
+import type { SlaMessageCoordinator } from './sla-message-coordinator.service.js';
 import { log } from '../logging.js';
 
 const statusFor = (code: string): number => ({ VALIDATION_ERROR: 400, NOT_FOUND: 404, CONFLICT: 409, TIMEOUT: 504, SERVICE_UNAVAILABLE: 503, PROVIDER_CONTRACT_ERROR: 502 }[code] ?? 503);
 
 export class InternalInboxService {
-  constructor(private readonly worker: InternalWorkerClient, private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly automation?: KanbanAutomationCoordinator) {}
+  constructor(private readonly worker: InternalWorkerClient, private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly automation?: KanbanAutomationCoordinator, private readonly sla?: SlaMessageCoordinator) {}
   async send(context: RequestContext, conversationId: string, text: string): Promise<InboxMessage> {
     const conversation = await this.conversations.getConversation(context.workspaceId, conversationId);
     if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
@@ -42,6 +43,7 @@ export class InternalInboxService {
     const { persistence, ...message } = persisted;
     try {
       if (persistence.messageInserted && persistence.conversationId) await this.automation?.run({ workspaceId: context.workspaceId, conversationId: persistence.conversationId, messageId: persisted.id, direction: 'outbound', replay: persistence.duplicate, visible: !persistence.quarantined, technical: persistence.technical, quarantined: persistence.quarantined });
+      if (persistence.messageInserted && persistence.conversationId) await this.sla?.run({ workspaceId: context.workspaceId, conversationId: persistence.conversationId, messageId: persisted.id, direction: 'outbound', occurredAt: persisted.timestamp, historical: Boolean(persistence.historical) });
       log('info', 'Inbox outbound automation completed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, messageId: persisted.id, automationRan: persistence.messageInserted && Boolean(persistence.conversationId) });
     } catch (error) {
       log('error', 'Inbox outbound automation failed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, messageId: persisted.id, ...errorDiagnostics(error) });
