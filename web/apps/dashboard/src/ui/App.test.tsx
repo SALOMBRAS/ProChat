@@ -62,6 +62,14 @@ describe('Inbox', () => {
     expect(api.conversation).toBeUndefined();
   });
 
+  it('never renders a LID as Inbox contact identity', async () => {
+    const item = { ...conversation('conversation-lid', '100000000000001@lid'), identity: { displayName: null, phone: null, pushName: null, profileName: null, avatarUrl: null, lastSyncAt: null, syncStatus: 'pending' as const, knownContact: false } };
+    const api = { conversations: vi.fn().mockResolvedValue(page([item])), messages: vi.fn().mockResolvedValue(emptyMessages), sendMessage: vi.fn(), markRead: vi.fn() } as unknown as InboxApi;
+    render(<Inbox api={api} />);
+    expect(await screen.findByText('Contato sem identificação')).toBeInTheDocument();
+    expect(screen.queryByText(/@lid/i)).not.toBeInTheDocument();
+  });
+
   it('resolves an unloaded conversation with one targeted request and does not fetch additional pages', async () => {
     const id = '10000000-0000-4000-8000-000000000010';
     const item = conversation(id, '5511999999999@c.us');

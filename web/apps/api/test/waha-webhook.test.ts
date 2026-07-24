@@ -135,6 +135,13 @@ describe('WAHA webhook ingress', () => {
     await request(app).get(`/api/v1/inbox/conversations/${id}`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body).toMatchObject({ id, chatId: '5511999990000@c.us', lastMessage: 'Direta' }));
     await request(app).get(`/api/v1/inbox/conversations/${id}`).set('x-workspace-id', 'workspace-b').expect(404);
   });
+  it('projects the ChatPro contact name when WhatsApp has not supplied a name', async () => {
+    const app = await appFor(); const body = { id: 'evt-contact-name', timestamp: Date.now(), event: 'message', session: 'waha-a', payload: { id: 'message-contact-name', chatId: '5511999990000@c.us', body: 'Oi' } }; const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    const conversation = (await request(app).get('/api/v1/inbox/conversations').set('x-workspace-id', 'workspace-a').expect(200)).body.items[0];
+    app.locals.persistenceDatabase.sqlite.prepare('UPDATE contacts SET displayName=? WHERE workspaceId=? AND id=?').run('Nome ChatPro', 'workspace-a', conversation.contactId);
+    await request(app).get(`/api/v1/inbox/conversations/${conversation.id}`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body.identity).toMatchObject({ displayName: 'Nome ChatPro', contactName: 'Nome ChatPro', phone: '5511999990000' }));
+  });
   it('returns chronological message history and marks only the workspace conversation as read', async () => {
     const app = await appFor(); const first = { id: 'evt-history-1', timestamp: Date.now() - 1_000, event: 'message', session: 'waha-a', payload: { id: 'message-history-1', chatId: '5511999990000@c.us', body: 'Primeira' } }; const second = { id: 'evt-history-2', timestamp: Date.now(), event: 'message.any', session: 'waha-a', payload: { id: 'message-history-2', chatId: '5511999990000@c.us', body: 'Resposta', fromMe: true } };
     for (const body of [first, second]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }

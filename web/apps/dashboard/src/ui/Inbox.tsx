@@ -17,6 +17,7 @@ import { WorkspaceApi } from "../api/workspace.js";
 import type { Team, WorkspaceUser } from "@chatpro/contracts";
 import { InboxKanban } from "./InboxKanban.js";
 import { conversationIdFromLocation, inboxUrlForConversation } from "./conversationNavigation.js";
+import { contactLabel, conversationPhone, participantLabel } from "./contactIdentity.js";
 
 const defaultApi = new InboxApi();
 const workspaceApi = new WorkspaceApi();
@@ -34,14 +35,11 @@ const slaStatusLabel: Record<SlaMetrics["status"], string> = { waiting_operator:
 const isGroup = (value: InboxConversation) =>
   value.conversationType === "group";
 const phoneFallback = (value: InboxConversation) =>
-  value.chatId.replace(/@.+$/, "");
-const contactName = (value: InboxConversation) =>
-  value.identity?.displayName ??
-  (isGroup(value) ? "Grupo WhatsApp" : phoneFallback(value));
+  conversationPhone(value) ?? "Contato sem identificação";
+const contactName = (value: InboxConversation) => contactLabel(value);
 const initials = (value: InboxConversation) =>
   isGroup(value) ? "GR" : contactName(value).slice(-2).toUpperCase();
-const senderName = (value?: string | null) =>
-  value ? value.replace(/@.+$/, "") : "Participante";
+const senderName = (value?: string | null) => participantLabel(value);
 const dateLabel = (value: string) =>
   new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
@@ -606,7 +604,8 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   };
   const copyPhone = async () => {
     if (!selected || isGroup(selected)) return;
-    const phone = selected.identity?.phone ?? phoneFallback(selected);
+    const phone = conversationPhone(selected);
+    if (!phone) { setError("O contato não possui um telefone identificável."); return; }
     try {
       if (!navigator.clipboard) throw new Error("Clipboard indisponível");
       await navigator.clipboard.writeText(phone);
