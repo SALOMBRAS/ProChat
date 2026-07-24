@@ -83,7 +83,7 @@ export function HomeDashboard({
       "◌",
       "Conversas",
       "Conversas ativas e pendentes",
-      dashboard.leads,
+      dashboard.conversations,
     ],
     [
       "◈",
@@ -95,7 +95,7 @@ export function HomeDashboard({
       "✉",
       "Mensagens",
       "Quantidade de mensagens processadas",
-      dashboard.recentActivities.length,
+      dashboard.messages,
     ],
     ["◎", "Contatos", "Clientes cadastrados", dashboard.contacts],
   ] as const;

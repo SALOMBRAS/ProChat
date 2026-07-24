@@ -5,7 +5,7 @@ type Call = { name: string; args: Record<string, unknown> };
 class ControlledClient {
   readonly calls: Call[] = [];
   rpc(name: string, args: Record<string, unknown>) { this.calls.push({ name, args }); return Promise.resolve({ data: name === 'chatpro_create_contact' ? { id: 'contact-1', workspace_id: args.p_workspace_id, phone_number: '5511999990000' } : null, error: name === 'chatpro_set_lead_tag' && args.p_tag_id === 'other-workspace-tag' ? { message: 'tag not found in workspace', code: 'P0001' } : null }); }
-  from(table: string) { this.calls.push({ name: `from:${table}`, args: {} }); const result = { data: [{ id: 'tag-1', workspace_id: 'workspace-a', name: 'VIP' }], error: null }; const query = { select: () => query, eq: () => query, order: () => Promise.resolve(result), maybeSingle: () => Promise.resolve({ data: result.data[0], error: null }), update: () => query, insert: () => query, single: () => Promise.resolve({ data: result.data[0], error: null }), delete: () => query }; return query; }
+  from(table: string) { this.calls.push({ name: `from:${table}`, args: {} }); const result = { data: [{ id: 'tag-1', workspace_id: 'workspace-a', name: 'VIP' }], error: null }; const query = { select: (_columns?: string, options?: Record<string, unknown>) => { if (options?.head) this.calls.push({ name: `count:${table}`, args: options }); return query; }, eq: () => query, order: () => Promise.resolve(result), maybeSingle: () => Promise.resolve({ data: result.data[0], error: null }), update: () => query, insert: () => query, single: () => Promise.resolve({ data: result.data[0], error: null }), delete: () => query, then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve({ data: null, count: table === 'conversations' ? 7 : table === 'whatsapp_messages' ? 42 : null, error: null })) }; return query; }
 }
 
 const repositoryFor = () => {
@@ -32,5 +32,10 @@ describe('Supabase domain repository', () => {
     const { client, repository } = repositoryFor();
     await repository.saveCampaign('workspace-a', undefined, { name: 'Launch', contactIds: ['contact-1'] });
     expect(client.calls[0]).toMatchObject({ name: 'chatpro_save_campaign', args: { p_workspace_id: 'workspace-a', p_contact_ids: ['contact-1'] } });
+  });
+  it('uses bounded workspace-scoped count queries for Inbox totals', async () => {
+    const { client, repository } = repositoryFor();
+    await expect(repository.dashboard('workspace-a', [])).resolves.toMatchObject({ conversations: 7, messages: 42 });
+    expect(client.calls.filter((call) => call.name.startsWith('count:'))).toEqual([{ name: 'count:conversations', args: { count: 'exact', head: true } }, { name: 'count:whatsapp_messages', args: { count: 'exact', head: true } }]);
   });
 });

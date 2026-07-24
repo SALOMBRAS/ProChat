@@ -13,6 +13,14 @@ vi.mock("./SlaOperationalDashboard.js", () => ({
 import { HomeDashboard } from "./HomeDashboard.js";
 
 describe("HomeDashboard", () => {
+  it("renders Inbox aggregates instead of CRM leads and activities", async () => {
+    const loadDashboard = vi.fn().mockResolvedValue({ contacts: 3, optOutContacts: 0, tags: 0, templates: 0, leads: 1, conversations: 21, messages: 89, leadsByStage: [], recentActivities: [], campaignsByStatus: [], sessionsByStatus: [] });
+    render(<HomeDashboard loadDashboard={loadDashboard} onOpenInbox={vi.fn()} onOpenConversation={vi.fn()} />);
+    expect(await screen.findByText("Conversas")).toBeInTheDocument();
+    expect(screen.getByText("21")).toBeInTheDocument();
+    expect(screen.getByText("89")).toBeInTheDocument();
+  });
+
   it("composes the SLA area without changing the existing dashboard load", async () => {
     const loadDashboard = vi.fn().mockResolvedValue({
       contacts: 0,
@@ -20,6 +28,8 @@ describe("HomeDashboard", () => {
       tags: 0,
       templates: 0,
       leads: 0,
+      conversations: 0,
+      messages: 0,
       leadsByStage: [],
       recentActivities: [],
       campaignsByStatus: [],

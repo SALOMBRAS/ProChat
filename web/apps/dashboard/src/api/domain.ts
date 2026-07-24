@@ -1,7 +1,7 @@
 import type { Activity, Campaign, Lead, PersistenceContact as Contact, PersistenceTemplate as Template, Pipeline, Stage, Tag } from '@chatpro/contracts';
 import { ApiClient } from './client';
 export type Page<T> = { items: T[]; page: number; pageSize: number; total: number };
-export type Dashboard = { contacts:number; optOutContacts:number; tags:number; templates:number; leads:number; leadsByStage:Array<{stageId:string;name:string;position:number;total:number}>; recentActivities:Activity[]; campaignsByStatus:Array<{status:string;total:number}>; sessionsByStatus:Array<{status:string;total:number}> };
+export type Dashboard = { contacts:number; optOutContacts:number; tags:number; templates:number; leads:number; conversations:number; messages:number; leadsByStage:Array<{stageId:string;name:string;position:number;total:number}>; recentActivities:Activity[]; campaignsByStatus:Array<{status:string;total:number}>; sessionsByStatus:Array<{status:string;total:number}> };
 export const connectedSessionsCount = (sessionsByStatus: unknown): number => {
   if (!Array.isArray(sessionsByStatus)) return 0;
   return sessionsByStatus.reduce((total, item) => {

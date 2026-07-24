@@ -31,6 +31,8 @@ const dashboard = {
   tags: 0,
   templates: 0,
   leads: 4,
+  conversations: 8,
+  messages: 42,
   leadsByStage: [],
   recentActivities: [],
   campaignsByStatus: [],
