@@ -16,6 +16,7 @@ vi.mock("../api/realtime.js", () => ({
 }));
 
 import {
+  criticalContactLabel,
   formatSlaDuration,
   formatSlaPercentage,
   SlaOperationalDashboard,
@@ -41,7 +42,8 @@ const summary: SlaOperationalSummary = {
   critical: [
     {
       conversationId: "red-conversation",
-      contactName: "Cliente atrasado",
+      displayName: "Cliente atrasado",
+      phoneNumber: "5511999990000",
       assignedUserId: null,
       routingQueueId: null,
       status: "waiting_operator",
@@ -51,7 +53,8 @@ const summary: SlaOperationalSummary = {
     },
     {
       conversationId: "yellow-conversation",
-      contactName: "Cliente em atenção",
+      displayName: "Cliente em atenção",
+      phoneNumber: "5511888888888",
       assignedUserId: null,
       routingQueueId: null,
       status: "waiting_customer",
@@ -86,6 +89,7 @@ describe("SlaOperationalDashboard", () => {
     expect(formatSlaDuration(4320)).toBe("1 h 12 min");
     expect(formatSlaDuration(null)).toBe("—");
     expect(formatSlaPercentage(101)).toBe("100%");
+    expect(criticalContactLabel({ ...summary.critical[0], displayName: "100000000000001@lid", phoneNumber: null })).toBe("Contato sem identificação");
   });
 
   it("renders all operational cards and preserves the server critical order", async () => {
@@ -113,6 +117,18 @@ describe("SlaOperationalDashboard", () => {
     expect(
       await screen.findByText("Nenhum atendimento exige atenção neste momento."),
     ).toBeInTheDocument();
+  });
+
+  it("never falls back to a technical conversation identifier", async () => {
+    renderDashboard({
+      slaSummary: vi.fn().mockResolvedValue({
+        ...summary,
+        critical: [{ ...summary.critical[0], conversationId: "731f83f8-0000-4000-8000-000000000000", displayName: null, phoneNumber: null }],
+      }),
+    });
+
+    expect(await screen.findByText("Contato sem identificação")).toBeInTheDocument();
+    expect(screen.queryByText(/731f83f8/)).not.toBeInTheDocument();
   });
 
   it("keeps failures isolated and retries on demand", async () => {

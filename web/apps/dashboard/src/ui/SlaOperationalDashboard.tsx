@@ -38,6 +38,18 @@ const statusLabel: Record<SlaOperationalSummary["critical"][number]["status"], s
   archived: "Arquivada",
 };
 
+const isTechnicalIdentifier = (value: string) => /@(?:lid|s\.whatsapp\.net|g\.us|broadcast|newsletter)\b/i.test(value) || /^(?:[a-z0-9_-]+:){2,}[a-z0-9_-]+$/i.test(value);
+export const criticalContactLabel = (item: SlaOperationalSummary["critical"][number]) => {
+  const name = item.displayName?.trim();
+  if (name && !isTechnicalIdentifier(name)) return name;
+  const phone = item.phoneNumber?.trim();
+  if (phone && (!isTechnicalIdentifier(phone) || /@c\.us$/i.test(phone))) {
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length >= 8 && digits.length <= 15) return digits;
+  }
+  return "Contato sem identificação";
+};
+
 const deadlineLabel = (deadlineAt: string | null, now: number) => {
   if (!deadlineAt) return "Sem prazo";
   const deadline = new Date(deadlineAt).getTime();
@@ -248,7 +260,7 @@ export function SlaOperationalDashboard({
             {summary?.critical.length ? (
               <div className="sla-critical-items">
                 {summary.critical.slice(0, 20).map((item) => {
-                  const label = item.contactName?.trim() || `Conversa ${item.conversationId.slice(0, 8)}`;
+                  const label = criticalContactLabel(item);
                   return (
                     <button
                       type="button"

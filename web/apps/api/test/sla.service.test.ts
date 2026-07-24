@@ -38,6 +38,19 @@ describe('operational SLA lifecycle', () => {
     expect(projectSlaCard({ slaStatus: 'waiting_customer', waitingSinceAt: inboundAt, firstResponseAt: inboundAt, frozenAt: null }, config, '2026-07-24T10:01:00.000Z')).toMatchObject({ status: 'waiting_customer', indicator: 'red', deadlineAt: '2026-07-24T10:00:00.000Z' });
     expect(projectSlaCard({ slaStatus: 'resolved', waitingSinceAt: null, firstResponseAt: inboundAt, frozenAt: inboundAt }, config)).toEqual({ status: 'resolved', indicator: 'neutral', deadlineAt: null });
   });
+  it('returns critical SLA identities in one workspace-scoped projection', async () => {
+    const { database, service } = setup();
+    try {
+      conversation(database);
+      const now = inboundAt;
+      database.sqlite.prepare('INSERT INTO contacts (id,workspaceId,displayName,phoneNumber,createdAt,updatedAt) VALUES (?,?,?,?,?,?)').run('contact-a', workspaceId, 'Nome ChatPro', '5511999990000', now, now);
+      database.sqlite.prepare('UPDATE conversations SET contactId=? WHERE workspaceId=? AND id=?').run('contact-a', workspaceId, conversationId);
+      database.sqlite.prepare('INSERT INTO whatsapp_identities (id,workspaceId,wahaSession,whatsappId,phone,name,pushName,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?)').run('identity-a', workspaceId, 'waha-a', '5511999990000@c.us', '5511999990000', 'Nome WhatsApp', 'Apelido WhatsApp', now, now);
+      await service.message(workspaceId, conversationId, 'inbound', inboundAt, false);
+      const summary = await service.summary(workspaceId);
+      expect(summary.critical).toContainEqual(expect.objectContaining({ conversationId, displayName: 'Nome WhatsApp', phoneNumber: '5511999990000' }));
+    } finally { database.close(); }
+  });
   it('starts operator waiting after a persisted inbound message', async () => {
     const { database, service } = setup();
     try {
