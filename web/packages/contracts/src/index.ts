@@ -17,13 +17,15 @@ export const notImplementedErrorSchema = apiErrorSchema.refine(value => value.er
 
 export const sessionStatusSchema = z.enum(['disconnected','connecting','waiting_qr','connected','stopped','error']);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
-export const whatsAppSessionSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), name: z.string().min(1), status: sessionStatusSchema, createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
+export const whatsAppSessionSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), name: z.string().min(1), status: sessionStatusSchema, createdAt: z.string().datetime(), updatedAt: z.string().datetime(), wahaName: z.string().min(1).optional(), managed: z.boolean().optional() });
 export type WhatsAppSession = z.infer<typeof whatsAppSessionSchema>;
-export const createSessionRequestSchema = z.object({ name: z.string().trim().min(1).max(120).optional() });
+// The caller owns this key so retrying a request whose response was lost does
+// not create a second WAHA session. It is also used as the public session id.
+export const createSessionRequestSchema = z.object({ name: z.string().trim().min(1).max(120).optional(), clientRequestId: z.string().uuid().optional() });
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export const connectSessionRequestSchema = z.object({ forceQrRefresh: z.boolean().optional().default(false) });
 export type ConnectSessionRequest = z.infer<typeof connectSessionRequestSchema>;
-export const sessionSummarySchema = whatsAppSessionSchema.pick({ id: true, workspaceId: true, name: true, status: true, updatedAt: true });
+export const sessionSummarySchema = whatsAppSessionSchema.pick({ id: true, workspaceId: true, name: true, status: true, updatedAt: true, wahaName: true, managed: true });
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 
 export const contactSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), displayName: z.string().min(1), phoneNumber: z.string().min(1), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
@@ -49,7 +51,7 @@ export const persistenceContactSchema = persistedEntitySchema.extend({ displayNa
 export const tagSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(80), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable() });
 export const optOutHistorySchema = persistedEntitySchema.extend({ contactId: z.string().uuid(), source: z.string().trim().min(1).max(80), reason: z.string().trim().max(500).nullable(), occurredAt: z.string().datetime() });
 export const templateVariablesSchema = z.array(z.string().trim().min(1).max(80)).max(50).superRefine((variables, ctx) => { if (new Set(variables).size !== variables.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Template variables must be unique' }); });
-export const persistenceTemplateSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(120), content: z.string().min(1).max(10_000), variables: templateVariablesSchema });
+export const persistenceTemplateSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(120), content: z.string().min(1).max(10_000), variables: templateVariablesSchema.default([]) });
 export const pipelineSchema = persistedEntitySchema.extend({ name: z.string().trim().min(1).max(120) });
 export const stageSchema = persistedEntitySchema.extend({ pipelineId: z.string().uuid(), name: z.string().trim().min(1).max(120), position: z.number().int().nonnegative() });
 export const leadSchema = persistedEntitySchema.extend({ stageId: z.string().uuid(), contactId: z.string().uuid().nullable(), title: z.string().trim().min(1).max(160) });
@@ -61,7 +63,7 @@ export const workspaceSettingsSchema = persistedEntitySchema.extend({ settings: 
 export type PersistenceContact = z.infer<typeof persistenceContactSchema>; export type Tag = z.infer<typeof tagSchema>; export type OptOutHistory = z.infer<typeof optOutHistorySchema>; export type PersistenceTemplate = z.infer<typeof persistenceTemplateSchema>; export type Pipeline = z.infer<typeof pipelineSchema>; export type Stage = z.infer<typeof stageSchema>; export type Lead = z.infer<typeof leadSchema>; export type LeadNote = z.infer<typeof leadNoteSchema>; export type Activity = z.infer<typeof activitySchema>; export type Campaign = z.infer<typeof campaignSchema>; export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 
 export const inboxConversationTypeSchema = z.enum(['direct', 'group']);
-export const inboxIdentitySchema = z.object({ displayName: z.string().nullable(), phone: z.string().nullable(), pushName: z.string().nullable(), profileName: z.string().nullable(), avatarUrl: z.string().url().nullable(), lastSyncAt: z.string().datetime().nullable(), syncStatus: z.enum(['pending', 'synced']), knownContact: z.boolean() });
+export const inboxIdentitySchema = z.object({ displayName: z.string().nullable(), phone: z.string().nullable(), pushName: z.string().nullable(), profileName: z.string().nullable(), contactName: z.string().nullable().optional(), avatarUrl: z.string().url().nullable(), lastSyncAt: z.string().datetime().nullable(), syncStatus: z.enum(['pending', 'synced']), knownContact: z.boolean() });
 export const conversationStatusSchema = z.enum(['open', 'in_progress', 'waiting_customer', 'resolved', 'archived']);
 export const conversationPrioritySchema = z.enum(['low', 'normal', 'high', 'urgent']);
 export const routingStrategySchema = z.enum(['round_robin', 'least_loaded', 'manual']);

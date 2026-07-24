@@ -9,12 +9,16 @@ export type ConversationStatus = 'open' | 'in_progress' | 'waiting_customer' | '
 export type ConversationPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type ConversationEvent = { id: string; conversationId: string; workspaceId: string; userId: string; action: 'assigned' | 'unassigned' | 'status_changed' | 'priority_changed' | 'archived' | 'reopened'; previousValue: string | null; newValue: string | null; createdAt: string };
 export type ConversationManagementResult = { conversation: InboxConversation; event: ConversationEvent | null; changed: boolean };
+export type SlaMetrics = { conversationId:string; status:'waiting_operator'|'waiting_customer'|'answered'|'resolved'|'expired'|'archived'; firstInboundAt:string; firstResponseAt:string|null; lastInboundAt:string; lastOutboundAt:string|null; lastActivityAt:string; firstResponseTime:number|null; averageResponseTime:number|null; waitingTime:number; conversationDuration:number; idleTime:number; slaIndicator:'green'|'yellow'|'red'; deadlineAt:string|null; frozenAt:string|null };
+export type KanbanSla = { status:SlaMetrics['status']; indicator:SlaMetrics['slaIndicator']|'neutral'; deadlineAt:string|null };
+export type SlaOperationalSummary = { generatedAt:string; totals:{active:number;waitingOperator:number;waitingCustomer:number;withinSla:number;warning:number;overdue:number;frozen:number}; averages:{firstResponseSeconds:number|null;operatorWaitSeconds:number|null;customerWaitSeconds:number|null}; percentages:{withinSla:number}; critical:Array<{conversationId:string;displayName:string|null;phoneNumber:string|null;assignedUserId:string|null;routingQueueId:string|null;status:SlaMetrics['status'];indicator:SlaMetrics['slaIndicator'];deadlineAt:string|null;lastActivityAt:string}> };
 export type KanbanStage = { id:string; boardId:string; key:string; name:string; position:number; count:number; isTerminal:boolean; isArchivedStage:boolean };
 export type KanbanBoard = { id:string; name:string; isDefault:boolean; stages:KanbanStage[] };
-export type KanbanCard = { conversationId:string; maskedId:string; lastMessage:string; lastMessageAt:string; unreadCount:number; conversationType:'direct'|'group'; assignedUserId:string|null; assignedTeamId:string|null; routingQueueId:string|null; tags:string[]; slaStatus:string|null; stageId:string; position:number; updatedAt:string };
+export type KanbanCard = { conversationId:string; maskedId:string; lastMessage:string; lastMessageAt:string; unreadCount:number; conversationType:'direct'|'group'; assignedUserId:string|null; assignedTeamId:string|null; routingQueueId:string|null; priority:ConversationPriority; tags:string[]; slaStatus:string|null; sla:KanbanSla|null; stageId:string; position:number; updatedAt:string };
 export class InboxApi {
   constructor(private readonly http = new ApiClient()) {}
   conversations=(page=1,pageSize=100,cursor?:string,search?:string)=>this.http.get<Page<InboxConversation>>(`/api/v1/inbox/conversations?page=${page}&pageSize=${pageSize}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}`);
+  conversation=(id:string,signal?:AbortSignal)=>this.http.get<InboxConversation>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}`,signal);
   messages=(id:string,page=1,pageSize=50,cursor?:string)=>this.http.get<Page<InboxMessage>>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages?page=${page}&pageSize=${pageSize}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
   mediaUrl=(messageId:string)=>this.http.get<{ url: string; expiresAt: string }>(`/api/v1/inbox/messages/${encodeURIComponent(messageId)}/media/access`);
   sendMessage=(id:string,text:string)=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages`, { text });
@@ -32,10 +36,12 @@ export class InboxApi {
   updateStatus=(id:string,status:ConversationStatus)=>this.http.patch<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/status`, { status });
   updatePriority=(id:string,priority:ConversationPriority)=>this.http.patch<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/priority`, { priority });
   activity=(id:string)=>this.http.get<ConversationEvent[]>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/activity`);
+  slaMetrics=(id:string,signal?:AbortSignal)=>this.http.get<SlaMetrics>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/sla-metrics`,signal);
+  slaSummary=(signal?:AbortSignal)=>this.http.get<SlaOperationalSummary>('/api/v1/inbox/operations/sla-summary',signal);
   startSync=(wahaSession?:string)=>this.http.post<HistorySyncJob>('/api/v1/inbox/sync/start', wahaSession ? { wahaSession } : {});
   syncStatus=(wahaSession:string)=>this.http.get<HistorySyncJob>(`/api/v1/inbox/sync/status?wahaSession=${encodeURIComponent(wahaSession)}`);
   cancelSync=(wahaSession:string)=>this.http.post<HistorySyncJob>('/api/v1/inbox/sync/cancel', { wahaSession });
   kanbanBoards=()=>this.http.get<KanbanBoard[]>('/api/v1/inbox/kanban/boards');
-  kanbanCards=(boardId:string,stageId:string)=>this.http.get<Page<KanbanCard>>(`/api/v1/inbox/kanban/boards/${boardId}/conversations?stageId=${encodeURIComponent(stageId)}`);
-  moveKanban=(conversationId:string,input:{boardId:string;stageId:string;source:'manual';expectedUpdatedAt?:string})=>this.http.post(`/api/v1/inbox/kanban/conversations/${conversationId}/move`,input);
+  kanbanCards=(boardId:string,stageId:string,page=1,pageSize=30)=>this.http.get<Page<KanbanCard>>(`/api/v1/inbox/kanban/boards/${encodeURIComponent(boardId)}/conversations?stageId=${encodeURIComponent(stageId)}&page=${page}&pageSize=${pageSize}`);
+  moveKanban=(conversationId:string,input:{boardId:string;stageId:string;beforeConversationId?:string;afterConversationId?:string;source:'manual';expectedUpdatedAt?:string})=>this.http.post(`/api/v1/inbox/kanban/conversations/${encodeURIComponent(conversationId)}/move`,input);
 }

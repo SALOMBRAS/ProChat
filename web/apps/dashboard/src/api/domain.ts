@@ -1,7 +1,16 @@
 import type { Activity, Campaign, Lead, PersistenceContact as Contact, PersistenceTemplate as Template, Pipeline, Stage, Tag } from '@chatpro/contracts';
 import { ApiClient } from './client';
 export type Page<T> = { items: T[]; page: number; pageSize: number; total: number };
-export type Dashboard = { contacts:number; optOutContacts:number; tags:number; templates:number; leads:number; leadsByStage:Array<{stageId:string;name:string;position:number;total:number}>; recentActivities:Activity[]; campaignsByStatus:Array<{status:string;total:number}>; sessionsByStatus:Array<{status:string;total:number}> };
+export type Dashboard = { contacts:number; optOutContacts:number; tags:number; templates:number; leads:number; conversations:number; messages:number; leadsByStage:Array<{stageId:string;name:string;position:number;total:number}>; recentActivities:Activity[]; campaignsByStatus:Array<{status:string;total:number}>; sessionsByStatus:Array<{status:string;total:number}> };
+export const connectedSessionsCount = (sessionsByStatus: unknown): number => {
+  if (!Array.isArray(sessionsByStatus)) return 0;
+  return sessionsByStatus.reduce((total, item) => {
+    if (!item || typeof item !== 'object' || (item as { status?: unknown }).status !== 'connected') return total;
+    const value = (item as { total?: unknown }).total;
+    const count = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : 0;
+    return Number.isFinite(count) && count >= 0 ? total + count : total;
+  }, 0);
+};
 export type Settings = { workspaceId:string; settings: { workspaceName?:string; locale?:string; timezone?:string; defaultCountryCode?:string; operational?:Record<string,string|number|boolean|null> } };
 export const query = (values: Record<string, string | number | boolean | undefined>) => { const p = new URLSearchParams(); Object.entries(values).forEach(([k,v]) => v !== undefined && v !== '' && p.set(k,String(v))); const text=p.toString(); return text ? `?${text}` : ''; };
 export class DomainApi {

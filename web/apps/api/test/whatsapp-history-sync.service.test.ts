@@ -48,16 +48,17 @@ describe('WhatsAppHistorySyncService', () => {
     expect(send.mock.calls.filter((call: any[]) => call[0].command.payload.chatId).map((call: any[]) => call[0].command.payload.offset)).toEqual([0, 2]);
   });
 
-  it('stops in an explicit pending state only when the global safety limit is reached', async () => {
+  it('preserves the checkpoint at the emergency execution guard', async () => {
     const store = new MemoryStore();
     const send = vi.fn().mockImplementation((request: any) => request.command.payload.chatId ? response([{ id: 'm-1', chatId: '1@c.us', timestamp: 1 }, { id: 'm-2', chatId: '1@c.us', timestamp: 2 }]) : response([{ id: '1@c.us' }]));
     const sleep = vi.fn().mockResolvedValue(undefined);
-    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn().mockResolvedValue({ duplicate: false }) } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { maxMessagesTotal: 2, sleep });
+    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn().mockResolvedValue({ duplicate: false }) } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { emergencyMaxMessages: 2, sleep });
     await service.start('workspace-a', 'session-a');
     await waitFor(() => store.job?.status === 'pending' && store.job.messagesProcessed === 2);
     const status = await service.status('workspace-a', 'session-a');
-    expect(status).toMatchObject({ status: 'pending', hasMore: false, progressLabel: 'Pausado: limite global de segurança atingido.' });
-    expect(send.mock.calls.find((call: any[]) => call[0].command.payload.chatId)?.[0].command.payload.limit).toBe(2);
+    expect(status).toMatchObject({ status: 'pending', hasMore: true, messagesProcessed: 2, messageCursor: null });
+    expect(status?.progressLabel).not.toMatch(/limite global/i);
+    expect(send.mock.calls.find((call: any[]) => call[0].command.payload.chatId)?.[0].command.payload.limit).toBe(100);
     expect(sleep).not.toHaveBeenCalled();
   });
 });

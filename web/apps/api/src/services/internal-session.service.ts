@@ -10,7 +10,12 @@ export class InternalSessionService implements SessionServicePort {
   constructor(private readonly worker: InternalWorkerClient) {}
 
   async list(context: RequestContext): Promise<SessionSummary[]> { return await this.data(context, { type: 'session.list', payload: {} }, 'sessions') as SessionSummary[]; }
-  async create(context: RequestContext, input: CreateSessionRequest): Promise<WhatsAppSession> { return await this.data(context, { type: 'session.create', payload: { sessionId: randomUUID(), name: input.name } }, 'session') as WhatsAppSession; }
+  async create(context: RequestContext, input: CreateSessionRequest): Promise<WhatsAppSession> {
+    // A stable id makes POST retries safe even when WAHA accepted the first
+    // request after the browser/API connection timed out.
+    const sessionId = input.clientRequestId ?? randomUUID();
+    return await this.data(context, { type: 'session.create', payload: { sessionId, name: input.name } }, 'session') as WhatsAppSession;
+  }
   async get(context: RequestContext, sessionId: string): Promise<WhatsAppSession> { return await this.data(context, { type: 'session.status', payload: { sessionId } }, 'session') as WhatsAppSession; }
   async qr(context: RequestContext, sessionId: string): Promise<SessionQr> { return await this.data(context, { type: 'session.qr', payload: { sessionId } }, 'qr') as SessionQr; }
   async connect(context: RequestContext, sessionId: string): Promise<void> { await this.complete(context, 'session.connect', sessionId); }
