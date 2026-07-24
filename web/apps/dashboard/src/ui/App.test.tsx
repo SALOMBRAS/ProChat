@@ -168,19 +168,47 @@ describe('Inbox', () => {
     expect(screen.queryByText(/VIP/)).not.toBeInTheDocument();
   });
 
-  it('cancels a pending note autosave when the selected conversation changes', async () => {
+  it('keeps an internal note local until the user saves it explicitly', async () => {
     const a = conversation('conversation-a', '5511999999999@c.us'); const b = conversation('conversation-b', '5511888888888@c.us');
     const api = { conversations: vi.fn().mockResolvedValue(page([a, b])), messages: vi.fn().mockResolvedValue(emptyMessages), sendMessage: vi.fn(), markRead: vi.fn(), context: vi.fn().mockResolvedValue({ notes: null, tags: [], firstInteractionAt: '2026-07-16T18:00:00.000Z', lastInteractionAt: '2026-07-16T18:00:00.000Z' }), updateContext: vi.fn() } as unknown as InboxApi;
     render(<Inbox api={api} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Abrir conversa 5511999999999@c.us' }));
     await screen.findByRole('textbox', { name: 'Observação interna' });
-    vi.useFakeTimers();
-    try {
-      fireEvent.change(screen.getByRole('textbox', { name: 'Observação interna' }), { target: { value: 'Nota A' } });
-      fireEvent.click(screen.getByRole('button', { name: 'Abrir conversa 5511888888888@c.us' }));
-      await act(async () => { vi.advanceTimersByTime(700); });
-      expect(api.updateContext).not.toHaveBeenCalled();
-    } finally { vi.useRealTimers(); }
+    fireEvent.change(screen.getByRole('textbox', { name: 'Observação interna' }), { target: { value: 'Nota A' } });
+    expect(screen.getByText('Editando')).toBeInTheDocument();
+    expect(api.updateContext).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir conversa 5511888888888@c.us' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir conversa 5511999999999@c.us' }));
+    expect(await screen.findByDisplayValue('Nota A')).toBeInTheDocument();
+  });
+
+  it('saves an internal note only from the save button and exposes saving states', async () => {
+    const a = conversation('conversation-a', '5511999999999@c.us');
+    const savedContext = { notes: 'Nota salva', tags: [], firstInteractionAt: '2026-07-16T18:00:00.000Z', lastInteractionAt: '2026-07-16T18:00:00.000Z' };
+    let resolveSave!: (value: typeof savedContext) => void;
+    const save = new Promise<typeof savedContext>((resolve) => { resolveSave = resolve; });
+    const api = { conversations: vi.fn().mockResolvedValue(page([a])), messages: vi.fn().mockResolvedValue(emptyMessages), sendMessage: vi.fn(), markRead: vi.fn(), context: vi.fn().mockResolvedValue({ ...savedContext, notes: null }), updateContext: vi.fn().mockReturnValue(save) } as unknown as InboxApi;
+    render(<Inbox api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Abrir conversa 5511999999999@c.us' }));
+    const notes = await screen.findByRole('textbox', { name: 'Observação interna' });
+    fireEvent.change(notes, { target: { value: 'Nota salva' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar observação' }));
+    expect(screen.getByText('Salvando…', { selector: 'small' })).toBeInTheDocument();
+    await waitFor(() => expect(api.updateContext).toHaveBeenCalledWith(a.id, { notes: 'Nota salva' }));
+    await act(async () => { resolveSave(savedContext); });
+    expect(await screen.findByText('Salvo')).toBeInTheDocument();
+  });
+
+  it('keeps the note available and reports an error when an explicit save fails', async () => {
+    const a = conversation('conversation-a', '5511999999999@c.us');
+    const api = { conversations: vi.fn().mockResolvedValue(page([a])), messages: vi.fn().mockResolvedValue(emptyMessages), sendMessage: vi.fn(), markRead: vi.fn(), context: vi.fn().mockResolvedValue({ notes: null, tags: [], firstInteractionAt: '2026-07-16T18:00:00.000Z', lastInteractionAt: '2026-07-16T18:00:00.000Z' }), updateContext: vi.fn().mockRejectedValue(new Error('Falha ao salvar')) } as unknown as InboxApi;
+    render(<Inbox api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Abrir conversa 5511999999999@c.us' }));
+    const notes = await screen.findByRole('textbox', { name: 'Observação interna' });
+    fireEvent.change(notes, { target: { value: 'Rascunho local' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar observação' }));
+    expect(await screen.findByText('Erro')).toBeInTheDocument();
+    expect(notes).toHaveValue('Rascunho local');
   });
 
   it('ignores a realtime context event for a conversation other than the open one', async () => {

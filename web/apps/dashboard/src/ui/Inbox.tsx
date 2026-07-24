@@ -257,6 +257,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [notes, setNotes] = useState("");
   const [tag, setTag] = useState("");
   const [savingContext, setSavingContext] = useState(false);
+  const [noteSaveState, setNoteSaveState] = useState<"editing" | "saving" | "saved" | "error">("saved");
   const [syncJob, setSyncJob] = useState<HistorySyncJob>();
   const [startingSync, setStartingSync] = useState(false);
   const [activity, setActivity] = useState<ConversationEvent[]>([]);
@@ -268,7 +269,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const listRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const scrollAfterRender = useRef(false);
-  const loadedContextId = useRef<string>();
+  const noteDrafts = useRef(new Map<string, string>());
   const activeConversationId = useRef<string>();
   const selectedRef = useRef<InboxConversation>();
   const contextRequest = useRef(0);
@@ -344,8 +345,9 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       )
         return;
       setContext(result);
-      setNotes(result.notes ?? "");
-      loadedContextId.current = conversationId;
+      const draft = noteDrafts.current.get(conversationId);
+      setNotes(draft ?? result.notes ?? "");
+      setNoteSaveState(draft === undefined ? "saved" : "editing");
     } catch (nextError) {
       if (
         activeConversationId.current === conversationId &&
@@ -412,9 +414,10 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     setActivity([]);
     setSlaMetrics(undefined);
     setLoadingSla(Boolean(selected));
-    setNotes("");
+    const draft = selected ? noteDrafts.current.get(selected.id) : undefined;
+    setNotes(draft ?? "");
+    setNoteSaveState(draft === undefined ? "saved" : "editing");
     setTag("");
-    loadedContextId.current = undefined;
     if (selected) { void loadContext(selected.id); void loadActivity(selected.id); void loadSla(selected.id); }
   }, [selected?.id, api]);
   useEffect(
@@ -486,34 +489,6 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       }),
     [api],
   );
-  useEffect(() => {
-    const conversationId = selected?.id;
-    if (
-      !conversationId ||
-      !api.updateContext ||
-      loadedContextId.current !== conversationId ||
-      notes === (context?.notes ?? "")
-    )
-      return;
-    const timer = window.setTimeout(() => {
-      setSavingContext(true);
-      void api
-        .updateContext(conversationId, { notes })
-        .then((result) => {
-          if (activeConversationId.current === conversationId)
-            setContext(result);
-        })
-        .catch((nextError) => {
-          if (activeConversationId.current === conversationId)
-            setError(errorMessage(nextError));
-        })
-        .finally(() => {
-          if (activeConversationId.current === conversationId)
-            setSavingContext(false);
-        });
-    }, 650);
-    return () => window.clearTimeout(timer);
-  }, [notes, selected?.id, context?.notes, api]);
   const openConversation = async (conversation: InboxConversation, syncUrl = true) => {
     if (syncUrl) {
       history.pushState({ conversationId: conversation.id }, "", inboxUrlForConversation(conversation.id));
@@ -522,9 +497,10 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     activeConversationId.current = conversation.id;
     contextRequest.current += 1;
     setContext(undefined);
-    setNotes("");
+    const draft = noteDrafts.current.get(conversation.id);
+    setNotes(draft ?? "");
+    setNoteSaveState(draft === undefined ? "saved" : "editing");
     setTag("");
-    loadedContextId.current = undefined;
     setSelected(conversation);
     setMessages([]);
     setMessagePage(1);
@@ -680,6 +656,28 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       setSyncJob(await api.cancelSync(session));
     } catch (nextError) {
       setError(errorMessage(nextError));
+    }
+  };
+  const saveNotes = async () => {
+    const conversationId = selected?.id;
+    if (!conversationId || !api.updateContext || noteSaveState === "saving") return;
+    const savedNotes = notes;
+    setNoteSaveState("saving");
+    try {
+      const result = await api.updateContext(conversationId, { notes: savedNotes });
+      if (activeConversationId.current !== conversationId) return;
+      setContext(result);
+      if (noteDrafts.current.get(conversationId) === savedNotes) {
+        noteDrafts.current.delete(conversationId);
+        setNoteSaveState("saved");
+      } else {
+        setNoteSaveState("editing");
+      }
+    } catch (nextError) {
+      if (activeConversationId.current === conversationId) {
+        setNoteSaveState("error");
+        setError(errorMessage(nextError));
+      }
     }
   };
   const addTag = async (event: FormEvent<HTMLFormElement>) => {
@@ -1016,18 +1014,26 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
               <div className="conversation-context">
                 <div className="context-heading">
                   <span>OBSERVAÇÃO INTERNA</span>
-                  <small>
-                    {savingContext ? "Salvando…" : "Salvo automaticamente"}
-                  </small>
+                  <small aria-live="polite">{({ editing: "Editando", saving: "Salvando…", saved: "Salvo", error: "Erro" } as const)[noteSaveState]}</small>
                 </div>
                 <textarea
                   className="context-notes"
                   value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
+                  onChange={(event) => {
+                    const nextNotes = event.target.value;
+                    setNotes(nextNotes);
+                    if (selected) noteDrafts.current.set(selected.id, nextNotes);
+                    setNoteSaveState("editing");
+                  }}
                   placeholder="Adicionar observação para a equipe"
                   maxLength={10000}
                   aria-label="Observação interna"
                 />
+                <div className="context-notes-actions">
+                  <button type="button" onClick={() => void saveNotes()} disabled={!selected || !api.updateContext || noteSaveState === "saving" || notes === (context?.notes ?? "")}>
+                    {noteSaveState === "saving" ? "Salvando…" : "Salvar observação"}
+                  </button>
+                </div>
               </div>
               <div className="conversation-context operational-history">
                 <div className="context-heading"><span>HISTÓRICO E ATIVIDADES</span></div>
