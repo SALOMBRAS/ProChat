@@ -1,6 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SlaOperationalSummary } from "../api/inbox.js";
+import stylesheet from "./styles.css?raw";
 
 const realtime = vi.hoisted(() => ({
   handler: undefined as undefined | ((event: any) => void),
@@ -65,6 +66,20 @@ const summary: SlaOperationalSummary = {
   ],
 };
 
+const criticalItem = (index: number): SlaOperationalSummary["critical"][number] => ({
+  ...summary.critical[0],
+  conversationId: `conversation-${index}`,
+  displayName: `Cliente ${index}`,
+});
+
+const scrollRegionName = "Lista rolável de atendimentos que exigem atenção";
+
+const cssRule = (selector: string) => {
+  const start = stylesheet.indexOf(`${selector} {`);
+  expect(start, `regra ${selector} ausente em styles.css`).toBeGreaterThan(-1);
+  return stylesheet.slice(start, stylesheet.indexOf("}", start));
+};
+
 const renderDashboard = (api = { slaSummary: vi.fn().mockResolvedValue(summary) }) => {
   const onOpenConversation = vi.fn();
   render(
@@ -109,14 +124,96 @@ describe("SlaOperationalDashboard", () => {
     expect(onOpenConversation).toHaveBeenCalledWith("red-conversation");
   });
 
-  it("renders a positive empty state", async () => {
+  it("keeps every critical item inside one bounded scroll region", async () => {
+    const critical = Array.from({ length: 25 }, (_, index) => criticalItem(index));
     renderDashboard({
-      slaSummary: vi.fn().mockResolvedValue({ ...summary, critical: [] }),
+      slaSummary: vi.fn().mockResolvedValue({
+        ...summary,
+        totals: { ...summary.totals, warning: 9, overdue: 40 },
+        critical,
+      }),
+    });
+
+    const region = await screen.findByRole("region", { name: scrollRegionName });
+    expect(region).toHaveAttribute("tabindex", "0");
+    expect(within(region).getAllByRole("listitem")).toHaveLength(25);
+    expect(within(region).getByRole("list")).toBeInTheDocument();
+    expect(region.querySelector(".sla-critical-fade")).not.toBeNull();
+    expect(screen.getByText("Cliente 24")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Atendimentos que exigem atenção" }),
+    ).not.toContainElement(region);
+  });
+
+  it("counts every at-risk conversation in the badge, not the returned sample", async () => {
+    renderDashboard({
+      slaSummary: vi.fn().mockResolvedValue({
+        ...summary,
+        totals: { ...summary.totals, warning: 9, overdue: 40 },
+        critical: Array.from({ length: 20 }, (_, index) => criticalItem(index)),
+      }),
+    });
+
+    expect(await screen.findByText("49 em foco")).toBeInTheDocument();
+    expect(screen.queryByText("20 em foco")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Mostrando os 20 mais urgentes de 49."),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a positive empty state outside the scroll region", async () => {
+    renderDashboard({
+      slaSummary: vi.fn().mockResolvedValue({
+        ...summary,
+        totals: { ...summary.totals, warning: 0, overdue: 0 },
+        critical: [],
+      }),
     });
 
     expect(
       await screen.findByText("Nenhum atendimento exige atenção neste momento."),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: scrollRegionName })).not.toBeInTheDocument();
+    expect(document.querySelector(".sla-critical-scroll")).toBeNull();
+    expect(document.querySelector(".sla-critical-fade")).toBeNull();
+    expect(screen.getByText("0 em foco")).toBeInTheDocument();
+  });
+
+  it("keeps the error state outside the scroll region", async () => {
+    renderDashboard({
+      slaSummary: vi.fn().mockRejectedValue(new Error("Resumo indisponível")),
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Resumo indisponível");
+    expect(screen.queryByRole("region", { name: scrollRegionName })).not.toBeInTheDocument();
+    expect(document.querySelector(".sla-critical-scroll")).toBeNull();
+  });
+
+  it("bounds the scroll region by row height instead of a fixed pixel box", () => {
+    const scroll = cssRule(".sla-critical-scroll");
+    expect(scroll).toMatch(/--sla-critical-rows:\s*10/);
+    expect(scroll).toMatch(/--sla-critical-row:\s*[\d.]+rem/);
+    expect(scroll).toMatch(
+      /max-height:\s*min\(calc\(var\(--sla-critical-rows\)\s*\*\s*\(var\(--sla-critical-row\)\s*\+\s*var\(--sla-critical-row-gap\)\)\),\s*\d+vh\)/,
+    );
+    expect(scroll).not.toMatch(/max-height:\s*\d/);
+    expect(scroll).not.toMatch(/min-height/);
+    expect(scroll).toMatch(/overflow-y:\s*auto/);
+    expect(scroll).toMatch(/overscroll-behavior:\s*contain/);
+    expect(cssRule(".sla-critical-scroll:focus-visible")).toMatch(/outline:/);
+
+    const items = cssRule(".sla-critical-items");
+    expect(items).toMatch(/list-style:\s*none/);
+    expect(items).toMatch(/margin:\s*0/);
+
+    const fade = cssRule(".sla-critical-fade");
+    expect(fade).toMatch(/position:\s*sticky/);
+    expect(fade).toMatch(/linear-gradient/);
+
+    expect(stylesheet).toMatch(
+      /@media \(max-width: 760px\)[^}]*\.sla-critical-scroll \{[^}]*--sla-critical-row:\s*[\d.]+rem/,
+    );
   });
 
   it("never falls back to a technical conversation identifier", async () => {
