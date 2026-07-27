@@ -7,7 +7,7 @@ import { RealtimeHub } from '../src/realtime.js';
 import { InternalInboxService } from '../src/services/internal-inbox.service.js';
 import { SlaMessageCoordinator } from '../src/services/sla-message-coordinator.service.js';
 import { projectSlaCard, SlaService, SqliteSlaStore } from '../src/services/sla.service.js';
-import { SqliteWahaWebhookStore, webhookRecord } from '../src/services/waha-webhook.service.js';
+import { historyRecord, SqliteWahaWebhookStore, webhookRecord } from '../src/services/waha-webhook.service.js';
 
 const directories: string[] = [];
 const migrations = join(process.cwd(), 'migrations');
@@ -92,6 +92,46 @@ describe('operational SLA lifecycle', () => {
       expect(database.sqlite.prepare('SELECT slaStatus,frozenAt,resolvedAt,waitingSinceAt FROM conversation_sla_metrics').get()).toMatchObject({ slaStatus: 'resolved', waitingSinceAt: null });
       const row = database.sqlite.prepare('SELECT frozenAt,resolvedAt FROM conversation_sla_metrics').get() as { frozenAt: string; resolvedAt: string };
       expect(row.frozenAt).toBe(row.resolvedAt);
+    } finally { database.close(); }
+  });
+
+  it('expires an operator wait that passed its threshold', async () => {
+    const { database, service } = setup();
+    try {
+      conversation(database);
+      await service.message(workspaceId, conversationId, 'inbound', '2020-01-01T00:00:00.000Z', false);
+      await service.tick();
+      expect(database.sqlite.prepare('SELECT slaStatus FROM conversation_sla_metrics').get()).toEqual({ slaStatus: 'expired' });
+    } finally { database.close(); }
+  });
+
+  it('never expires an answered conversation waiting on the customer', async () => {
+    const { database, service } = setup();
+    try {
+      conversation(database);
+      await service.message(workspaceId, conversationId, 'inbound', '2020-01-01T00:00:00.000Z', false);
+      await service.message(workspaceId, conversationId, 'outbound', '2020-01-01T00:01:00.000Z', false);
+      await service.tick();
+      // The customer has been silent for years, far past customerWaitingThresholdMs.
+      expect(database.sqlite.prepare('SELECT slaStatus FROM conversation_sla_metrics').get()).toEqual({ slaStatus: 'waiting_customer' });
+      const summary = await service.summary(workspaceId);
+      // The silence belongs to the customer: it must not be reported as the
+      // operator being late, nor inflate the operator waiting average.
+      expect(summary.totals).toMatchObject({ active: 1, waitingOperator: 0, waitingCustomer: 1 });
+      expect(summary.averages.operatorWaitSeconds).toBeNull();
+      expect(summary.averages.customerWaitSeconds).toBeGreaterThan(0);
+    } finally { database.close(); }
+  });
+
+  it('ignores messages replayed by the history sync so imports cannot start an SLA clock', async () => {
+    const { database, service } = setup();
+    try {
+      const store = new SqliteWahaWebhookStore(database.sqlite, undefined, [], new SlaMessageCoordinator(service));
+      // historyRecord is what the history sync feeds into ingest for every
+      // imported message; its payload carries the `_history` marker.
+      await store.ingest(historyRecord(workspaceId, 'waha-a', { id: 'imported-message', chatId: '5511999990000@c.us', body: 'Mensagem antiga', timestamp: Date.parse(inboundAt) / 1000 }, '5511999990000@c.us')!);
+      expect(database.sqlite.prepare('SELECT count(*) total FROM whatsapp_messages').get()).toEqual({ total: 1 });
+      expect(database.sqlite.prepare('SELECT count(*) total FROM conversation_sla_metrics').get()).toEqual({ total: 0 });
     } finally { database.close(); }
   });
 
