@@ -39,8 +39,10 @@ Supabase e `better-sqlite3`. O workspace `web/` usa npm workspaces.
 4. Não carregue listas inteiras, não percorra páginas para localizar uma conversa
    e não introduza N+1 ou polling por item.
 5. Respeite `workspaceId` em toda consulta, evento e mutação.
-6. Não exponha no frontend LID, JID, `@lid`, `@c.us`, UUID de conversa,
-   `messageId` ou identificadores internos da WAHA.
+6. Identificadores técnicos nunca devem ser renderizados como informação visível
+   ao usuário (UUID, JID, LID, `messageId`, IDs internos WAHA). Entretanto,
+   identificadores internos podem ser utilizados em rotas, APIs, estados internos
+   e deep links quando necessários para funcionamento da aplicação.
 
 Identidade exibida sempre usa: nome WhatsApp (`profileName`/`pushName`), nome
 ChatPro, telefone real normalizado e, por último, `Contato sem identificação`.

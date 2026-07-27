@@ -23,6 +23,10 @@ Nomes de conversa, participantes e CRM passam por sanitização de identidade.
 Nunca derive um nome visível removendo o sufixo de `chatId`: um LID não é um
 telefone válido.
 
+UUID, JID, LID, `messageId` e IDs internos WAHA nunca são informação visível
+ao usuário. Eles podem permanecer em rotas, APIs, estado interno e deep links
+quando necessários ao funcionamento da Inbox.
+
 ## Realtime e escala
 
 Eventos relevantes incluem `message.received`, `message.sent`,
