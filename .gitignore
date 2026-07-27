@@ -38,3 +38,6 @@ creds.json
 Thumbs.db
 .vscode/
 .idea/
+
+# Estado local do agente de IA (worktrees, sessões, configuração de máquina).
+.claude/
