@@ -11,9 +11,15 @@ export type SyncStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cance
 export type SyncJob = { id: string; workspaceId: string; wahaSession: string; status: SyncStatus; currentChatId: string | null; chatCursor: string | null; messageCursor: string | null; chatsProcessed: number; messagesProcessed: number; startedAt: string; completedAt: string | null; lastErrorSafe: string | null; updatedAt: string };
 export type SyncJobStatus = SyncJob & { jobId: string; currentChat: string | null; hasMore: boolean; progressLabel: string };
 export type SyncJobStore = { get(workspaceId: string, wahaSession: string): Promise<SyncJob | undefined>; save(job: SyncJob): Promise<void> };
-export type HistorySyncOptions = { chatPageSize?: number; messagePageSize?: number; maxChatsPerRun?: number; maxMessagesPerRun?: number; emergencyMaxMessages?: number; continuationDelayMs?: number; maxAttempts?: number; retryBaseMs?: number; sleep?: (milliseconds: number) => Promise<void> };
+export type HistorySyncOptions = { chatPageSize?: number; messagePageSize?: number; maxChatsPerRun?: number; maxMessagesPerRun?: number; emergencyMaxMessages?: number; continuationDelayMs?: number; maxAttempts?: number; retryBaseMs?: number; maxConsecutiveChatTimeouts?: number; sleep?: (milliseconds: number) => Promise<void> };
 export type HistorySyncRunLimits = { maxChatsPerRun?: number; maxMessagesPerRun?: number };
 const transientCodes = new Set(['TIMEOUT', 'SERVICE_UNAVAILABLE']);
+// A provider timeout while paginating one chat is scoped to that chat. The WAHA
+// WEBJS engine pays a cost proportional to the requested offset, so a chat long
+// enough can never be paginated to its end: every retry asks for the same deep
+// offset and times out again. Closing that chat with the history already
+// persisted keeps the remaining chats syncing instead of failing the whole job.
+const chatScopedCodes = new Set(['TIMEOUT']);
 
 export class WhatsAppHistorySyncService {
   private readonly active = new Set<string>();
@@ -30,6 +36,7 @@ export class WhatsAppHistorySyncService {
       continuationDelayMs: options.continuationDelayMs ?? 1_000,
       maxAttempts: options.maxAttempts ?? 3,
       retryBaseMs: options.retryBaseMs ?? 250,
+      maxConsecutiveChatTimeouts: options.maxConsecutiveChatTimeouts ?? 5,
       sleep: options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))),
     };
   }
@@ -91,6 +98,7 @@ export class WhatsAppHistorySyncService {
       let chatsThisBatch = 0;
       let messagesThisBatch = 0;
       let messagesThisExecution = 0;
+      let consecutiveChatTimeouts = 0;
       while (job.status === 'running') {
         job = await this.current(job);
         if (job.status === 'cancelled') return;
@@ -129,7 +137,23 @@ export class WhatsAppHistorySyncService {
         }
         const offset = integerCursor(job.messageCursor);
         const remainingMessages = limits.maxMessagesPerRun - messagesThisBatch;
-        const page = await this.page(job, job.currentChatId, offset, Math.min(this.options.messagePageSize, remainingMessages));
+        let page: { items: Record<string, unknown>[]; hasMore: boolean };
+        try {
+          page = await this.page(job, job.currentChatId, offset, Math.min(this.options.messagePageSize, remainingMessages));
+          consecutiveChatTimeouts = 0;
+        } catch (error) {
+          if (!chatScopedCodes.has(errorCode(error))) throw error;
+          consecutiveChatTimeouts += 1;
+          // Consecutive timeouts across different chats mean the provider itself
+          // is degraded, not that one chat is too long. Fail the job so the
+          // operator sees it, instead of marking every chat as processed.
+          if (consecutiveChatTimeouts >= this.options.maxConsecutiveChatTimeouts) throw error;
+          const closedChatId = job.currentChatId;
+          chatsThisBatch += 1;
+          job = await this.save({ ...job, currentChatId: null, messageCursor: null, chatCursor: String(integerCursor(job.chatCursor) + 1), chatsProcessed: job.chatsProcessed + 1, lastErrorSafe: safeError(error), updatedAt: new Date().toISOString() }, 'chat closed early after repeated provider timeout');
+          log('info', 'WhatsApp history sync closed a chat early', { workspaceId, wahaSession, jobId: job.id, chatId: closedChatId, offset, attempts: this.options.maxAttempts });
+          continue;
+        }
         for (const message of page.items) {
           if ((await this.current(job)).status === 'cancelled') return;
           const record = historyRecord(workspaceId, wahaSession, message, job.currentChatId);
@@ -181,7 +205,11 @@ export class WhatsAppHistorySyncService {
 
   private view(job: SyncJob): SyncJobStatus {
     const progressLabel = job.status === 'completed'
-      ? 'Histórico sincronizado.'
+      ? job.lastErrorSafe
+        // A completed run that closed at least one chat early is not a failure,
+        // but hiding the truncation would misreport the history as exhaustive.
+        ? 'Histórico sincronizado; conversas muito longas foram truncadas.'
+        : 'Histórico sincronizado.'
       : job.status === 'running'
         ? 'Sincronizando histórico…'
         : job.status === 'pending'
@@ -211,6 +239,8 @@ export class SupabaseWhatsAppHistorySyncStore implements SyncJobStore {
 function sqliteJob(row: Record<string, unknown>): SyncJob { return row as unknown as SyncJob; }
 function remoteJob(row: Record<string, any>): SyncJob { return { id: row.id, workspaceId: row.workspace_id, wahaSession: row.waha_session, status: row.status, currentChatId: row.current_chat_id, chatCursor: row.chat_cursor, messageCursor: row.message_cursor, chatsProcessed: row.chats_processed, messagesProcessed: row.messages_processed, startedAt: row.started_at, completedAt: row.completed_at, lastErrorSafe: row.last_error_safe, updatedAt: row.updated_at }; }
 function integerCursor(value: string | null): number { const number = Number(value ?? 0); return Number.isInteger(number) && number >= 0 ? number : 0; }
+/** `page` rejects with the provider error code as the message; this reads it back. */
+function errorCode(error: unknown): string { return error instanceof Error ? error.message : ''; }
 function safeError(error: unknown): string {
   const source = error instanceof Error
     ? error.message
