@@ -4,3 +4,11 @@ dist/
 coverage/
 supabase/.temp/
 backups/
+
+# Adicionado na migração para Linux
+.env.local
+.env.*.local
+.chatpro-data/
+.waha-sessions/
+runtime/
+temp/
