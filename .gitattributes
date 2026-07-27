@@ -1,0 +1,33 @@
+# Projeto Node/TypeScript: o repositório guarda tudo em LF.
+# `text=auto eol=lf` normaliza no commit e faz o checkout sempre em LF, em
+# qualquer sistema operacional. Sem isso, uma cópia de trabalho com CRLF faz
+# arquivos inteiros aparecerem como modificados sem nenhuma mudança semântica.
+* text=auto eol=lf
+
+# Scripts de shell quebram se forem entregues com CRLF.
+*.sh text eol=lf
+
+# Arquivos binários nunca devem passar por conversão de fim de linha.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.svgz binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.deb binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary
+*.mp3 binary
+*.mp4 binary
+*.ogg binary
+*.wav binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
