@@ -27,6 +27,10 @@ function identityAliases(input: ContactIdentityInput, phone: string | undefined)
   return [...new Map(result.map(item => [item.identifier, item])).values()];
 }
 function noContact(input: ContactIdentityInput, knownAliases: Alias[]): ContactIdentityResolution | undefined {
+  // Group members are message authors, not ChatPro contacts inferred from the
+  // group. Do not create aliases or pending identities for either a group or a
+  // participant-only lookup; direct LID/JID resolution reaches this resolver
+  // without these flags and still follows the normal phone-evidence flow.
   if (!input.isGroup && !input.isParticipant) return undefined;
   return { canonicalChatId: normalizeWhatsAppIdentifier(input.chatId ?? input.identifier) ?? '', identifiers: knownAliases.map(item => item.identifier), resolutionSource: input.isGroup ? 'group' : 'participant', createdContact: false, attachedAliases: [] };
 }

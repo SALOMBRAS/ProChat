@@ -58,4 +58,13 @@ describe('contact identity characterization baseline', () => {
     expect(resolved?.phoneNumber).toBe('5511999990000');
     expect(database.prepare('SELECT count(*) total FROM pending_contact_identities').get()).toEqual({ total: 0 });
   });
+
+  it('never creates contacts or pending aliases for a group participant', async () => {
+    const database = sqlite(); const resolver = new SqliteContactIdentityResolver(database);
+    const result = await resolver.resolveDetailed({ workspaceId: 'workspace-a', chatId: '120363000000@g.us', identifier: 'opaque@lid', phone: '5511999990000', isGroup: true, isParticipant: true, source: 'group_participant' });
+    expect(result).toMatchObject({ resolutionSource: 'group', createdContact: false });
+    expect(result.contactId).toBeUndefined();
+    expect(database.prepare('SELECT count(*) total FROM contacts').get()).toEqual({ total: 0 });
+    expect(database.prepare('SELECT count(*) total FROM pending_contact_identities').get()).toEqual({ total: 0 });
+  });
 });

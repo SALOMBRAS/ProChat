@@ -103,6 +103,16 @@ describe('WAHA webhook ingress', () => {
     expect(conversation).toMatchObject({ chatId: group, conversationType: 'group' });
     await request(app).get(`/api/v1/inbox/conversations/${conversation.id}/messages`).set('x-workspace-id', 'workspace-a').expect(200).expect(response => expect(response.body.items.map((item: { senderWhatsappId?: string }) => item.senderWhatsappId)).toEqual(['5511999990000@c.us', '5511888880000@c.us']));
   });
+  it('accepts a group remoteJid but rejects a participant remoteJid as an ambiguous private conversation', async () => {
+    const app = await appFor(); const group = '120363363444637332@g.us';
+    const groupEvent = { id: 'evt-group-remote', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'group-remote-message', remoteJid: group, participant: '5511999990000@c.us', body: 'Grupo pelo remoteJid' } };
+    const ambiguousEvent = { id: 'evt-participant-remote', timestamp: Date.now() + 1, event: 'message' as const, session: 'waha-a', payload: { id: 'participant-remote-message', remoteJid: '5511999990000@c.us', participant: '5511999990000@c.us', body: 'Nao criar privada' } };
+    for (const body of [groupEvent, ambiguousEvent]) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    const database = app.locals.persistenceDatabase.sqlite;
+    expect(database.prepare('SELECT chatId, conversationType FROM conversations').all()).toEqual([{ chatId: group, conversationType: 'group' }]);
+    expect(database.prepare('SELECT count(*) total FROM whatsapp_messages WHERE externalMessageId=?').get('participant-remote-message')).toEqual({ total: 0 });
+    expect(database.prepare('SELECT count(*) total FROM contacts').get()).toEqual({ total: 0 });
+  });
   it('persists media metadata from WAHA without downloading it in the webhook', async () => {
     const app = await appFor(); const body = { id: 'evt-media', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'media-image-1', chatId: '5511999990000@c.us', body: 'Foto', type: 'image', hasMedia: true, media: { url: 'https://waha.example.test/api/files/photo.jpg', mimetype: 'image/jpeg', filename: 'photo.jpg', size: 1234 } } }; const requestBody = signed(body);
     await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
@@ -119,7 +129,8 @@ describe('WAHA webhook ingress', () => {
     await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
     const database = app.locals.persistenceDatabase.sqlite;
     for (let attempt = 0; attempt < 20 && !(database.prepare('SELECT id FROM whatsapp_groups').get()); attempt += 1) await new Promise(resolve => setTimeout(resolve, 10));
-    expect(database.prepare('SELECT whatsappId, name, pushName FROM whatsapp_identities').get()).toMatchObject({ whatsappId: '5511999990000@c.us', name: 'João', pushName: 'João Silva' });
+    expect(database.prepare('SELECT count(*) total FROM whatsapp_identities').get()).toEqual({ total: 0 });
+    expect(database.prepare('SELECT count(*) total FROM contacts').get()).toEqual({ total: 0 });
     expect(database.prepare('SELECT chatId, name FROM whatsapp_groups').get()).toMatchObject({ chatId: '120363363444637332@g.us', name: 'Família' });
     expect(database.prepare('SELECT participantWhatsappId, role FROM whatsapp_group_participants').get()).toMatchObject({ participantWhatsappId: '5511999990000@c.us', role: 'admin' });
   });
