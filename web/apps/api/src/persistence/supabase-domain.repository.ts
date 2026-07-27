@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DomainRepository } from './domain.repository.js';
+import { parseContactListQuery, type ContactListFilters } from './contact-query.js';
 import { summarizeSessionsByStatus } from '../services/dashboard-sessions.js';
 
 type Row = Record<string, unknown>;
@@ -18,6 +19,22 @@ const templateVariables = (value: unknown): string[] => { if (Array.isArray(valu
 const variablesFromContent = (content: string) => [...new Set([...content.matchAll(/{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}/g)].map(match => match[1]))];
 const normalizeTemplate = (value: unknown) => { const row = camel(value) as Row, { variablesJson, variables: legacyVariables, ...template } = row, names = templateVariables(legacyVariables ?? variablesJson); return { ...template, variables: names.length ? names : variablesFromContent(String(template.content ?? '')) }; };
 
+/** PostgREST reads `or=` as a comma-separated list, so a raw search term
+ * containing `,`, `(` or `"` would be parsed as extra clauses. Quoting the
+ * value keeps the term opaque to the filter grammar. */
+const filterValue = (value: string) => `"${value.replace(/["\\]/g, (character) => `\\${character}`)}"`;
+/** Same columns and same partial, case-insensitive match as the SQLite
+ * `LIKE '%term%'` in `contacts()`. */
+const CONTACT_SEARCH_COLUMNS = ['display_name', 'phone_number', 'email'] as const;
+const contactSearchFilter = (search: string) => CONTACT_SEARCH_COLUMNS.map((column) => `${column}.ilike.${filterValue(`%${search}%`)}`).join(',');
+/** The tag and opt-out filters are embedded resources, so PostgREST returns
+ * them alongside the contact. They are join machinery, not contact fields, and
+ * the SQLite provider selects `c.*` only. */
+const contactRow = (row: unknown) => { const { contact_tags: _tags, opt_out_history: _optOut, ...contact } = row as Row; return camel(contact); };
+/** `contact_tags!inner` and `opt_out_history!inner` reproduce the SQLite `JOIN`
+ * and `EXISTS`; the plain embed plus `is null` reproduces `NOT EXISTS`. */
+const contactColumns = (filters: ContactListFilters) => ['*', ...(filters.tagId ? ['contact_tags!inner(tag_id)'] : []), ...(filters.optOut ? [`opt_out_history${filters.optOut === 'true' ? '!inner' : ''}(id)`] : [])].join(',');
+
 /** Supabase implementation of the domain boundary. Compound mutations go through
  * versioned RPCs; reads and single-table changes keep using PostgREST tables. */
 export class SupabaseDomainRepository implements DomainRepository {
@@ -30,7 +47,25 @@ export class SupabaseDomainRepository implements DomainRepository {
   private async remove(table: string, workspaceId: string, id: string): Promise<void> { const { error: queryError } = await this.client.from(table).delete().eq('workspace_id', workspaceId).eq('id', id); error(queryError); }
   private page(items: unknown[], query: Record<string, unknown>) { const page = Number(query.page ?? 1), pageSize = Math.min(Number(query.pageSize ?? 25), 100), start = (page - 1) * pageSize; return { items: items.slice(start, start + pageSize), page, pageSize, total: items.length }; }
 
-  async contacts(w: string, q: Record<string, unknown>) { return this.page(await this.rows('contacts', w), q); }
+  /** Search, tag and opt-out all run in the database. Reading the workspace's
+   * whole contact table to slice it in memory does not scale and silently
+   * dropped `search`, so the Inbox saw an unfiltered list. */
+  private contactQuery(w: string, filters: ContactListFilters, head: boolean) {
+    let query = this.client.from('contacts').select(contactColumns(filters), head ? { count: 'exact', head: true } : { count: 'exact' }).eq('workspace_id', w);
+    if (filters.tagId) query = query.eq('contact_tags.tag_id', filters.tagId);
+    if (filters.optOut === 'false') query = query.is('opt_out_history', null);
+    if (filters.search) query = query.or(contactSearchFilter(filters.search));
+    return query;
+  }
+  async contacts(w: string, q: Record<string, unknown>) {
+    const filters = parseContactListQuery(q), offset = (filters.page - 1) * filters.pageSize;
+    const { data, count, error: queryError } = await this.contactQuery(w, filters, false).order('created_at', { ascending: false }).range(offset, offset + filters.pageSize - 1);
+    // PostgREST rejects an offset past the last row; SQLite answers an empty
+    // page. Re-count so the caller still learns the real total.
+    if (queryError?.code === 'PGRST103') { const { count: total, error: countError } = await this.contactQuery(w, filters, true); error(countError); return { items: [], page: filters.page, pageSize: filters.pageSize, total: total ?? 0 }; }
+    error(queryError);
+    return { items: (data ?? []).map(contactRow), page: filters.page, pageSize: filters.pageSize, total: count ?? 0 };
+  }
   contact(w: string, id: string) { return this.one('contacts', w, id); }
   createContact(w: string, body: unknown) { const input = body as Row; return this.rpc('chatpro_create_contact', { p_workspace_id: w, p_contact: { ...input, phoneNumber: normalizePhone(String(input.phoneNumber)) }, p_tag_ids: input.tagIds ?? [] }); }
   updateContact(w: string, id: string, body: unknown) { const input = body as Row; const payload = { ...input, ...(typeof input.phoneNumber === 'string' ? { phoneNumber: normalizePhone(input.phoneNumber) } : {}) }; return this.rpc('chatpro_update_contact', { p_workspace_id: w, p_contact_id: id, p_contact: payload, p_tag_ids: Array.isArray(input.tagIds) ? input.tagIds : null }); }
@@ -43,7 +78,7 @@ export class SupabaseDomainRepository implements DomainRepository {
   pipelines(w: string) { return this.rows('pipelines', w); } savePipeline(w: string, id: string | undefined, b: unknown) { return this.save('pipelines', w, id, b); } async deletePipeline(w: string, id: string): Promise<void> { await this.rpc('chatpro_delete_pipeline', { p_workspace_id: w, p_pipeline_id: id }); } initPipeline(w: string, b: unknown) { return this.rpc('chatpro_initialize_pipeline', { p_workspace_id: w, p_name: (b as Row).name ?? 'Pipeline padrão' }); }
   async stages(w: string, pipelineId: string) { const { data, error: queryError } = await this.client.from('stages').select().eq('workspace_id', w).eq('pipeline_id', pipelineId).order('position'); error(queryError); return (data ?? []).map(camel); } saveStage(w: string, id: string | undefined, b: unknown) { return this.save('stages', w, id, b); } async reorderStages(w: string, pipelineId: string, b: unknown) { const ids = (b as Row).stageIds as string[]; await Promise.all(ids.map((id, position) => this.save('stages', w, id, { pipelineId, position }))); return this.stages(w, pipelineId); } async deleteStage(w: string, id: string): Promise<void> { await this.rpc('chatpro_delete_stage', { p_workspace_id: w, p_stage_id: id }); }
   async leads(w: string, q: Record<string, unknown>) { return this.page(await this.rows('leads', w), q); } saveLead(w: string, id: string | undefined, b: unknown) { return this.save('leads', w, id, b); } deleteLead(w: string, id: string) { return this.remove('leads', w, id); } moveLead(w: string, id: string, b: unknown) { return this.rpc('chatpro_move_lead', { p_workspace_id: w, p_lead_id: id, p_stage_id: (b as Row).stageId }); } leadTag(w: string, id: string, tagId: string, add: boolean) { return this.rpc('chatpro_set_lead_tag', { p_workspace_id: w, p_lead_id: id, p_tag_id: tagId, p_add: add }); } note(w: string, id: string, b: unknown) { return this.rpc('chatpro_add_note', { p_workspace_id: w, p_lead_id: id, p_body: (b as Row).body }); } async notes(w: string, id: string) { const { data, error: queryError } = await this.client.from('lead_notes').select().eq('workspace_id', w).eq('lead_id', id).order('created_at', { ascending: false }); error(queryError); return (data ?? []).map(camel); } async activities(w: string, id: string) { const { data, error: queryError } = await this.client.from('activities').select().eq('workspace_id', w).eq('lead_id', id).order('occurred_at', { ascending: false }); error(queryError); return (data ?? []).map(camel); } async funnel(w: string) { const stages = await this.rows('stages', w) as Row[], leads = await this.rows('leads', w) as Row[]; return stages.map((stage) => ({ stageId: stage.id, name: stage.name, position: stage.position, total: leads.filter((lead) => lead.stageId === stage.id).length })); }
-  optOut(w: string, id: string, b: unknown) { return this.rpc('chatpro_record_opt_out', { p_workspace_id: w, p_contact_id: id, p_payload: b }); } async optOutStatus(w: string, id: string) { const { data, error: queryError } = await this.client.from('opt_out_history').select().eq('workspace_id', w).eq('contact_id', id).order('occurred_at', { ascending: false }); error(queryError); const history = (data ?? []).map(camel); return { contactId: id, optedOut: history.length > 0, history }; } removeOptOut(w: string, id: string) { return this.rpc('chatpro_remove_opt_out', { p_workspace_id: w, p_contact_id: id }); } optOutContacts(w: string, q: Record<string, unknown>) { return this.contacts(w, q); }
+  optOut(w: string, id: string, b: unknown) { return this.rpc('chatpro_record_opt_out', { p_workspace_id: w, p_contact_id: id, p_payload: b }); } async optOutStatus(w: string, id: string) { const { data, error: queryError } = await this.client.from('opt_out_history').select().eq('workspace_id', w).eq('contact_id', id).order('occurred_at', { ascending: false }); error(queryError); const history = (data ?? []).map(camel); return { contactId: id, optedOut: history.length > 0, history }; } removeOptOut(w: string, id: string) { return this.rpc('chatpro_remove_opt_out', { p_workspace_id: w, p_contact_id: id }); } optOutContacts(w: string, q: Record<string, unknown>) { return this.contacts(w, { ...q, optOut: 'true' }); }
   async campaigns(w: string, q: Record<string, unknown>) { return this.page(await this.rows('campaigns', w), q); } campaign(w: string, id: string) { return this.one('campaigns', w, id); } saveCampaign(w: string, id: string | undefined, b: unknown) { const input = b as Row; return this.rpc('chatpro_save_campaign', { p_workspace_id: w, p_campaign_id: id ?? null, p_payload: input, p_contact_ids: Array.isArray(input.contactIds) ? input.contactIds : null }); } deleteCampaign(w: string, id: string) { return this.remove('campaigns', w, id); } async validateCampaign(w: string, id: string) { const campaign = await this.campaign(w, id) as Row; const problems: string[] = []; if (!campaign.templateId) problems.push('templateId is required'); return { valid: problems.length === 0, problems, recipients: 0 }; } prepareCampaign(w: string, id: string) { return this.rpc('chatpro_prepare_campaign', { p_workspace_id: w, p_campaign_id: id }); } async scheduleCampaign(w: string, id: string, b: unknown) { const prepared = await this.prepareCampaign(w, id) as Row; if ((prepared.campaign as Row).status === 'blocked') return prepared; return this.save('campaigns', w, id, { status: 'scheduled', scheduledAt: (b as Row).scheduledAt }); } cancelCampaign(w: string, id: string) { return this.save('campaigns', w, id, { status: 'cancelled' }); }
   async settings(w: string) { const { data, error: queryError } = await this.client.from('workspace_settings').select().eq('workspace_id', w).maybeSingle(); error(queryError); return data ? camel(data) : { workspaceId: w, settings: {} }; } saveSettings(w: string, b: unknown) { return this.rpc('chatpro_save_settings', { p_workspace_id: w, p_settings: b }); } async dashboard(w: string, sessions: unknown[]) { const [[contacts, tags, templates, leads, campaigns], [conversations, messages]] = await Promise.all([Promise.all(['contacts', 'tags', 'templates', 'leads', 'campaigns'].map((table) => this.rows(table, w))), Promise.all([this.count('conversations', w, true), this.count('whatsapp_messages', w)])]); return { contacts: contacts.length, optOutContacts: (await this.optOutContacts(w, {} ) as { total: number }).total, tags: tags.length, templates: templates.length, leads: leads.length, conversations, messages, leadsByStage: await this.funnel(w), recentActivities: [], campaignsByStatus: campaigns, sessionsByStatus: summarizeSessionsByStatus(sessions) }; }
 }
