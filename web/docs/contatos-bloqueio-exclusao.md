@@ -24,8 +24,11 @@ reforço que atua no lado do WhatsApp — não substitui a guarda local, porque:
   fica protegido nas sessões em que a propagação foi aplicada.
 
 Consequência prática de projeto: **o schema proposto é o mesmo nos dois
-cenários.** Muda apenas se a etapa de propagação roda. Isso desacopla a decisão
-de banco da resposta sobre a WAHA.
+cenários.** Muda apenas se a etapa de propagação roda. Com a rota da WAHA já
+confirmada (seção 1), o caminho é o cenário (a); o schema idêntico continua
+valendo porque o cenário (b) virou o estado em que o sistema cai quando a
+propagação falha — que é uma condição de runtime, não uma hipótese de
+plataforma.
 
 ## 1. A WAHA expõe block/unblock?
 
@@ -41,7 +44,7 @@ $ curl -s -H "X-Api-Key: ***" http://127.0.0.1:3002/api/version
 
 Engine **WEBJS**, versão **2026.7.1**, tier **CORE**.
 
-### Sondagem de rota: inconclusiva
+### Sondagem por GET: inconclusiva
 
 ```console
 $ curl -o /dev/null -w "%{http_code}" .../api/contacts/block      -> 404
@@ -87,9 +90,47 @@ Suporte por engine — **as duas fontes divergem**:
 As duas fontes concordam no que importa aqui: **WEBJS é suportado**, e WEBJS é a
 engine da instância local.
 
-**Restrição de tier (CORE vs PLUS): não identificado.** Nenhuma das duas fontes
-declara se block/unblock exige WAHA Plus. Como a instância local é **CORE**, isso
-é decisivo e continua em aberto.
+Nenhuma das duas fontes declara se block/unblock exige WAHA Plus. Como a
+instância local é **CORE**, isso era decisivo — e foi resolvido empiricamente na
+seção seguinte.
+
+### Teste por POST: rota CONFIRMADA
+
+Executado contra a instância local com sessão inexistente — não bloqueia
+ninguém, e o formato do erro distingue os casos.
+
+```console
+$ curl -X POST http://127.0.0.1:3002/api/contacts/block \
+    -H "X-Api-Key: ***" -H 'Content-Type: application/json' \
+    -d '{"contactId":"000000000000","session":"sessao-inexistente-teste"}'
+{"error":"Session \"sessao-inexistente-teste\" does not exist", ...}
+
+# controle, mesma sessão inexistente, numa rota que sabidamente existe:
+$ curl -X POST http://127.0.0.1:3002/api/sendText ... -> HTTP 422
+```
+
+**Por que o erro de sessão prova a existência da rota.** No NestJS o roteamento
+resolve antes do handler. Um caminho ausente nunca chega ao corpo do controlador:
+devolve o 404 genérico, exatamente como `/api/rotaInexistenteDeControle`. Uma
+resposta que **nomeia a sessão do payload** só pode ter sido produzida por um
+handler que recebeu, desserializou e validou o corpo. Ou seja, a requisição
+atravessou o roteamento e chegou à lógica de negócio de `contacts/block`.
+
+O contraste com o GET fecha o raciocínio. `GET /api/contacts/block` devolve 404
+porque o método não casa com a rota registrada — o mesmo 404 que
+`GET /api/sendImage` devolve embora `POST /api/sendImage` seja usado em produção
+pelo worker. O 404 do GET media o método, não a existência do caminho; o erro de
+sessão do POST media a existência do caminho. As duas observações são
+consistentes com uma única explicação: **a rota existe e aceita apenas POST.**
+
+O controle com `POST /api/sendText` na mesma sessão inexistente devolveu 422,
+confirmando que os dois caminhos passam do roteamento e falham na camada de
+negócio, cada um do seu jeito. Nenhum dos dois devolveu 404.
+
+**Tier resolvido: block/unblock não é Plus-only.** A verificação rodou numa
+instância **CORE** (`"tier":"CORE"` em `/api/version`) e a rota respondeu da
+camada de negócio. Se fosse gated por licença, a resposta seria de licenciamento
+ou 404, não erro de sessão.
 
 ### Veredito
 
@@ -97,26 +138,32 @@ declara se block/unblock exige WAHA Plus. Como a instância local é **CORE**, i
 |---|---|---|
 | A WAHA documenta block/unblock? | **Sim** | doc oficial + espelho DeepWiki |
 | A engine em uso (WEBJS) está na matriz de suporte? | **Sim** | ambas as fontes |
-| A instância local expõe a rota? | **Não identificado** | sondagem inconclusiva, OpenAPI não exposta |
-| Funciona no tier CORE? | **Não identificado** | nenhuma fonte declara o tier |
+| A instância local expõe `POST /api/contacts/block`? | **Sim — confirmado** | erro de sessão nomeada, sem 404; controle `sendText` 422 |
+| Funciona no tier CORE? | **Sim — verificado em CORE** | `/api/version` → `"tier":"CORE"` |
+| `POST /api/contacts/unblock` também existe? | **Não identificado** | não testado — ver abaixo |
 
-### Como fechar a questão
+**Portanto o caminho é o cenário (a).** O cenário (b) permanece documentado como
+fallback de falha de propagação, não como hipótese sobre a WAHA.
 
-Fora do escopo somente leitura desta investigação, então fica como passo manual.
-O teste decisivo é um POST com sessão inexistente: não bloqueia ninguém, e o
-formato do erro distingue os casos.
+### Pendência: `/unblock` ainda não foi verificado
+
+`/block` foi testado; `/unblock` não. As duas fontes listam os dois juntos e a
+matriz de engines é a mesma, então a expectativa é que exista — mas expectativa
+não é evidência, e é o desbloqueio que carrega o risco maior de falhar fechado
+(ver "falha no desbloqueio" na seção 2). Rodar o mesmo teste antes de implementar:
 
 ```bash
-curl -i -X POST http://127.0.0.1:3002/api/contacts/block \
+curl -i -X POST http://127.0.0.1:3002/api/contacts/unblock \
   -H "X-Api-Key: $WAHA_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"contactId":"000000000000","session":"sessao-inexistente-de-teste"}'
+  -d '{"contactId":"000000000000","session":"sessao-inexistente-teste"}'
 ```
 
-- Erro citando sessão inexistente / validação → **a rota existe** → cenário (a).
-- 404 genérico do NestJS, igual ao de `/api/rotaInexistenteDeControle` → rota
-  ausente nesta build/tier → cenário (b).
-
-Alternativa não destrutiva: abrir `/dashboard` autenticado e ler o Swagger.
+- Erro nomeando a sessão, ou qualquer 4xx de validação → **rota existe**,
+  cenário (a) completo.
+- 404 idêntico ao de `/api/rotaInexistenteDeControle` → **bloquear seria
+  irreversível pela API**, e a implementação teria de exigir desbloqueio manual
+  no aparelho. Nesse caso não implementar bloqueio com propagação até rever o
+  desenho.
 
 ## 2. Desenho do bloqueio
 
@@ -222,7 +269,10 @@ com `workspaceId` em todos os predicados.
 em qual sessão WAHA e — quando falhou — o motivo já saneado. É o que responde
 "quem bloqueou e a propagação funcionou?".
 
-### Cenário (a) — a WAHA suporta bloqueio
+### Cenário (a) — CAMINHO ESCOLHIDO: propagar para a WAHA
+
+Confirmado na seção 1: `POST /api/contacts/block` existe na instância, engine
+WEBJS, tier CORE.
 
 Fluxo do `POST /api/v1/contacts/:contactId/block`:
 
@@ -236,36 +286,91 @@ Fluxo do `POST /api/v1/contacts/:contactId/block`:
    seguindo o padrão de `WorkerCommand` já existente em
    `apps/worker/src/waha-provider.ts`: `POST /api/contacts/block` com
    `{contactId, session}` para **cada sessão WAHA conectada do workspace**.
-4. desfecho:
-   - todas as sessões OK → `blockState='blocked'`,
-     `blockPropagation='confirmed'`, `blockConfirmedAt=now`, evento
-     `('block','propagated')`, realtime `contact.block.updated`;
-   - qualquer falha → `blockState='block_failed'`, `blockPropagation='failed'`,
-     `blockLastErrorSafe` com a mensagem saneada, evento `('block','failed')`.
-     **As guardas locais continuam valendo** — o contato segue protegido no
-     ChatPro, e a UI diz exatamente isso.
+4. desfecho, detalhado abaixo.
 
-O desbloqueio é o espelho: `unblocking` → `POST /api/contacts/unblock` → `active`
-e `blockedAt=NULL`. Falha na propagação do desbloqueio é o caso mais delicado —
-o ChatPro voltaria a aceitar envio enquanto o WhatsApp ainda bloqueia. Proposta:
-manter `blockState='unblocking'` até confirmação, mantendo a guarda de envio
-ativa, e sinalizar "Desbloqueio pendente". Falhar fechado, não aberto.
+#### O que acontece quando o POST falha
 
-Idempotência: bloquear contato já bloqueado é no-op com 200; a WAHA é chamada
-apenas em transição de estado.
+A propagação tem três desfechos distintos, e tratá-los como um só seria o erro
+que o requisito pede para evitar. Classificação pela resposta da WAHA:
 
-### Cenário (b) — a WAHA não suporta bloqueio
+| Classe | Exemplos | `blockPropagation` | `blockState` | Retry |
+|---|---|---|---|---|
+| **Sucesso** | 2xx em todas as sessões conectadas | `confirmed` | `blocked` | — |
+| **Transitório** | timeout, 5xx, conexão recusada, sessão em `starting` | `pending` | continua `blocking` | **sim** |
+| **Permanente** | 4xx de validação, sessão inexistente, `contactId` inválido | `failed` | `block_failed` | **não** |
 
-Idêntico ao anterior menos o passo 3. O endpoint grava
-`blockState='blocked'` e `blockPropagation='unsupported'` na mesma transação,
-e a auditoria recebe `('block','skipped_unsupported')`.
+A distinção importa porque só o transitório se resolve esperando. Repetir um 4xx
+de validação queima chamada e mascara um defeito de dados.
+
+**Retry, para a classe transitória.** Backoff exponencial com teto — proposta:
+5 tentativas em ~5s, 15s, 45s, 2min, 6min, com jitter. Enquanto tenta,
+`blockState` fica em `blocking` e a UI diz "Bloqueio pendente". Esgotadas as
+tentativas, cai para `block_failed` / `failed` com `blockLastErrorSafe`
+preenchido e evento `('block','failed')` na auditoria. Cada tentativa registra
+seu próprio evento, então o histórico mostra que houve insistência.
+
+O retry é por sessão, não global: se o workspace tem três sessões e uma falha,
+as outras duas já confirmadas não são reprocessadas. Só o contato fica em
+`blocking` até a última resolver.
+
+**Sucesso parcial é falha.** Com múltiplas sessões, `blocked`/`confirmed` só
+quando **todas** as conectadas retornam 2xx. Uma sessão sem propagar significa um
+canal por onde o contato ainda alcança o operador no WhatsApp — chamar isso de
+"bloqueado" seria a mentira que o requisito proíbe. `blockLastErrorSafe` nomeia
+quais sessões falharam.
+
+Sessões **desconectadas** no momento do bloqueio não contam como falha: não há
+o que propagar. Ficam pendentes de reconciliação — ao reconectar, o worker
+reaplica o bloqueio para os contatos com `blockState IN ('blocked','blocking')`
+antes de considerar a sessão operacional. Sem isso, reconectar reabriria o canal
+silenciosamente.
+
+**Em todos os desfechos de falha, as duas guardas locais continuam valendo.** O
+contato segue sem receber e sem enviar dentro do ChatPro. O que muda é só o
+rótulo, que passa a dizer a verdade: "Bloqueio local ativo — não propagado ao
+WhatsApp", com o motivo e ação de repetir. É exatamente o estado que o cenário
+(b) descreve, alcançado por falha de runtime em vez de ausência de recurso.
+
+#### Desbloqueio
+
+Espelho do bloqueio: `unblocking` → `POST /api/contacts/unblock` → `active` e
+`blockedAt=NULL`. É o caso mais delicado, porque falhar aqui falha na direção
+perigosa — o ChatPro voltaria a aceitar envio enquanto o WhatsApp ainda bloqueia,
+e as mensagens seriam aceitas pela API e descartadas pelo WhatsApp sem erro
+visível.
+
+Proposta: **falhar fechado**. `blockState` permanece `unblocking` até confirmação,
+a guarda de envio continua ativa nesse estado, e a UI sinaliza "Desbloqueio
+pendente". O operador nunca recebe sinal verde para enviar antes de o WhatsApp
+confirmar. Mesma política de retry da tabela acima.
+
+Depende de `/api/contacts/unblock` existir — **ainda não verificado**, ver a
+pendência ao fim da seção 1.
+
+#### Idempotência
+
+Bloquear contato já bloqueado é no-op com 200; a WAHA é chamada apenas em
+transição de estado. Isso evita que retry de cliente ou clique duplo gerem
+chamadas repetidas ao provider.
+
+### Cenário (b) — fallback: bloqueio local sem propagação
+
+**Não é mais uma hipótese sobre a plataforma** — a seção 1 confirmou a rota. É o
+estado degradado em que o sistema entra quando a propagação falha de forma
+permanente, e o modo em que ele operaria caso uma instância futura (outra engine,
+outra build) não exponha as rotas.
+
+Idêntico ao cenário (a) menos o passo 3: o endpoint grava `blockState='blocked'`
+e `blockPropagation='unsupported'` na mesma transação, e a auditoria recebe
+`('block','skipped_unsupported')`.
 
 Rotulagem: **"Bloqueado no ChatPro"**, com a ressalva explícita de que o contato
 não foi bloqueado no WhatsApp e pode continuar enviando mensagens — que o ChatPro
 recebe, arquiva e não exibe. Dizer só "Bloqueado" seria mentira nesse cenário.
 
 Nada além do rótulo e do passo de propagação muda. Mesmo schema, mesmas guardas,
-mesma auditoria.
+mesma auditoria. É por isso que a migration proposta não depende de qual cenário
+está em vigor.
 
 ### Independência do opt-out
 
@@ -559,8 +664,13 @@ produção.
 
 | # | Pendência | Quem decide |
 |---|---|---|
-| 1 | `POST /api/contacts/block` existe nesta build/tier CORE? | teste manual da seção 1 |
+| 1 | `POST /api/contacts/unblock` existe? Comando pronto no fim da seção 1 | teste manual — **bloqueia a implementação da propagação** |
 | 2 | Dump do schema CRM do Supabase | você — bloqueia qualquer migration |
 | 3 | Campanha deve excluir bloqueados, além de opt-out? | produto |
 | 4 | Soft delete ressuscita contato ao receber mensagem nova? | produto |
 | 5 | A purga LGPD alcança o conteúdo das mensagens? | jurídico |
+
+Resolvido desde a primeira versão deste documento:
+
+- `POST /api/contacts/block` **existe** na instância local (WAHA 2026.7.1, WEBJS)
+  e **não é Plus-only** — verificado em tier CORE. Cenário (a) é o caminho.
