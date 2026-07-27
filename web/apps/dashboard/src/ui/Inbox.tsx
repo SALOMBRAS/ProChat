@@ -14,13 +14,15 @@ import { InboxApi } from "../api/inbox.js";
 import { connectRealtime } from "../api/realtime.js";
 import { ApiError } from "../api/client.js";
 import { WorkspaceApi } from "../api/workspace.js";
-import type { Team, WorkspaceUser } from "@chatpro/contracts";
+import { DomainApi } from "../api/domain.js";
+import type { PersistenceContact, Team, WorkspaceUser } from "@chatpro/contracts";
 import { InboxKanban } from "./InboxKanban.js";
 import { conversationIdFromLocation, inboxUrlForConversation } from "./conversationNavigation.js";
 import { contactLabel, conversationPhone, participantLabel } from "./contactIdentity.js";
 
 const defaultApi = new InboxApi();
 const workspaceApi = new WorkspaceApi();
+const defaultDomainApi = new DomainApi();
 const pageSize = 50;
 const workspaceId = import.meta.env.VITE_WORKSPACE_ID || "default-workspace";
 const errorMessage = (error: unknown) =>
@@ -199,7 +201,7 @@ const MessageBubble = ({ message, api, showAuthor, highlighted = false }: { mess
   </article>
 );
 
-export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
+export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: { api?: InboxApi; domain?: DomainApi }) {
   const [conversationPage, setConversationPage] = useState<
     Page<InboxConversation>
   >({ items: [], page: 1, pageSize: 50, total: 0 });
@@ -230,6 +232,8 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [activeConversationMatch, setActiveConversationMatch] = useState(0);
   const [visualQueue, setVisualQueue] = useState("");
   const [creatingContact, setCreatingContact] = useState(false);
+  const [contact, setContact] = useState<PersistenceContact>();
+  const [editingContact, setEditingContact] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
   const [contactError, setContactError] = useState("");
   const [slaMetrics, setSlaMetrics] = useState<SlaMetrics>();
@@ -313,6 +317,20 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     }
   };
   useEffect(() => { setCreatingContact(false); setContactError(""); }, [selected?.id]);
+  // The conversation carries only the resolved identity; the editable ChatPro
+  // contact behind it has to be read on its own.
+  useEffect(() => {
+    const contactId = selected?.contactId;
+    setEditingContact(false);
+    setContactError("");
+    if (!contactId) { setContact(undefined); return; }
+    let cancelled = false;
+    void (async () => {
+      try { const loaded = await domain.contact(contactId); if (!cancelled) setContact(loaded); }
+      catch (nextError) { if (!cancelled) { setContact(undefined); setContactError(errorMessage(nextError)); } }
+    })();
+    return () => { cancelled = true; };
+  }, [domain, selected?.contactId]);
   const createContact = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const conversationId = selected?.id;
@@ -329,6 +347,26 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       setSelected(created.conversation);
       setConversationPage((current) => ({ ...current, items: current.items.map((item) => item.id === created.conversation.id ? created.conversation : item) }));
       setCreatingContact(false);
+    } catch (nextError) {
+      setContactError(errorMessage(nextError));
+    } finally {
+      setSavingContact(false);
+    }
+  };
+  const saveContact = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const contactId = selected?.contactId;
+    if (!contactId) return;
+    const form = new FormData(event.currentTarget);
+    const text = (name: string) => String(form.get(name) ?? "").trim();
+    setSavingContact(true);
+    setContactError("");
+    try {
+      // No tagIds: the Inbox edits identity fields only, and sending an
+      // explicit list would replace the contact's CRM tags.
+      setContact(await domain.updateContact(contactId, { displayName: text("displayName"), email: text("email") || null, company: text("company") || null }));
+      setEditingContact(false);
+      await refreshConversations();
     } catch (nextError) {
       setContactError(errorMessage(nextError));
     } finally {
@@ -993,7 +1031,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                   <span>Canal</span>
                   <strong className="customer-channel"><i /> WhatsApp</strong>
                 </div>
-                <div className="customer-future-fields"><div className="customer-section-title">CAMPOS PERSONALIZADOS</div><div><span>Empresa</span><strong>Não informado</strong></div><div><span>Origem do lead</span><strong>Não informado</strong></div><div><span>Responsável</span><strong>{workspaceUsers.find((user) => user.id === selected.assignedUserId)?.displayName ?? teams.find((team) => team.id === selected.assignedTeamId)?.name ?? "Não atribuído"}</strong></div><div><span>Status</span><strong>{statusLabel[selected.status]}</strong></div><div><span>Informações extras</span><strong>Disponível em breve</strong></div></div>
+                <div className="customer-future-fields"><div className="customer-section-title">CAMPOS PERSONALIZADOS</div><div><span>Origem do lead</span><strong>Não informado</strong></div><div><span>Responsável</span><strong>{workspaceUsers.find((user) => user.id === selected.assignedUserId)?.displayName ?? teams.find((team) => team.id === selected.assignedTeamId)?.name ?? "Não atribuído"}</strong></div><div><span>Status</span><strong>{statusLabel[selected.status]}</strong></div><div><span>Informações extras</span><strong>Disponível em breve</strong></div></div>
               </div>
               {!isGroup(selected) && !selected.contactId && (
                 <div className="customer-details customer-contact">
@@ -1012,6 +1050,29 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                     </form>
                   ) : (
                     <p className="customer-contact-hint">Esta conversa ainda não tem contato no ChatPro.</p>
+                  )}
+                </div>
+              )}
+              {!isGroup(selected) && selected.contactId && (
+                <div className="customer-details customer-contact">
+                  <div className="customer-section-title"><span>DADOS DO CONTATO</span>{!editingContact && <button type="button" onClick={() => setEditingContact(true)}>Editar</button>}</div>
+                  {contactError && <p className="customer-contact-error" role="alert">{contactError}</p>}
+                  {editingContact ? (
+                    <form className="customer-contact-form" onSubmit={saveContact}>
+                      <label>Nome ChatPro<input name="displayName" required maxLength={160} defaultValue={contact?.displayName ?? ""} /></label>
+                      <label>E-mail<input name="email" type="email" defaultValue={contact?.email ?? ""} /></label>
+                      <label>Empresa<input name="company" maxLength={160} defaultValue={contact?.company ?? ""} /></label>
+                      <div className="customer-contact-actions">
+                        <button type="button" className="secondary" onClick={() => { setEditingContact(false); setContactError(""); }}>Cancelar</button>
+                        <button disabled={savingContact}>{savingContact ? "Salvando…" : "Salvar"}</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <div><span>Nome ChatPro</span><strong>{contact?.displayName ?? "Não informado"}</strong></div>
+                      <div><span>E-mail</span><strong>{contact?.email ?? "Não informado"}</strong></div>
+                      <div><span>Empresa</span><strong>{contact?.company ?? "Não informado"}</strong></div>
+                    </>
                   )}
                 </div>
               )}

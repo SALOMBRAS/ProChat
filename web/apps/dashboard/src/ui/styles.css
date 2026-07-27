@@ -243,3 +243,13 @@
    se dissolver no preenchimento. O peso também vinha da regra genérica de botão: sem
    declarar aqui, o número afinaria para o peso normal. */
 .chat-inbox .unread { box-shadow: 0 0 10px #8b5cf680; font-weight: 800; }
+
+/* Contact editing inside the Inbox customer panel. */
+.customer-contact .customer-section-title { display: flex; align-items: center; justify-content: space-between; }
+.customer-contact .customer-section-title button { padding: 0; background: transparent; border: 0; color: #b783ff; font-size: 10px; font-weight: 700; cursor: pointer; }
+.customer-contact-error { margin: 8px 0 0; color: #f98080; font-size: 10px; }
+.customer-contact-form { display: grid; gap: 9px; margin-top: 10px; }
+.customer-contact-form label { display: grid; gap: 4px; color: #827c8e; font-size: 10px; }
+.customer-contact-form input { padding: 7px 9px; border: 1px solid #ffffff14; border-radius: 6px; background: #090910; color: #ddd7e5; font-size: 11px; }
+.customer-contact-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.customer-contact-actions button { padding: 6px 11px; border-radius: 6px; font-size: 10px; }
