@@ -26,7 +26,10 @@ verifique consumidores API, dashboard e testes antes de mudar o formato.
 `App.tsx` coordena shell e navegação. A Home é composta por `HomeDashboard` e
 `SlaOperationalDashboard`; `Inbox.tsx` é a tela ativa de atendimento;
 `InboxKanban.tsx` consome o Kanban persistente. O deep link de atendimento usa
-`/inbox?conversationId=<uuid>` e busca somente a conversa ausente.
+`/inbox?conversationId=<uuid>` e busca somente a conversa ausente. UUIDs e
+outros identificadores técnicos são permitidos em rotas, APIs, estados internos
+e deep links; eles nunca devem ser renderizados como informação visível ao
+usuário.
 
 ## Testes e execução
 
