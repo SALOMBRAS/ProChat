@@ -202,6 +202,14 @@ export function SlaOperationalDashboard({
       ] as const
     : [];
 
+  // A API já corta `critical` nos 20 mais urgentes, então o tamanho do payload não
+  // é o total real de atendimentos em risco: esse total é a soma de amarelos e
+  // vermelhos ativos, a mesma população que o serviço filtra antes do corte.
+  const criticalItems = summary?.critical ?? [];
+  const criticalTotal = summary
+    ? Math.max(criticalItems.length, summary.totals.warning + summary.totals.overdue)
+    : 0;
+
   return (
     <section className="sla-operational" aria-labelledby="sla-operational-title">
       <div className="sla-operational-heading">
@@ -255,33 +263,49 @@ export function SlaOperationalDashboard({
                 <h3 id="sla-critical-title">Atendimentos que exigem atenção</h3>
                 <p>Priorizados pelo prazo operacional atual.</p>
               </div>
-              <span>{summary?.critical.length ?? 0} em foco</span>
+              <span>{criticalTotal} em foco</span>
             </div>
-            {summary?.critical.length ? (
-              <div className="sla-critical-items">
-                {summary.critical.slice(0, 20).map((item) => {
-                  const label = criticalContactLabel(item);
-                  return (
-                    <button
-                      type="button"
-                      className={`sla-critical-item sla-${item.indicator}`}
-                      key={item.conversationId}
-                      onClick={() => onOpenConversation(item.conversationId)}
-                      aria-label={`Abrir ${label}: ${statusLabel[item.status]}, ${deadlineLabel(item.deadlineAt, now)}`}
-                    >
-                      <span className="sla-critical-indicator" aria-hidden="true" />
-                      <span className="sla-critical-copy">
-                        <strong>{label}</strong>
-                        <small>{statusLabel[item.status]}</small>
-                      </span>
-                      <span className="sla-critical-deadline">
-                        {deadlineLabel(item.deadlineAt, now)}
-                      </span>
-                      <span className="sla-critical-action" aria-hidden="true">Abrir →</span>
-                    </button>
-                  );
-                })}
-              </div>
+            {criticalItems.length ? (
+              <>
+                <div
+                  className="sla-critical-scroll"
+                  role="region"
+                  aria-label="Lista rolável de atendimentos que exigem atenção"
+                  tabIndex={0}
+                >
+                  <ul className="sla-critical-items">
+                    {criticalItems.map((item) => {
+                      const label = criticalContactLabel(item);
+                      return (
+                        <li key={item.conversationId}>
+                          <button
+                            type="button"
+                            className={`sla-critical-item sla-${item.indicator}`}
+                            onClick={() => onOpenConversation(item.conversationId)}
+                            aria-label={`Abrir ${label}: ${statusLabel[item.status]}, ${deadlineLabel(item.deadlineAt, now)}`}
+                          >
+                            <span className="sla-critical-indicator" aria-hidden="true" />
+                            <span className="sla-critical-copy">
+                              <strong>{label}</strong>
+                              <small>{statusLabel[item.status]}</small>
+                            </span>
+                            <span className="sla-critical-deadline">
+                              {deadlineLabel(item.deadlineAt, now)}
+                            </span>
+                            <span className="sla-critical-action" aria-hidden="true">Abrir →</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div className="sla-critical-fade" aria-hidden="true" />
+                </div>
+                {criticalItems.length < criticalTotal && (
+                  <p className="sla-critical-truncated">
+                    Mostrando os {criticalItems.length} mais urgentes de {criticalTotal}.
+                  </p>
+                )}
+              </>
             ) : (
               <div className="sla-critical-empty">
                 <span aria-hidden="true">✓</span>

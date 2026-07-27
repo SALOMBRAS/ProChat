@@ -31,6 +31,31 @@ de 60 segundos. Eventos `conversation.sla.updated`,
 `conversation.kanban.moved` e `conversation.updated` são agrupados por 750 ms
 antes de uma única atualização do resumo.
 
+### Lista crítica com altura previsível
+
+A lista fica dentro de um contêiner com rolagem própria dimensionado por
+`--sla-critical-row` e `--sla-critical-rows` (~10 linhas), limitado também por
+`62vh` para não dominar telas baixas. A altura deriva da altura de uma linha, não
+de um pixel fixo: em telas até 760px cada item ganha uma segunda linha (o prazo
+quebra) e a variável de linha é ajustada, deixando o teto de viewport valer.
+
+O cabeçalho da seção (título, subtítulo e badge) fica fora da área rolável. O
+badge conta `totals.warning + totals.overdue`, ou seja, todos os atendimentos em
+risco — não o tamanho da amostra devolvida. Como a API corta `critical` em 20,
+uma linha auxiliar informa quantos dos quantos estão visíveis quando há corte. O
+frontend não aplica corte próprio: tudo o que a API devolve é renderizado.
+
+A área rolável é `role="region"` com `aria-label` e `tabIndex={0}`, contendo uma
+`<ul>` de itens, então é alcançável por teclado e anunciada como região nomeada.
+Um elemento `position: sticky` no fim do contêiner cria o fade que sinaliza
+conteúdo abaixo; ao chegar ao fim, ele repousa sobre o espaço vazio final. Os
+estados vazio e de erro ficam fora do contêiner e não têm altura mínima.
+
+Não há virtualização e ela não é necessária: com o teto de 20 itens da API o DOM
+é trivial. Reavaliar só se o corte do servidor subir para a casa das centenas —
+hoje o projeto não tem dependência de virtualização e adicionar uma seria a
+única forma de resolvê-lo.
+
 Os itens críticos usam a ordem devolvida pelo servidor e navegam para a Inbox
 com `conversationId` na URL. A seleção é feita sem pré-carregar mensagens ou
 métricas individuais. Quando a conversa ainda não está na página atual, a Inbox
@@ -40,4 +65,12 @@ normal de mensagens.
 
 ## Limitações atuais
 
-O schema SLA não duplica a identidade do contato: ela é projetada somente para a amostra crítica. A prioridade é nome WhatsApp, nome ChatPro e telefone normalizado; ausências e identificadores técnicos resultam em `Contato sem identificação`. Validar visualmente amanhã: estados vazio/erro, abertura por link direto, atualização realtime agrupada, layout mobile e atualização multiusuário.
+O schema SLA não duplica a identidade do contato: ela é projetada somente para a amostra crítica. A prioridade é nome WhatsApp, nome ChatPro e telefone normalizado; ausências e identificadores técnicos resultam em `Contato sem identificação`.
+
+Estados vazio e de erro passaram a ter cobertura automatizada, junto com a lista
+cheia, a contagem do badge e o contrato de altura/rolagem em `styles.css`. Como o
+jsdom não tem motor de layout, a altura máxima é verificada no nível da folha de
+estilo, não medindo o elemento renderizado.
+
+Validação visual ainda pendente: layout mobile em viewport real, abertura por
+link direto, atualização realtime agrupada e atualização multiusuário.
