@@ -1,9 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session, SessionsApi } from '../api/sessions';
 import type { InboxApi } from '../api/inbox';
 import { ApiError } from '../api/client';
-import { Devices, Inbox } from './App';
+import { Contacts, Devices, Inbox } from './App';
+import type { DomainApi } from '../api/domain';
 
 const realtime = vi.hoisted(() => ({ handler: undefined as undefined | ((event: any) => void) }));
 vi.mock('../api/realtime.js', () => ({ connectRealtime: (handler: (event: any) => void) => { realtime.handler = handler; return () => undefined; } }));
@@ -279,5 +280,51 @@ describe('Inbox contact creation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
     expect(await screen.findByText('Phone number already exists in this workspace')).toBeInTheDocument();
     expect(screen.getByLabelText('Nome ChatPro')).toHaveValue('Ada Lovelace');
+  });
+});
+
+describe('Contacts', () => {
+  const tag = (id: string, name: string) => ({ id, name, color: null });
+  const contact = { id: 'contact-1', displayName: 'Ada Lovelace', phoneNumber: '5511999990001', email: 'ada@example.com', company: null };
+  const apiFor = (tagIds: string[]) => ({
+    tags: vi.fn().mockResolvedValue([tag('tag-vip', 'VIP'), tag('tag-lead', 'Lead')]),
+    contacts: vi.fn().mockResolvedValue({ items: [contact], page: 1, pageSize: 20, total: 1 }),
+    contactTags: vi.fn().mockResolvedValue(tagIds),
+    updateContact: vi.fn().mockResolvedValue(contact),
+    createContact: vi.fn().mockResolvedValue(contact),
+  }) as unknown as DomainApi & { contactTags: ReturnType<typeof vi.fn>; updateContact: ReturnType<typeof vi.fn>; createContact: ReturnType<typeof vi.fn> };
+
+  it('keeps the tags of a contact edited without touching the tag checkboxes', async () => {
+    const api = apiFor(['tag-vip']);
+    render(<Contacts api={api} />);
+    fireEvent.click(within(await screen.findByRole('table')).getByRole('button', { name: 'Editar' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await waitFor(() => expect(api.contactTags).toHaveBeenCalledWith('contact-1'));
+    expect(screen.getByRole('checkbox', { name: /VIP/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Lead/ })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(api.updateContact).toHaveBeenCalled());
+    expect(api.updateContact.mock.calls[0][1]).toMatchObject({ tagIds: ['tag-vip'] });
+  });
+
+  it('still replaces the tags when the operator actually changes them', async () => {
+    const api = apiFor(['tag-vip']);
+    render(<Contacts api={api} />);
+    fireEvent.click(within(await screen.findByRole('table')).getByRole('button', { name: 'Editar' }));
+    await waitFor(() => expect(api.contactTags).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('checkbox', { name: /VIP/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Lead/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(api.updateContact).toHaveBeenCalled());
+    expect(api.updateContact.mock.calls[0][1]).toMatchObject({ tagIds: ['tag-lead'] });
+  });
+
+  it('opens a new contact with no tag preselected and does not ask for tags', async () => {
+    const api = apiFor(['tag-vip']);
+    render(<Contacts api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Novo contato' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(api.contactTags).not.toHaveBeenCalled();
+    expect(screen.getByRole('checkbox', { name: /VIP/ })).not.toBeChecked();
   });
 });

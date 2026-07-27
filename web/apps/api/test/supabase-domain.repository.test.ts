@@ -45,6 +45,7 @@ const CONTACT_TAGS = [
 ];
 const OPT_OUTS = [{ id: 'opt-out-1', workspace_id: 'workspace-a', contact_id: 'contact-2' }];
 const EMBEDS: Record<string, Array<Record<string, unknown>>> = { contact_tags: CONTACT_TAGS, opt_out_history: OPT_OUTS };
+const SOURCES: Record<string, Array<Record<string, unknown>>> = { contacts: CONTACTS, ...EMBEDS };
 
 /** Records what reached the transport and answers like PostgREST: embedding,
  * filtering, ordering, counting and slicing all happen on the server side, so a
@@ -58,7 +59,7 @@ class ContactsClient {
     const embeds = () => (request.select ?? '*').split(',').flatMap((part) => { const [, name, inner] = /^([a-z_]+)(!inner)?\(/.exec(part.trim()) ?? []; return name ? [{ name, inner: Boolean(inner) }] : []; });
     const embedded = (name: string, contactId: string) => (EMBEDS[name] ?? []).filter((item) => item.contact_id === contactId && request.eq.every(([column, value]) => { const [scope, field] = column.split('.'); return scope !== name || item[field] === value; }));
     const rows = () => {
-      let result: Array<Record<string, unknown>> = CONTACTS.filter((row) => request.eq.every(([column, value]) => column.includes('.') || row[column as keyof ContactRow] === value));
+      let result: Array<Record<string, unknown>> = (SOURCES[table] ?? []).filter((row) => request.eq.every(([column, value]) => column.includes('.') || row[column] === value));
       for (const embed of embeds()) result = result.map((row) => ({ ...row, [embed.name]: embedded(embed.name, String(row.id)) })).filter((row) => !embed.inner || (row[embed.name] as unknown[]).length > 0);
       for (const [column] of request.is) result = result.filter((row) => !((row[column] as unknown[] | undefined) ?? []).length);
       if (request.or) result = applyOrFilter(result as ContactRow[], request.or);
@@ -80,8 +81,10 @@ class ContactsClient {
         if (from > 0 && from >= matched.length) return Promise.resolve({ data: null, count: null, error: { code: 'PGRST103', message: 'Requested range not satisfiable', details: `An offset of ${from} was requested, but there are only ${matched.length} rows.` } });
         return Promise.resolve({ data: matched.slice(from, to + 1), count, error: null });
       },
-      // A head count query is awaited straight after the filters.
-      then: (resolve: (value: unknown) => unknown) => { const { count } = answer(); return Promise.resolve(resolve({ data: null, count, error: null })); },
+      maybeSingle: () => Promise.resolve({ data: rows()[0] ?? null, error: null }),
+      // A head count query is awaited straight after the filters; any other
+      // awaited query answers with its rows.
+      then: (resolve: (value: unknown) => unknown) => { const { matched, count } = answer(); return Promise.resolve(resolve({ data: request.head ? null : matched, count, error: null })); },
     };
     return query;
   }
@@ -212,6 +215,16 @@ describe('Supabase domain repository', () => {
     const { client, repository } = contactsRepositoryFor();
     await expect(repository.contacts('workspace-a', { page: 4, pageSize: 2 })).resolves.toEqual({ items: [], page: 4, pageSize: 2, total: 3 });
     expect(client.requests[1].head).toBe(true);
+  });
+
+  it('reads the tags linked to a contact so an editor can preselect them', async () => {
+    const { client, repository } = contactsRepositoryFor();
+    await expect(repository.contactTags('workspace-a', 'contact-1')).resolves.toEqual([TAG_VIP]);
+    const request = client.requests.find((item) => item.table === 'contact_tags');
+    expect(request?.eq).toEqual([['workspace_id', 'workspace-a'], ['contact_id', 'contact-1']]);
+    expect(request?.order).toEqual(['tag_id', true]);
+    await expect(repository.contactTags('workspace-a', 'contact-3')).resolves.toEqual([]);
+    await expect(repository.contactTags('workspace-b', 'contact-1')).rejects.toThrow('contacts not found in workspace');
   });
 
   it('uses bounded workspace-scoped count queries for Inbox totals', async () => {

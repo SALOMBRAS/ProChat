@@ -68,6 +68,12 @@ export class SupabaseDomainRepository implements DomainRepository {
     return { items: (data ?? []).map(contactRow), page: filters.page, pageSize: filters.pageSize, total: count ?? 0 };
   }
   contact(w: string, id: string) { return this.one('contacts', w, id); }
+  async contactTags(w: string, id: string): Promise<string[]> {
+    await this.one('contacts', w, id);
+    const { data, error: queryError } = await this.client.from('contact_tags').select('tag_id').eq('workspace_id', w).eq('contact_id', id).order('tag_id');
+    error(queryError);
+    return (data ?? []).map((row) => String((row as Row).tag_id));
+  }
   async createContact(w: string, body: unknown) { const input = body as Row; const contact = await this.rpc('chatpro_create_contact', { p_workspace_id: w, p_contact: { ...input, phoneNumber: normalizePhone(String(input.phoneNumber)) }, p_tag_ids: input.tagIds ?? [] }) as Row; await supabaseAdoptOrphanOptOut(this.client, w, String(contact?.id ?? ''), contact?.phoneNumber); return contact; }
   updateContact(w: string, id: string, body: unknown) { const input = body as Row; const payload = { ...input, ...(typeof input.phoneNumber === 'string' ? { phoneNumber: normalizePhone(input.phoneNumber) } : {}) }; return this.rpc('chatpro_update_contact', { p_workspace_id: w, p_contact_id: id, p_contact: payload, p_tag_ids: Array.isArray(input.tagIds) ? input.tagIds : null }); }
   deleteContact(w: string, id: string) { return this.remove('contacts', w, id); }
