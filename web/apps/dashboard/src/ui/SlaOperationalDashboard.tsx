@@ -224,13 +224,16 @@ export function SlaOperationalDashboard({
         )}
       </div>
 
+      {/* Sem nenhum resumo carregado não há o que afirmar: o painel mostra só o erro.
+          Renderizar o corpo aqui exibiria "0 em foco" e o estado vazio positivo, que
+          alegariam fila limpa quando na verdade a carga falhou. */}
       {loading && !summary ? (
         <div className="sla-metric-grid" aria-label="Carregando métricas SLA">
           {Array.from({ length: 6 }, (_, index) => (
             <div className="sla-skeleton" key={index} />
           ))}
         </div>
-      ) : (
+      ) : summary ? (
         <>
           <div className="sla-metric-grid">
             {metrics.map(([title, value, description, tone]) => (
@@ -245,17 +248,15 @@ export function SlaOperationalDashboard({
             ))}
           </div>
 
-          {summary && (
-            <div className="sla-secondary-metrics">
-              <span>
-                Espera média do atendente: {formatSlaDuration(summary.averages.operatorWaitSeconds)}
-              </span>
-              <span>
-                Espera média do cliente: {formatSlaDuration(summary.averages.customerWaitSeconds)}
-              </span>
-              <span>Congeladas: {summary.totals.frozen}</span>
-            </div>
-          )}
+          <div className="sla-secondary-metrics">
+            <span>
+              Espera média do atendente: {formatSlaDuration(summary.averages.operatorWaitSeconds)}
+            </span>
+            <span>
+              Espera média do cliente: {formatSlaDuration(summary.averages.customerWaitSeconds)}
+            </span>
+            <span>Congeladas: {summary.totals.frozen}</span>
+          </div>
 
           <section className="sla-critical-list" aria-labelledby="sla-critical-title">
             <div className="sla-critical-heading">
@@ -314,7 +315,7 @@ export function SlaOperationalDashboard({
             )}
           </section>
         </>
-      )}
+      ) : null}
 
       {error && (
         <div className="sla-operational-error" role="alert">
