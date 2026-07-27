@@ -1,8 +1,15 @@
 # Bloqueio e exclusão de contatos — investigação e proposta
 
 Documento de proposta. **Nada aqui foi implementado, nenhuma migration foi
-aplicada e nenhum DDL foi executado.** O SQL correspondente está em
-`docs/migrations-propostas-contatos.sql`, também não aplicado.
+aplicada e nenhum DDL foi executado no banco remoto.** O SQL correspondente está
+em `docs/migrations-propostas-contatos.sql`, também não aplicado.
+
+O schema do Supabase **deixou de ser suposição**: foi extraído do remoto e
+conferido contra o DDL versionado, e as duas fontes batem coluna a coluna. Ver
+seção 5 — o bloqueio "schema não versionado" da versão anterior está resolvido, e
+duas conclusões que dependiam dele foram corrigidas. O SQL foi validado por
+execução em bancos descartáveis (Postgres em contêiner e SQLite reproduzindo o
+runner real), nunca contra a infraestrutura de produção.
 
 Onde não houve evidência direta, o texto diz **não identificado**. Nenhuma
 afirmação abaixo foi inferida sem fonte.
@@ -419,8 +426,31 @@ Ou seja: **hoje, apagar um contato que já deu opt-out ou que participa de algum
 campanha levanta erro de integridade.** Não é hipótese — decorre direto do DDL
 citado. É a justificativa mais concreta para a RPC transacional.
 
-Equivalente no Supabase: **não identificado** — o DDL de `contacts` e
-`opt_out_history` não está versionado (ver seção 5).
+Equivalente no Supabase: **idêntico, agora confirmado** (seção 5). As mesmas seis
+FKs, com as mesmas ações — `opt_out_history` e `campaign_recipients` também em
+`RESTRICT`. O defeito é o mesmo nos dois bancos.
+
+E há um segundo defeito, preexistente, que o dump expôs: a FK
+`conversations → contacts` é `ON DELETE SET NULL` sobre a chave composta
+`(workspace_id, contact_id)`. A forma **simples** de `SET NULL` anula *todas* as
+colunas da chave filha — inclusive `workspace_id`, que é `NOT NULL`. O DDL
+versionado usa a forma simples em `web/supabase/migrations/003_conversations.sql:15`
+e em `apps/api/migrations/003_conversations.sql:15`, embora o mesmo autor tenha
+usado a forma correta com lista de colunas em `leads` (`on delete set null
+(contact_id)`). Se o remoto estiver com a forma simples, **apagar um contato que
+tenha qualquer conversa já falha hoje**, antes de qualquer coisa proposta aqui.
+Confirme com uma leitura pura:
+
+```sql
+SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+ WHERE conrelid = 'public.conversations'::regclass AND contype = 'f';
+```
+
+É defeito separado — reporte, não conserte de carona. A purga proposta não
+depende dele: ela desvincula as conversas com `UPDATE` explícito **antes** do
+`DELETE`, de modo que nenhuma ação de FK chega a disparar. O SQLite, que nem
+sequer suporta a forma com lista de colunas, só funciona por causa dessa mesma
+escolha.
 
 ### Soft ou hard delete?
 
@@ -437,8 +467,26 @@ Equivalente no Supabase: **não identificado** — o DDL de `contacts` e
 3. **LGPD exige a via de apagamento real.** Direito à eliminação não se atende com
    soft delete. Daí o segundo modo.
 
-Proposta: `chatpro_delete_contact(p_workspace_id, p_contact_id, p_mode)` com
-`p_mode IN ('soft','purge')`, transacional.
+Proposta, transacional, com a assinatura completa fixada já em M2:
+
+```sql
+chatpro_delete_contact(p_workspace_id text, p_contact_id text,
+                       p_mode text default 'soft',
+                       p_actor_user_id text default null,
+                       p_identifier_hash text default null)
+```
+
+`p_mode IN ('soft','restore','purge')`. Em M2 só `soft` e `restore` são aceitos;
+`purge` é **recusado com mensagem explícita** até M3 rodar, para a dependência
+falhar alto em vez de corromper em silêncio.
+
+`p_identifier_hash` já aparece em M2 embora só M3 o use, e isso é deliberado:
+`CREATE OR REPLACE FUNCTION` **não altera assinatura**. Se M3 acrescentasse um
+parâmetro, o Postgres criaria uma segunda função *sobrecarregada* em vez de
+substituir a primeira, e toda chamada com quatro argumentos passaria a ser
+ambígua. Fixando a assinatura final desde M2, M3 troca apenas o corpo — e os
+`GRANT`s sobrevivem, porque `CREATE OR REPLACE` preserva as permissões da função
+existente.
 
 ### Modo `soft` (padrão)
 
@@ -455,6 +503,38 @@ Proposta: `chatpro_delete_contact(p_workspace_id, p_contact_id, p_mode)` com
 
 Reversível por `deletedAt = NULL`.
 
+#### Por que o soft delete NÃO desvincula as conversas
+
+É a decisão menos óbvia do modo `soft`, e ela se sustenta em evidência, não em
+preferência. Desvincular (`conversations.contactId = NULL`) seria errado por dois
+motivos independentes — e o segundo é fatal.
+
+**Seria inócuo.** `waha-webhook.service.ts:117` (Supabase) e `:82` (SQLite)
+gravam o vínculo assim:
+
+```ts
+contact_id: existing?.contact_id ?? contact?.id ?? null
+```
+
+O `contactId` só é escrito quando ainda está nulo. Como o soft delete **preserva
+`contact_identifiers`**, a primeira mensagem seguinte do mesmo número resolve
+para o contato apagado, encontra `contact_id` nulo e **regrava o vínculo**.
+Desvincular seria desfeito pelo próximo inbound.
+
+**Seria irreversível.** Zerar `contactId` destrói a informação de quais conversas
+pertenciam ao contato. O restore não teria como reconstruir o vínculo — e o soft
+delete deixaria de ser reversível, que é a sua única razão de existir.
+
+Some-se a isso que a FK `conversations → contacts` é `SET NULL` e o soft delete
+não executa `DELETE` nenhum, então a ação da FK nunca dispara. **Preservar o
+vínculo é o comportamento que o schema real já produz sozinho** — não é preciso
+código para obtê-lo, seria preciso código para estragá-lo.
+
+Consequência de produto que a UI precisa tratar: a conversa **continua na Inbox**
+com a identidade do WhatsApp. "Apagar o contato" no CRM não apaga a conversa. É
+a mesma assimetria do modo `purge`, e a razão de o rótulo na interface não poder
+ser um "Excluir" seco.
+
 **Ressurreição.** Os aliases ficam, então uma mensagem nova do mesmo número
 resolve para o contato apagado. Criar um segundo contato violaria
 `UNIQUE (workspaceId, phoneNumber)`. A proposta é o resolvedor de identidade
@@ -466,211 +546,436 @@ volta, e fica registrado. **Confirme se concorda** — é a decisão de produto 
 
 ### Modo `purge` (LGPD)
 
-Ordem dentro da transação, escolhida para respeitar as FKs sem alterar as que já
-funcionam:
+Ordem dentro da transação, escolhida para que **nenhuma ação de FK precise
+disparar**: cada dependente é resolvido por comando explícito antes do `DELETE`
+do contato.
 
 | Passo | Objeto | Ação |
 |---|---|---|
-| 1 | `opt_out_history` | `contactId = NULL`, `identifierHash` preservado — **a linha sobrevive** |
+| 0 | — | **recusa** se houver opt-out e o hash não vier |
+| 1 | `opt_out_history` | `contactId = NULL`, `identifierHash` gravado — **a linha sobrevive** |
 | 2 | `campaign_recipients` | DELETE (contorna o RESTRICT sem mudar o schema) |
 | 3 | `conversations` | `contactId = NULL`, `blockedAt = NULL` |
 | 4 | `contact_identifiers` | DELETE (também cascatearia) |
 | 5 | `contact_tags` | DELETE (também cascatearia) |
-| 6 | `contact_block_events` | DELETE por cascata |
-| 7 | `contact_deletion_log` | INSERT — tabela **sem FK**, sobrevive ao contato |
-| 8 | `contacts` | DELETE |
+| 6 | `leads` | `contactId = NULL` (também viria da FK) |
+| 7 | `contact_block_events` | DELETE (também cascatearia) |
+| 8 | `contact_deletion_log` | INSERT — tabela **sem FK**, sobrevive ao contato |
+| 9 | `contacts` | DELETE |
 
-Passos 4 e 5 são explícitos apesar do CASCADE, para a RPC devolver a contagem do
-que removeu e não depender do modo de FK do SQLite em runtime.
+Os passos 4 a 7 são explícitos apesar de CASCADE/SET NULL por três razões: a RPC
+devolve a contagem do que removeu; o resultado deixa de depender do modo de FK do
+SQLite em runtime; e, decisivo, **não se depende da forma do `SET NULL`** —
+`conversations` e `leads` usam chave composta, e a forma simples de `SET NULL`
+tentaria anular `workspaceId NOT NULL` (ver seção 3, "o que existe hoje").
+
+O passo 0 não é burocracia: sem hash, a linha de opt-out sobrevive inconsultável,
+o que equivale a perder a manifestação do titular preservando a aparência de tê-la
+guardado.
 
 O passo 1 é o núcleo do desenho: o opt-out **sobrevive sem PII**. `identifierHash`
-guarda o SHA-256 do telefone normalizado, então uma importação futura do mesmo
-número ainda encontra a manifestação anterior sem que o telefone esteja
-armazenado. Isso exige mudança de schema — `opt_out_history.contactId` passa a
-aceitar NULL e a FK vira SET NULL —, que é justamente o que o `RESTRICT` atual
-impede. É a única alteração estrutural realmente obrigatória da proposta.
+mantém a manifestação consultável por número sem que o número esteja armazenado,
+de modo que uma importação futura do mesmo telefone ainda a encontre.
+
+#### O que muda de schema — e o que, ao contrário do que se supunha, não muda
+
+Só uma coisa é obrigatória: **soltar o `NOT NULL` de `opt_out_history.contactId`**,
+para a linha poder ser desvinculada e sobreviver. Mais o acréscimo da coluna
+`identifierHash`.
+
+**Trocar a ação da FK de `RESTRICT` para `SET NULL` não é necessário — e é pior.**
+A versão anterior deste documento afirmava que era a única alteração estrutural
+obrigatória. Estava errada. A purga desvincula as linhas com `UPDATE` explícito
+**antes** do `DELETE` do contato; quando o `DELETE` roda, nenhuma linha de
+`opt_out_history` referencia o contato e o `RESTRICT` nunca chega a disparar.
+
+Manter o `RESTRICT` é um ganho de segurança, e a diferença é exatamente o dano
+que a proposta existe para impedir:
+
+| | Caminho que apague um contato **sem** passar pela RPC |
+|---|---|
+| com `RESTRICT` | falha alto. O opt-out nunca fica órfão por acidente. |
+| com `SET NULL` | **sucede em silêncio** e desvincula a linha **sem gravar `identifierHash`**. O opt-out sobrevive como lixo: não casa com número nenhum numa importação futura. |
+
+`SET NULL` desliga a proteção justamente no caminho não auditado. O SQL traz o
+bloco de troca comentado — porque foi pedido, não porque seja recomendado.
+
+#### Hash do telefone: HMAC com pepper, calculado na aplicação
+
+O hash é calculado **na aplicação** e chega à RPC como parâmetro
+`p_identifierHash`. Nem o Postgres nem o SQLite o calculam. Quatro razões, em
+ordem de peso:
+
+1. **SHA-256 puro de telefone não anonimiza.** O espaço de busca de um celular
+   brasileiro tem ordem de 10⁹–10¹¹ preimagens; uma GPU comum reverte o conjunto
+   inteiro em minutos. Sob a LGPD, dado pseudonimizado reversível continua sendo
+   dado pessoal. Guardar `SHA-256(telefone)` e chamar isso de "sem PII" seria
+   falso — e falso justamente no artefato criado para provar conformidade. A
+   aplicação usa **HMAC-SHA256 com um pepper de ambiente**, que nunca entra no
+   banco, em migration, em log ou na documentação. Um dump do banco, sozinho,
+   deixa de bastar para reverter o hash. É isso que torna "o opt-out sobrevive
+   sem PII" uma afirmação verdadeira em vez de retórica.
+2. **Paridade SQLite/Supabase**, que é a regra 1 do `CLAUDE.md`. O SQLite não tem
+   SHA-256 nativo. Calcular no Postgres obrigaria uma segunda implementação em
+   Node, e as duas teriam de produzir byte a byte o mesmo resultado para sempre.
+   Uma implementação só, em TypeScript, elimina a classe inteira de divergência.
+3. **Some a dependência de `pgcrypto`.** Sem `digest()` não há extensão a
+   habilitar, e o "não identificado" sobre `pgcrypto` deixa de existir.
+4. O backfill histórico teria de ser de aplicação de qualquer forma — é ela que
+   tem o pepper. Uma rotina serve aos dois bancos.
+
+Entrada canônica, que precisa ficar fixada: `contacts.phoneNumber` exatamente
+como armazenado. Já é normalizado — `normalizedPhoneNumberSchema`
+(`packages/contracts/src/index.ts:49`) exige `/^\d{8,15}$/` e `normalizedPhone()`
+(`contact-identity-resolver.service.ts:14`) produz esse formato: só dígitos, sem
+`+`, sem sufixo `@c.us`. Mudar o pepper ou a normalização invalida todo hash já
+gravado; versione o prefixo (`v1:`) se algum dia precisar rodar dois em paralelo.
+
+A RPC **recusa** purgar contato que tenha opt-out sem hash. Falhar alto é melhor
+que destruir em silêncio a capacidade de honrar a manifestação.
+
+#### BLOQUEIO DE M3 — hoje o hash não teria quem o lesse
+
+Este é o achado mais sério da verificação, e ele atinge o núcleo do desenho.
+
+`identifierHash` seria, hoje, uma coluna **write-only**. Um `grep` por
+`identifier_hash|identifierHash` em todo o repositório, fora o SQL de proposta,
+retorna **zero** ocorrências. E os três consumidores de opt-out casam
+exclusivamente por `contactId`:
+
+| Consumidor | Predicado |
+|---|---|
+| `sqlite-domain.repository.ts:70` `prepareCampaign` | `o.contactId = r.contactId` |
+| `chatpro_prepare_campaign` (`20260715000100_chatpro_domain_rpcs.sql:102`) | `o.contact_id = r.contact_id` |
+| `sqlite-domain.repository.ts:27` filtro `optOut` da listagem | `o.contactId` |
+
+Logo, assim que o passo 1 da purga zera `contactId`, a linha deixa de casar com
+**qualquer** predicado existente — e uma reimportação do mesmo número gera um
+`contactId` novo que nada liga ao hash. Na prática, **purgar revogaria o
+opt-out**: exatamente o dano que M3 existe para impedir, e o mesmo defeito pelo
+qual esta proposta recusa o `ON DELETE SET NULL`.
+
+Escrever o hash sem ler o hash não preserva nada; só produz a aparência de ter
+preservado. **M3 não deve ser aplicada** antes de existirem as duas leituras:
+
+- `prepareCampaign` e `chatpro_prepare_campaign` passam a excluir **também** por
+  `identifierHash` do telefone do destinatário;
+- `createContact` / `chatpro_create_contact` e o resolvedor de identidade
+  consultam `opt_out_history` por `identifierHash` ao materializar um contato
+  novo, e propagam o opt-out encontrado para o `contactId` novo.
+
+É código, não migration. M1 e M2 não são afetadas.
+
+#### Escopo real da purga — o que ela não apaga
+
+A purga desvincula e apaga o **cadastro de CRM**. O telefone permanece em claro
+em pelo menos quatro lugares que a RPC não toca:
+
+| Onde | Origem |
+|---|---|
+| `whatsapp_identities.phone` | `005_whatsapp_group_persistence.sql:6` |
+| `pending_contact_identities.identifier` | `020_contact_identity_aliases.sql:17` |
+| `conversations.chatId` | formato `55…@c.us` |
+| `whatsapp_messages.chatId` | idem |
+
+Verificado após uma purga completa: `conversations.chatId` continua
+`5511999998888@c.us`, apenas com `contactId` nulo.
+
+Consequência para a alegação jurídica, e ela precisa ser dita sem enfeite: o
+pepper protege contra quem obtenha **apenas** a tabela de opt-out, não contra um
+dump completo do banco, onde o telefone está em claro ao lado. **O que M3 entrega
+é desvinculação de cadastro, não "direito à eliminação".** Alcançar a eliminação
+de fato exige estender a purga a `pending_contact_identities` e
+`whatsapp_identities` e decidir o que fazer com os `chatId` — outro escopo, que
+depende da decisão jurídica da pendência 4.
 
 `whatsapp_messages` **não** são apagadas: pertencem à conversa, não ao contato, e
 apagá-las destruiria o histórico de atendimento de outros operadores. Se a
 exigência legal alcançar o conteúdo das mensagens, é outro escopo — diga e eu
 desenho separado.
 
-**Assimetria de reversibilidade:** `soft` é reversível; `purge` não é. O
-`identifierHash` do passo 1 precisa ser preenchido no momento do opt-out, por
-código de aplicação (o SQLite não tem SHA-256 nativo). Para linhas históricas há
-backfill de aplicação; enquanto não rodar, `identifierHash` fica NULL e o opt-out
-purgado não é recuperável por número. Está anotado no SQL.
+**Assimetria de reversibilidade:** `soft` é reversível; `purge` não é. Para
+linhas de opt-out históricas o `identifierHash` nasce nulo e depende de um
+backfill de aplicação. Enquanto esse backfill não rodar, purgar um contato com
+opt-out antigo é **recusado** pela RPC — que é o comportamento correto, e o
+motivo de a recusa existir. Está anotado no SQL.
 
 ### Transacionalidade nos dois bancos
 
-- **Supabase:** função PL/pgSQL, atômica por natureza, `SECURITY DEFINER`,
-  `SET search_path = public`, `GRANT EXECUTE ... TO service_role` — mesmo padrão
-  de `chatpro_resolve_contact_identity` em
-  `supabase/migrations/20260723000100_contact_identity_atomic.sql`.
+- **Supabase:** função PL/pgSQL, atômica por natureza, seguindo o molde real das
+  outras 19 RPCs, confirmado em
+  `supabase/migrations/20260715000100_chatpro_domain_rpcs.sql`:
+  `language plpgsql security invoker set search_path = public, pg_temp`,
+  `p_workspace_id` primeiro, `perform chatpro_require_workspace(...)` como
+  primeira instrução, `select ... for update` antes de mutar,
+  `revoke all ... from public` e `grant execute ... to service_role`.
+  **`security invoker`, não `SECURITY DEFINER`** — a versão anterior deste
+  documento sugeria `DEFINER`, o que teria contrariado a convenção da casa e
+  feito a função ignorar RLS para qualquer chamador.
 - **SQLite:** não há RPC. O equivalente é `this.db.transaction(...)` em
   `sqlite-domain.repository.ts`, com a mesma ordem de passos e o mesmo retorno.
   O arquivo SQL entrega apenas as mudanças de schema do lado SQLite.
+  Atenção ao implementar: o `DELETE` cru de hoje (`sqlite-domain.repository.ts:31`)
+  falha para qualquer contato que tenha conversa, porque a FK composta com
+  `SET NULL` tentaria anular `workspaceId NOT NULL`. A transação precisa
+  desvincular com `UPDATE` explícito antes do `DELETE`, como a RPC faz.
 
 Retorno em ambos: JSON com `mode` e as contagens por objeto afetado, para a API
 relatar o que aconteceu em vez de um 204 mudo.
 
-## 4. SQL proposto
+## 4. SQL proposto — três migrations independentes
 
-`docs/migrations-propostas-contatos.sql`, com as três seções — SQLite, Supabase e
-rollback. **Não executado.** Os arquivos definitivos, quando aprovados, seriam
-`apps/api/migrations/021_*.sql` e `supabase/migrations/<timestamp>_*.sql`; ficam
-em `docs/` de propósito, para não serem aplicados por engano pelo runner de
-migrations.
+`docs/migrations-propostas-contatos.sql`. **Não aplicado.** Fica em `docs/` de
+propósito, para não ser executado por engano pelo runner de migrations.
 
-## 5. BLOQUEIO — o schema CRM do Supabase não está versionado
+A separação em três não é organizacional, é consequência do schema real: como o
+soft delete não apaga nada, ele **nunca esbarra no `RESTRICT`**, e a
+funcionalidade principal deixa de depender de qualquer mudança de constraint.
 
-**Nenhuma migration pode ser aplicada antes de resolver isto.**
+| | Habilita | Reversível | Depende de |
+|---|---|---|---|
+| **M1** Bloqueio | as duas guardas locais, a máquina de estados e a auditoria | sim, nos dois bancos, por `ALTER TABLE`/`DROP` | **nenhuma migration** |
+| **M2** Soft delete + RPC | exclusão reversível, restore e o log que sobrevive ao contato | sim, em dois níveis — schema e dado (`restore`) | **nenhuma migration** |
+| **M3** Purga LGPD | desvinculação real do cadastro preservando a linha de opt-out | schema sim; **dado não** — depois da primeira purga só resta backup | **M1 e M2** |
 
-### Evidência
+M1 e M2 são mutuamente independentes: qualquer uma pode ser aplicada sozinha e
+entrega o seu recurso inteiro. M3 depende de M1 por **dois** objetos — zera
+`conversations.blockedAt` e apaga `contact_block_events` — e de M2 pela função e
+pelo `contact_deletion_log`.
 
-`supabase/migrations/` começa em `002_waha_webhook_store.sql`. Não existe `001`.
-As tabelas de CRM nunca são criadas ali — só referenciadas:
+Modo de falha a conhecer: **aplicar M3 isolada não dá erro de DDL.** O validador
+do plpgsql não resolve nomes de tabela na criação, então a migration aplica
+normalmente e a função só quebra na primeira chamada, com `42703`. Verificado.
+
+Cada migration traz SQLite, Supabase e rollback próprios. Os arquivos definitivos,
+quando aprovados, seriam `apps/api/migrations/021..023_*.sql` e
+`web/supabase/migrations/<timestamp>_*.sql`.
+
+### Independência entre migrations não é independência de tudo
+
+Duas ressalvas que a tabela acima não captura, ambas descobertas por execução e
+ambas **bloqueantes**:
+
+**1. Pré-requisito de código, comum às três (só SQLite).** O repositório usa
+`INSERT` posicional, sem lista de colunas, em 14 pontos de
+`sqlite-domain.repository.ts`. Dois são fatais:
+
+```text
+:29  INSERT INTO contacts VALUES (@id,@workspaceId,...,@updatedAt)      -- 8 valores
+:61  INSERT INTO opt_out_history VALUES (@id,@workspaceId,...,@updatedAt) -- 8 valores
+```
+
+Qualquer `ADD COLUMN` em `contacts` quebra `createContact`; o rebuild do
+`opt_out_history` quebra `optOut`. Reproduzido sobre a baseline real:
+
+```text
+antes de M1 ...... createContact -> OK
+depois de M1 ..... "table contacts has 13 columns but 8 values were supplied"
+depois de M2 ..... "table contacts has 14 columns but 8 values were supplied"
+depois de M3 ..... "table opt_out_history has 9 columns but 8 values were supplied"
+```
+
+Pior que falhar: **o erro é mascarado**. A linha `:29` está dentro de
+`catch { fail(409,'CONFLICT','Phone number already exists in this workspace'); }`,
+um `catch` nu. O operador veria "telefone já existe" para todo contato novo, sem
+nada no log apontando para a migration. Corrigir os dois `INSERT` para a forma
+nomeada — e estreitar o `catch` para `SQLITE_CONSTRAINT_UNIQUE` — é
+**pré-requisito de aplicação**, não melhoria. O lado Supabase não tem o
+problema: as RPCs nomeiam as colunas.
+
+**2. Pré-requisito próprio de M3: `identifierHash` não tem leitor.** Detalhado
+na seção 3 — sem ele, a purga *revoga* o opt-out em vez de preservá-lo.
+
+### Duas armadilhas que o SQL desarma
+
+1. **O runner do SQLite já abre transação.**
+   `apps/api/src/persistence/database.ts:31` executa cada arquivo dentro de
+   `this.sqlite.transaction(...)`. Logo, dentro de um arquivo de migration,
+   `BEGIN TRANSACTION` levanta *"cannot start a transaction within a
+   transaction"* e derruba a migration inteira, e `PRAGMA foreign_keys = OFF` é
+   **no-op silencioso** — o SQLite ignora a mudança com transação pendente. A
+   versão anterior usava os dois no rebuild do `opt_out_history` e teria falhado
+   na aplicação. Nenhuma seção de migration usa `PRAGMA` ou `BEGIN`/`COMMIT`
+   agora; só as de rollback, que rodam à mão fora do runner. O rebuild funciona
+   com `foreign_keys` ligado porque `opt_out_history` é tabela **filha** e nada
+   a referencia — não há o que orfanar.
+
+2. **O que o SQLite realmente recusa em `DROP COLUMN`** — e aqui uma versão
+   intermediária desta proposta errou, prescrevendo um rebuild desnecessário da
+   tabela `contacts`, que é pai de seis outras. Medido em 3.53.2:
+
+   | Caso | `DROP COLUMN` |
+   |---|---|
+   | coluna com CHECK de **coluna** (o que `ADD COLUMN` produz) | **aceito** |
+   | coluna citada em CHECK de **tabela** | recusado — `error in table u after drop column` |
+   | coluna citada no `WHERE` de índice **parcial** | recusado — `error in index ix after drop column` |
+
+   A regra correta é *índice ou CHECK de tabela*, não *CHECK*. Por isso os
+   rollbacks de M1 e M2 saem por `ALTER TABLE` limpo, desde que os índices
+   parciais caiam antes — e é o índice, não o CHECK, que impõe essa ordem.
+
+### Rollback só é seguro se o executor parar no primeiro erro
+
+Vale para os dois bancos, e custou duas rodadas de verificação para aparecer:
+**ordenar os comandos não protege nada se o cliente continua após o erro.**
+
+- **Postgres.** Colado em `psql` com autocommit e sem `ON_ERROR_STOP`, o
+  `ALTER … SET NOT NULL` que serve de trava no rollback de M3 falha com `23502`
+  e os comandos seguintes executam assim mesmo, destruindo `identifier_hash` —
+  o desfecho que a ordem existia para impedir. Os três rollbacks passaram a ser
+  envelopados em `BEGIN; … COMMIT;`, o que torna a proteção estrutural.
+- **SQLite.** Pior. O `sqlite3` CLI, por padrão, imprime o erro e **continua**.
+  Sem `.bail on`, o `INSERT … SELECT` que serve de trava falha, o `DROP TABLE`
+  seguinte roda, e o `COMMIT` confirma: **zero linhas** em `opt_out_history`,
+  com `foreign_key_check` e `integrity_check` limpos. O banco fica íntegro e
+  vazio, sem sinal de que o histórico inteiro de opt-out se perdeu. O bloco
+  agora começa com `.bail on` e **renomeia** a tabela antiga em vez de apagá-la,
+  de modo que nem um `DROP` indevido a alcance.
+
+Também documentado no SQL: **reaplicar o bloco M3/SQLite zera todo o backfill de
+hash com sucesso e sem aviso**, porque o `INSERT … SELECT` grava `NULL` em
+`identifierHash`. M1 e M2 falham alto na segunda vez; M3 não. O runner
+automático está protegido por `schema_migrations`; execução manual não está.
+
+## 5. Schema real — RESOLVIDO
+
+O bloqueio "o schema CRM do Supabase não está versionado" que esta seção
+descrevia **não existe mais**. O schema foi obtido e conferido. O SQL da proposta
+está escrito contra ele, não mais contra suposição.
+
+### Evidência 1 — dump do remoto
+
+Extraído por `information_schema` e `pg_constraint` no banco remoto:
+
+```text
+contacts: id text NOT NULL, workspace_id text NOT NULL, display_name text NOT NULL,
+          phone_number text NOT NULL, email text, company text,
+          created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL
+```
+
+**Não existe `blocked_at` nem `deleted_at`** — as colunas propostas são todas
+aditivas, nenhuma colide.
+
+As seis FKs que referenciam `contacts`, todas pela chave composta
+`(workspace_id, contact_id)`, com o nome real e a ação real:
+
+| Constraint | `ON DELETE` |
+|---|---|
+| `contact_tags_workspace_id_contact_id_fkey` | CASCADE |
+| `contact_identifiers_workspace_id_contact_id_fkey` | CASCADE |
+| `leads_workspace_id_contact_id_fkey` | SET NULL |
+| `conversations_workspace_id_contact_id_fkey` | SET NULL |
+| `campaign_recipients_workspace_id_contact_id_fkey` | RESTRICT |
+| `opt_out_history_workspace_id_contact_id_fkey` | RESTRICT |
+
+O remoto tem **19 RPCs `chatpro_*`**, e **`chatpro_delete_contact` não é uma
+delas** — a função proposta é nova, não uma substituição.
+
+### Evidência 2 — o DDL estava versionado o tempo todo, em outro diretório
+
+A afirmação anterior era falsa por escopo de busca. A investigação olhou apenas
+`web/supabase/migrations/`. O DDL de CRM e as RPCs estão versionados na **raiz do
+repositório**:
 
 ```console
-$ grep -rln "contacts" supabase/migrations/
-supabase/migrations/003_conversations.sql              # FK para contacts
-supabase/migrations/013_contact_identity_aliases.sql   # FK para contacts
-supabase/migrations/20260723000100_contact_identity_atomic.sql  # INSERT em contacts
-
-$ grep -rln "contact_tags\|opt_out" supabase/migrations/
-(vazio)
+$ ls supabase/migrations/ | head -3
+20260715000000_initial_chatpro_persistence.sql   # cria contacts, opt_out_history, ...
+20260715000100_chatpro_domain_rpcs.sql           # define as RPCs chatpro_*
+20260716000100_grant_chatpro_service_role_table_access.sql
 ```
 
-RPCs: o código chama 18 funções `chatpro_*`; `supabase/migrations/` versiona
-**uma**.
+`supabase/migrations/20260715000000_initial_chatpro_persistence.sql:23` traz o
+`opt_out_history` com `on delete restrict`, e `:3` traz o `contacts` exatamente
+com as oito colunas do dump. **As duas fontes batem coluna a coluna** — o dump
+confirma que o remoto está no estado que esses arquivos descrevem.
 
-```console
-$ grep -rhno "chatpro_[a-z_]*" supabase/migrations/ | sort -u
-chatpro_claim_routing_jobs
-```
+Isso também resolve dois "não identificado" que restavam:
 
-As 17 sem migration, todas chamadas em `apps/api/src/persistence/supabase-domain.repository.ts`:
-`chatpro_add_note`, `chatpro_create_contact`, `chatpro_delete_pipeline`,
-`chatpro_delete_stage`, `chatpro_delete_tag`, `chatpro_distribute_conversation`,
-`chatpro_initialize_pipeline`, `chatpro_kanban_move`, `chatpro_move_lead`,
-`chatpro_prepare_campaign`, `chatpro_record_opt_out`, `chatpro_remove_opt_out`,
-`chatpro_resolve_contact_identity`, `chatpro_save_campaign`,
-`chatpro_save_settings`, `chatpro_set_lead_tag`, `chatpro_update_contact`.
+- **Convenção das RPCs.** `20260715000100_chatpro_domain_rpcs.sql:3` define
+  `chatpro_require_workspace`, e todas as funções seguem o mesmo molde:
+  `language plpgsql security invoker set search_path = public, pg_temp`,
+  `p_workspace_id text` como primeiro parâmetro, `perform
+  chatpro_require_workspace(...)` como primeira instrução, `revoke all ... from
+  public` seguido de `grant execute ... to service_role`. Nenhum grant a `anon`
+  ou `authenticated`. A proposta segue esse molde à risca — inclusive
+  `security invoker`, e não o `SECURITY DEFINER` que a versão anterior sugeria.
+- **RLS.** Não existe **um único** `CREATE POLICY` em nenhum dos dois diretórios
+  de migrations. As tabelas têm RLS ligada e nenhuma política; o acesso é
+  exclusivamente por `service_role`, que ignora RLS. As tabelas novas espelham
+  essa postura, que é o que "espelhar as políticas existentes" significa na
+  prática: não criar nenhuma.
 
-(`chatpro_resolve_contact_identity` tem `CREATE OR REPLACE` em
-`20260723000100_contact_identity_atomic.sql`, mas o cabeçalho do próprio arquivo
-diz que é aditivo sobre um estado remoto não versionado.)
+### O que a evidência mudou no desenho
 
-### Por que isso bloqueia especificamente esta proposta
+Duas conclusões da versão anterior caíram:
 
-Ela precisa alterar `public.opt_out_history` — soltar o NOT NULL de `contact_id` e
-trocar a FK para `ON DELETE SET NULL`. Trocar uma FK exige o **nome exato da
-constraint**, que só existe no banco remoto. Escrever o `ALTER` às cegas produz
-migration que falha na aplicação ou, pior, que apaga a constraint errada.
+1. **A alteração de FK não é a "única mudança estrutural obrigatória" — e não é
+   obrigatória.** Como o soft delete não apaga nada, ele nunca esbarra em
+   `RESTRICT`. Só a purga precisa mexer em `opt_out_history`, e mesmo lá o único
+   comando indispensável é soltar o `NOT NULL` de `contact_id`. Trocar a ação da
+   FK para `SET NULL` é opcional e **contraindicado**: a purga já desvincula com
+   `UPDATE` explícito antes do `DELETE`, então o `RESTRICT` nunca dispara;
+   mantê-lo garante que nenhum caminho fora da RPC consiga desvincular um
+   opt-out sem gravar o hash. Com `SET NULL`, esse caminho passaria em silêncio e
+   deixaria o opt-out órfão e inconsultável — exatamente o dano que a proposta
+   existe para impedir.
+2. **A proposta virou três migrations independentes.** Como a funcionalidade
+   principal não depende de mudança de constraint, bloqueio e soft delete não
+   precisam esperar pela decisão da purga. Ver seção 4.
 
-Também não dá para saber, sem o dump: se `public.contacts` já tem alguma coluna de
-bloqueio; se `opt_out_history` no Supabase usa RESTRICT como no SQLite; quais RLS
-e grants as tabelas novas precisam espelhar.
+### Problema separado, ainda em aberto
 
-### O que você precisa extrair — exatamente
+`web/supabase/migrations/` — o diretório que o `CLAUDE.md` declara canônico
+(«`web/supabase/migrations`: esquema Supabase remoto») — **continua sem a
+baseline de CRM**. Ele começa em `002_waha_webhook_store.sql`, sem `001`, e nunca
+cria `contacts`, `contact_tags` ou `opt_out_history`; só as referencia. A
+baseline vive na raiz, fora dele.
 
-Preferível, se a CLI estiver linkada ao projeto:
-
-```bash
-supabase db dump --schema public --file supabase/schema-remoto.sql   # estrutura
-supabase migration list                                              # local x remoto
-```
-
-Sem CLI, rode no SQL Editor do painel e salve cada saída:
-
-**a) Colunas das tabelas de CRM**
-
-```sql
-SELECT table_name, ordinal_position, column_name, data_type,
-       is_nullable, column_default
-  FROM information_schema.columns
- WHERE table_schema = 'public'
-   AND table_name IN ('contacts','tags','contact_tags','opt_out_history',
-       'templates','pipelines','stages','leads','lead_tags','lead_notes',
-       'activities','campaigns','campaign_recipients','workspace_settings',
-       'contact_identifiers','pending_contact_identities')
- ORDER BY table_name, ordinal_position;
-```
-
-**b) Constraints e regras de FK — o item mais crítico**
-
-```sql
-SELECT c.conname AS constraint_name,
-       c.contype,
-       rel.relname AS table_name,
-       pg_get_constraintdef(c.oid) AS definition
-  FROM pg_constraint c
-  JOIN pg_class rel ON rel.oid = c.conrelid
-  JOIN pg_namespace n ON n.oid = rel.relnamespace
- WHERE n.nspname = 'public'
-   AND rel.relname IN ('contacts','opt_out_history','contact_tags',
-       'campaign_recipients','contact_identifiers','conversations','leads')
- ORDER BY rel.relname, c.conname;
-```
-
-Preciso, daqui: o nome da FK de `opt_out_history` para `contacts`, o `ON DELETE`
-de cada FK, e o nome da constraint única de `(workspace_id, phone_number)` de
-`contacts` — a RPC de identidade já referencia
-`contacts_workspace_id_phone_number_key` por nome.
-
-**c) Definição das 17 RPCs**
-
-```sql
-SELECT p.proname, pg_get_functiondef(p.oid) AS definition
-  FROM pg_proc p
-  JOIN pg_namespace n ON n.oid = p.pronamespace
- WHERE n.nspname = 'public' AND p.proname LIKE 'chatpro\_%'
- ORDER BY p.proname;
-```
-
-**d) RLS e políticas**
-
-```sql
-SELECT relname, relrowsecurity
-  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
- WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY relname;
-
-SELECT schemaname, tablename, policyname, cmd, roles, qual, with_check
-  FROM pg_policies WHERE schemaname = 'public' ORDER BY tablename, policyname;
-```
-
-**e) Grants**
-
-```sql
-SELECT table_name, grantee, privilege_type
-  FROM information_schema.role_table_grants
- WHERE table_schema = 'public' AND grantee IN ('service_role','authenticated','anon')
- ORDER BY table_name, grantee, privilege_type;
-```
-
-**f) Índices**
-
-```sql
-SELECT tablename, indexname, indexdef
-  FROM pg_indexes WHERE schemaname = 'public' ORDER BY tablename, indexname;
-```
-
-Com isso em mãos, a sequência sã é: (1) commitar o dump como migration de
-baseline reconciliando `supabase/migrations/` com o remoto; (2) só então revisar o
-SQL proposto contra o schema real; (3) aplicar em branch do Supabase antes de
-produção.
+Isso **não bloqueia mais** as migrations propostas: o schema é conhecido, os
+nomes de constraint são reais e o SQL foi escrito e testado contra eles. Mas
+continua sendo um defeito de manutenção: quem ler apenas o diretório canônico
+conclui, como esta investigação concluiu, que o schema não existe. Reconciliar os
+dois diretórios é trabalho à parte, com escopo próprio, e não deve ser feito de
+carona nesta entrega.
 
 ## Resumo dos pontos em aberto
+
+### Bloqueiam a aplicação — precisam de código antes de qualquer migration
+
+| # | Bloqueio | Alcance |
+|---|---|---|
+| A | `INSERT` posicional em `sqlite-domain.repository.ts:29` e `:61`, com o erro mascarado num 409 falso | **M1, M2 e M3** (só SQLite) |
+| B | `identifierHash` sem nenhum caminho de leitura — a purga revogaria o opt-out | **só M3** |
+
+Nenhum dos dois é decisão: são defeitos a corrigir. Estão detalhados nas seções
+4 e 3, com a correção exata.
+
+### Dependem de decisão sua
 
 | # | Pendência | Quem decide |
 |---|---|---|
 | 1 | `POST /api/contacts/unblock` existe? Comando pronto no fim da seção 1 | teste manual — **bloqueia a implementação da propagação** |
-| 2 | Dump do schema CRM do Supabase | você — bloqueia qualquer migration |
-| 3 | Campanha deve excluir bloqueados, além de opt-out? | produto |
-| 4 | Soft delete ressuscita contato ao receber mensagem nova? | produto |
-| 5 | A purga LGPD alcança o conteúdo das mensagens? | jurídico |
+| 2 | Campanha deve excluir bloqueados, além de opt-out? | produto |
+| 3 | Soft delete ressuscita contato ao receber mensagem nova? | produto |
+| 4 | A purga alcança `chatId`, `whatsapp_identities` e o conteúdo das mensagens? | jurídico — define se "eliminação" é alcançável |
+| 5 | Trocar a FK do `opt_out_history` para `SET NULL`? A análise recomenda **não** | você — não bloqueia nada |
+
+### Fora do escopo desta entrega, registrados como trabalho à parte
+
+| Defeito | Onde |
+|---|---|
+| `web/supabase/migrations/` sem a baseline de CRM, que vive na raiz | seção 5 |
+| FK `conversations → contacts` com `SET NULL` sem lista de colunas — apagar contato com conversa ou lead **já falha hoje** | seção 3 |
+| Outros 12 `INSERT` posicionais em `sqlite-domain.repository.ts` | seção 4 |
+| `optOutHistorySchema` (`packages/contracts/src/index.ts:52`) passa a mentir sobre o schema depois de M3 | seção 3 |
 
 Resolvido desde a primeira versão deste documento:
 
 - `POST /api/contacts/block` **existe** na instância local (WAHA 2026.7.1, WEBJS)
   e **não é Plus-only** — verificado em tier CORE. Cenário (a) é o caminho.
+- **O schema do Supabase é conhecido** (seção 5). Deixou de bloquear as
+  migrations, e derrubou a tese de que a alteração de FK era obrigatória.
+- **A convenção das RPCs e a postura de RLS** estavam versionadas o tempo todo em
+  `supabase/migrations/` na raiz: `security invoker`, `search_path` fixo, grant
+  só para `service_role`, nenhuma policy. Os "não identificado" que restavam
+  sobre RLS, grants e `pgcrypto` deixaram de existir.
