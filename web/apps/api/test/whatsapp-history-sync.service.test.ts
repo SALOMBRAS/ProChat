@@ -61,4 +61,30 @@ describe('WhatsAppHistorySyncService', () => {
     expect(send.mock.calls.find((call: any[]) => call[0].command.payload.chatId)?.[0].command.payload.limit).toBe(100);
     expect(sleep).not.toHaveBeenCalled();
   });
+
+  it('closes a chat that keeps timing out and still finishes the remaining history', async () => {
+    const store = new MemoryStore();
+    const send = vi.fn().mockImplementation((request: any) => {
+      const { chatId, offset } = request.command.payload;
+      if (!chatId) return offset === 0 ? response([{ id: '1@c.us' }]) : offset === 1 ? response([{ id: '2@c.us' }]) : response([]);
+      return chatId === '1@c.us' ? failed('TIMEOUT') : response([{ id: 'm-1', chatId: '2@c.us', timestamp: 1 }]);
+    });
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn().mockResolvedValue({ duplicate: false }) } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { sleep, retryBaseMs: 1 });
+    await service.start('workspace-a', 'session-a');
+    await waitFor(() => store.job?.status === 'completed');
+    expect(store.job).toMatchObject({ status: 'completed', chatsProcessed: 2, messagesProcessed: 1, chatCursor: '2', currentChatId: null, lastErrorSafe: 'TIMEOUT' });
+    expect(send.mock.calls.filter((call: any[]) => call[0].command.payload.chatId === '1@c.us')).toHaveLength(3);
+    expect((await service.status('workspace-a', 'session-a'))?.progressLabel).toMatch(/truncadas/);
+  });
+
+  it('fails the job when consecutive chats time out, instead of marking them processed', async () => {
+    const store = new MemoryStore();
+    const send = vi.fn().mockImplementation((request: any) => request.command.payload.chatId ? failed('TIMEOUT') : response([{ id: `${request.command.payload.offset + 1}@c.us` }]));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn() } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { sleep, retryBaseMs: 1, maxConsecutiveChatTimeouts: 2 });
+    await service.start('workspace-a', 'session-a');
+    await waitFor(() => store.job?.status === 'failed');
+    expect(store.job).toMatchObject({ status: 'failed', chatsProcessed: 1, lastErrorSafe: 'TIMEOUT' });
+  });
 });
