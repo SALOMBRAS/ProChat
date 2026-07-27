@@ -1,5 +1,5 @@
 import { ApiClient } from './client';
-import type { InboxConversation as SharedInboxConversation, InboxMessage as SharedInboxMessage, InboxOutboxJob } from '@chatpro/contracts';
+import type { InboxConversation as SharedInboxConversation, InboxMessage as SharedInboxMessage, InboxOutboxJob, PersistenceContact } from '@chatpro/contracts';
 export type InboxConversation = SharedInboxConversation;
 export type InboxMessage = SharedInboxMessage;
 export type Page<T> = { items:T[]; page:number; pageSize:number; total:number; nextCursor?: string | null; hasMore?: boolean };
@@ -26,6 +26,7 @@ export class InboxApi {
   outbox=(jobId:string)=>this.http.get<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}`);
   cancelOutbox=(jobId:string)=>this.http.post<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}/cancel`);
   markRead=(id:string)=>this.http.post<void>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/read`);
+  createContact=(id:string,body:{displayName:string;phoneNumber?:string;email?:string|null;company?:string|null})=>this.http.post<{contact:PersistenceContact;conversation:InboxConversation}>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/contact`,body);
   context=(id:string)=>this.http.get<ConversationContext>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/context`);
   updateContext=(id:string, input: { notes?: string; tags?: string[] })=>this.http.patch<ConversationContext>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/context`, input);
   assign=(id:string,userId?:string|null)=>this.http.post<ConversationManagementResult>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/assign`, userId === undefined ? {} : { userId });

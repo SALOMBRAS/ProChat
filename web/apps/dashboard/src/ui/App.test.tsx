@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session, SessionsApi } from '../api/sessions';
 import type { InboxApi } from '../api/inbox';
 import { ApiError } from '../api/client';
@@ -230,5 +230,54 @@ describe('Inbox', () => {
     act(() => realtime.handler?.({ eventType: 'conversation.sync.updated', payload: { wahaSession: 'session-b', status: 'completed', chatsProcessed: 99, messagesProcessed: 99, progressLabel: 'Histórico sincronizado.' } }));
     expect(screen.getByText(/Sincronizando histórico/)).toBeInTheDocument();
     expect(screen.queryByText(/99 conversas/)).not.toBeInTheDocument();
+  });
+});
+
+describe('Inbox contact creation', () => {
+  const identity = { displayName: null, phone: '5511999990001', pushName: 'Ada', profileName: null, contactName: null, avatarUrl: null, lastSyncAt: null, syncStatus: 'synced' as const, knownContact: false };
+  const unlinked = {
+    id: 'conversation-a', whatsappSessionId: 'session-a', chatId: '5511999990001@c.us', contactId: null,
+    conversationType: 'direct' as const, status: 'open' as const, lastMessage: null, lastMessageAt: '2026-07-16T18:00:00.000Z',
+    unreadCount: 0, createdAt: '2026-07-16T18:00:00.000Z', updatedAt: '2026-07-16T18:00:00.000Z', identity,
+  };
+  const linked = { ...unlinked, contactId: '50000000-0000-4000-8000-000000000001', identity: { ...identity, knownContact: true } };
+  const apiFor = (overrides: Record<string, unknown> = {}) => ({
+    conversations: vi.fn().mockResolvedValue({ items: [unlinked], page: 1, pageSize: 50, total: 1 }),
+    messages: vi.fn().mockResolvedValue({ items: [], page: 1, pageSize: 50, total: 0 }),
+    sendMessage: vi.fn(), markRead: vi.fn(),
+    createContact: vi.fn().mockResolvedValue({ contact: { id: linked.contactId }, conversation: linked }),
+    ...overrides,
+  }) as unknown as InboxApi & { createContact: ReturnType<typeof vi.fn> };
+  beforeEach(() => history.replaceState({}, '', '/inbox?conversationId=conversation-a'));
+  afterEach(() => history.replaceState({}, '', '/inbox'));
+
+  it('creates the contact through the conversation so the link is immediate', async () => {
+    const api = apiFor();
+    render(<Inbox api={api} />);
+    expect(await screen.findByText('Esta conversa ainda não tem contato no ChatPro.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Criar contato' }));
+    fireEvent.change(screen.getByLabelText('Nome ChatPro'), { target: { value: 'Ada Lovelace' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(api.createContact).toHaveBeenCalled());
+    // The conversation id is what carries the link; a plain contact create would not.
+    expect(api.createContact).toHaveBeenCalledWith('conversation-a', { displayName: 'Ada Lovelace', phoneNumber: '5511999990001', email: null, company: null });
+    await waitFor(() => expect(screen.queryByText('Esta conversa ainda não tem contato no ChatPro.')).not.toBeInTheDocument());
+  });
+
+  it('offers creation only for direct conversations without a contact', async () => {
+    const api = apiFor({ conversations: vi.fn().mockResolvedValue({ items: [linked], page: 1, pageSize: 50, total: 1 }) });
+    render(<Inbox api={api} />);
+    await waitFor(() => expect(api.messages).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Criar contato' })).not.toBeInTheDocument();
+  });
+
+  it('reports a rejected creation and keeps the typed values on screen', async () => {
+    const api = apiFor({ createContact: vi.fn().mockRejectedValue(new ApiError('REQUEST_FAILED', 'Phone number already exists in this workspace')) });
+    render(<Inbox api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Criar contato' }));
+    fireEvent.change(screen.getByLabelText('Nome ChatPro'), { target: { value: 'Ada Lovelace' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    expect(await screen.findByText('Phone number already exists in this workspace')).toBeInTheDocument();
+    expect(screen.getByLabelText('Nome ChatPro')).toHaveValue('Ada Lovelace');
   });
 });
