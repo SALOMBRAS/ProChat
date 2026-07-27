@@ -12,9 +12,14 @@
 -- A seção 2 depende de nomes de constraint que só o dump revela. Extraia o
 -- schema real antes de qualquer aplicação — ver seção 5 do documento.
 --
--- O schema é o MESMO nos cenários (a) WAHA suporta bloqueio e (b) não suporta.
--- Muda apenas se a etapa de propagação roda; em (b) grava-se
--- block_propagation='unsupported'.
+-- O schema é o MESMO nos cenários (a) propagar para a WAHA e (b) bloqueio local
+-- sem propagação. Muda apenas se a etapa de propagação roda; no fallback (b)
+-- grava-se block_propagation='unsupported'.
+--
+-- Cenário (a) é o caminho escolhido: POST /api/contacts/block foi CONFIRMADO na
+-- instância local (WAHA 2026.7.1, engine WEBJS, tier CORE — não é Plus-only).
+-- Ver seção 1 do documento. Isto não altera nada neste arquivo: o schema já
+-- servia aos dois casos por construção.
 -- =====================================================================
 
 
