@@ -119,6 +119,8 @@ export class WhatsAppHistorySyncService {
       let messagesThisBatch = 0;
       let messagesThisExecution = 0;
       let consecutiveChatTimeouts = 0;
+      let listing: { offset: number; items: Record<string, unknown>[] } | undefined;
+      const visited = new Set<string>();
       while (job.status === 'running') {
         job = await this.current(job);
         if (job.status === 'cancelled') return;
@@ -138,20 +140,39 @@ export class WhatsAppHistorySyncService {
         }
         if (!job.currentChatId) {
           const offset = integerCursor(job.chatCursor);
-          const page = await this.page(job, undefined, offset, this.options.chatPageSize);
-          if (!page.items.length) {
-            if (page.hasMore) {
-              job = await this.save({ ...job, chatCursor: String(offset + this.options.chatPageSize), updatedAt: new Date().toISOString() }, 'skipped unsupported chat page');
-              continue;
+          // One listing served one chat, so a run over 550 conversations asked
+          // WAHA for 550 pages of 25 to use one entry from each. Keeping the page
+          // until it runs out asks once per 25 conversations, and every chat in
+          // it comes from the same snapshot: WAHA sorts chats by recency, so
+          // re-deriving a position from a freshly ordered list between two chats
+          // is what let an arriving message shift the cursor under the job.
+          if (!listing || offset < listing.offset || offset - listing.offset >= listing.items.length) {
+            const page = await this.page(job, undefined, offset, this.options.chatPageSize);
+            if (!page.items.length) {
+              if (page.hasMore) {
+                job = await this.save({ ...job, chatCursor: String(offset + this.options.chatPageSize), updatedAt: new Date().toISOString() }, 'skipped unsupported chat page');
+                continue;
+              }
+              await this.save({ ...job, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, 'completed');
+              return;
             }
-            await this.save({ ...job, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, 'completed');
-            return;
+            listing = { offset, items: page.items };
           }
-          const chatId = typeof page.items[0].id === 'string' && isConversationChatId(page.items[0].id) ? page.items[0].id : null;
+          const candidate = listing.items[offset - listing.offset];
+          const chatId = typeof candidate.id === 'string' && isConversationChatId(candidate.id) ? candidate.id : null;
           if (!chatId) {
             job = await this.save({ ...job, chatCursor: String(offset + 1), updatedAt: new Date().toISOString() }, 'skipped invalid chat');
             continue;
           }
+          // A chat that receives a message jumps to the top of the listing and
+          // pushes the ones behind it down, so the cursor can land on a chat this
+          // run already walked. Its history is on disk and anything newer arrives
+          // by webhook, so paginating it again would only re-read it.
+          if (visited.has(chatId)) {
+            job = await this.save({ ...job, chatCursor: String(offset + 1), updatedAt: new Date().toISOString() }, 'skipped a chat already synchronized in this run');
+            continue;
+          }
+          visited.add(chatId);
           job = await this.save({ ...job, currentChatId: chatId, messageCursor: '0', updatedAt: new Date().toISOString() }, 'chat selected');
           continue;
         }
