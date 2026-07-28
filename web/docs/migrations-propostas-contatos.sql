@@ -9,6 +9,50 @@
 -- descartáveis — PostgreSQL 16 em contêiner e SQLite 3.53.2 reproduzindo o
 -- runner real. O banco remoto NÃO foi tocado, nem para leitura.
 --
+-- REVALIDADO em 28/07/2026 contra origin/main @ 98a984d, já com o INSERT
+-- nomeado (998a871) e o opt-out mergeados. PostgreSQL 16.14 e SQLite 3.53.2.
+-- Resultado: M1 e M2 aplicam limpo, são idempotentes e revertem por completo
+-- nos dois bancos. Procedimento de aplicação em docs/migrations-m1-m2-aplicacao.md.
+--
+-- O QUE MUDOU DESDE A ÚLTIMA VALIDAÇÃO
+--   1. O PRÉ-REQUISITO DE CÓDIGO abaixo está RESOLVIDO em main. O INSERT de
+--      contacts e o de opt_out_history agora nomeiam colunas, e o catch nu virou
+--      tratamento de UNIQUE. Confirmado por execução: após M1 e M2, o INSERT
+--      nomeado funciona; o posicional quebra com "table contacts has 13 columns
+--      but 8 values were supplied". A seção segue no arquivo como registro
+--      histórico e porque explica POR QUE a ordem importa.
+--   2. Nada no SQL de M1 ou M2 precisou mudar.
+--   3. Um achado NOVO, que M2 não trata: ver "UNICIDADE DE TELEFONE" abaixo.
+--
+-- ---------------------------------------------------------------------
+-- UNICIDADE DE TELEFONE vs SOFT DELETE — achado de 28/07/2026
+-- ---------------------------------------------------------------------
+-- contacts tem UNIQUE (workspace_id, phone_number) GLOBAL, não parcial. O soft
+-- delete não apaga a linha, então o telefone CONTINUA OCUPADO depois de "apagar"
+-- o contato. Reproduzido nos dois bancos:
+--
+--   SQLite  UNIQUE constraint failed: contacts.workspaceId, contacts.phoneNumber
+--   PG16    duplicate key value violates unique constraint
+--           "contacts_workspace_id_phone_number_key"
+--
+-- Consequência de produto: recadastrar o mesmo número exige restaurar o contato
+-- (p_mode='restore') ou purgar (M3). Criar um contato novo com o mesmo telefone
+-- falha com 409.
+--
+-- ISSO NÃO É DEFEITO DE M2 — é o comportamento correto para um delete
+-- reversível: liberar o telefone permitiria dois contatos com o mesmo número, e
+-- o restore passaria a poder colidir. Mas é comportamento OBSERVÁVEL pelo
+-- operador e precisa de decisão de produto antes de M2 chegar à UI:
+--
+--   (a) manter como está e a UI oferecer "restaurar contato existente" quando o
+--       telefone colidir com um contato soft-deleted;  <- recomendado
+--   (b) trocar por UNIQUE parcial WHERE deleted_at IS NULL, o que libera o
+--       telefone mas torna o restore falível. Exigiria rebuild da tabela no
+--       SQLite, que é PAI de seis outras — caro e fora do escopo de M2.
+--
+-- Se (a), a listagem de contatos precisa poder buscar soft-deleted por telefone
+-- para oferecer a restauração. Não há mudança de schema envolvida.
+--
 -- O bloqueio "schema não versionado" da versão anterior foi RESOLVIDO por duas
 -- fontes independentes e concordantes:
 --
@@ -144,6 +188,34 @@
 -- REPORTE, não conserte aqui. A purga de M3 não depende disso: ela desvincula
 -- conversas e leads com UPDATE explícito antes do DELETE, então a ação da FK
 -- nunca dispara. Confirmado por execução.
+--
+-- CONFIRMADO NOVAMENTE em 28/07/2026, em PG 16.14 reconstruído a partir das
+-- migrations do repositório. O texto do erro é literal:
+--
+--   ERROR: null value in column "workspace_id" of relation "conversations"
+--          violates not-null constraint
+--   CONTEXT: SQL statement "UPDATE ONLY "public"."conversations"
+--            SET "workspace_id" = NULL, "contact_id" = NULL ..."
+--
+-- E a CONTRAPROVA, no mesmo banco, mostra as duas formas lado a lado:
+--
+--   conversations | ... ON DELETE SET NULL               <- defeito
+--   leads         | ... ON DELETE SET NULL (contact_id)  <- forma correta
+--
+-- Apagar um contato que só tem LEAD funciona (o lead fica com contact_id nulo e
+-- workspace_id intacto). Apagar um que tem CONVERSA falha. No SQLite falha nos
+-- dois casos, porque lá a forma com lista de colunas não existe na linguagem.
+--
+-- M2 PRECISA TRATAR ISSO? NÃO.
+--   M2 é soft delete: nunca executa DELETE, então a ação da FK nunca dispara.
+--   Verificado por execução — depois do soft delete, conversations.contact_id
+--   continua apontando para o contato. M2 aplica e funciona sobre o schema
+--   defeituoso, sem tocá-lo.
+--
+--   Quem precisa tratar é M3 (purga), e ela já trata, por UPDATE explícito antes
+--   do DELETE. O conserto da constraint em si é trabalho SEPARADO de M1/M2/M3:
+--   exige DROP + ADD CONSTRAINT no Postgres e rebuild de conversations no
+--   SQLite. Não deve entrar no caminho crítico de M1/M2.
 --
 -- ---------------------------------------------------------------------
 -- ARMADILHA 2 — o runner do SQLite já abre transação
