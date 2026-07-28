@@ -18,12 +18,18 @@ describe('resolveConversationIdentity', () => {
     expect(resolveConversationIdentity({ direction: 'inbound', from: '5511999999999@c.us', participant: '5511999999999@c.us' })).toBeUndefined();
   });
   it('rejects the WhatsApp system events that nobody writes and nobody answers', () => {
-    for (const messageType of ['e2e_notification', 'notification_template', 'gp2', 'ciphertext', 'E2E_Notification']) expect(resolveConversationIdentity({ direction: 'inbound', chatId: '5511999999999@c.us', messageType })).toBeUndefined();
+    for (const messageType of ['e2e_notification', 'notification_template', 'gp2', 'ciphertext', 'biz_content_placeholder', 'E2E_Notification']) expect(resolveConversationIdentity({ direction: 'inbound', chatId: '5511999999999@c.us', messageType })).toBeUndefined();
   });
   it('accepts the conversation types of both payload formats', () => {
     // `chat` is what WEBJS reports in _data.type for plain text; `text` is what
     // the Inbox's own synthetic payload carries at the root.
     for (const messageType of ['chat', 'text', 'image', 'ptt', 'call_log']) expect(resolveConversationIdentity({ direction: 'inbound', chatId: '5511999999999@c.us', messageType })).toMatchObject({ conversationChatId: '5511999999999@c.us', conversationType: 'direct' });
+  });
+  it('deixa passar o que o parser não soube classificar', () => {
+    // `unknown` é o fallback do próprio WEBJS. Silenciá-lo silenciaria junto toda
+    // mensagem real de um tipo que o WhatsApp ainda vai lançar. Medido: 11
+    // mensagens, sem corpo e sem mídia — mas o risco de errar é assimétrico.
+    expect(resolveConversationIdentity({ direction: 'inbound', chatId: '5511999999999@c.us', messageType: 'unknown' })).toMatchObject({ conversationChatId: '5511999999999@c.us' });
   });
 });
 

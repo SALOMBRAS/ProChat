@@ -39,11 +39,19 @@ export function isConversationChatId(value: unknown): value is string { return i
  *
  * `e2e_notification` is the security-code change, `notification_template` the
  * business-account notices, `gp2` a group membership change and `ciphertext` a
- * message WhatsApp has not decrypted yet. `call_log` is deliberately absent:
- * a missed call is operational information, and whether it demands a reply is a
- * product decision rather than a normalization one.
+ * message WhatsApp has not decrypted yet. `biz_content_placeholder` is the
+ * business-account stand-in for content the account cannot deliver: measured on
+ * the live base it appeared 12 times, always with empty body and no media, and
+ * in all 12 it was the only non-technical message of its chat — twelve
+ * conversations that exist because of it and nothing else.
+ *
+ * `call_log` is deliberately absent: a missed call is operational information,
+ * and whether it demands a reply is a product decision rather than a
+ * normalization one. `unknown` is absent for the opposite reason: it is the
+ * parser's own fallback, so silencing it would also silence every real message
+ * WhatsApp ships a new type for.
  */
-const technicalMessageTypes: ReadonlySet<string> = new Set(['ack', 'receipt', 'reaction', 'status', 'protocol', 'revoked', 'e2e_notification', 'notification_template', 'gp2', 'ciphertext']);
+const technicalMessageTypes: ReadonlySet<string> = new Set(['ack', 'receipt', 'reaction', 'status', 'protocol', 'revoked', 'e2e_notification', 'notification_template', 'gp2', 'ciphertext', 'biz_content_placeholder']);
 export function isTechnicalMessageType(value: string | null | undefined): boolean { const type = value?.trim().toLowerCase(); return Boolean(type && technicalMessageTypes.has(type)); }
 
 function isTechnicalInput(input: ConversationIdentityInput): boolean {
