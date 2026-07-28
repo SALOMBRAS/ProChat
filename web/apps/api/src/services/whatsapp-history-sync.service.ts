@@ -11,7 +11,7 @@ export type SyncStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cance
 export type SyncJob = { id: string; workspaceId: string; wahaSession: string; status: SyncStatus; currentChatId: string | null; chatCursor: string | null; messageCursor: string | null; chatsProcessed: number; messagesProcessed: number; startedAt: string; completedAt: string | null; lastErrorSafe: string | null; updatedAt: string };
 export type SyncJobStatus = SyncJob & { jobId: string; currentChat: string | null; hasMore: boolean; progressLabel: string };
 export type SyncJobStore = { get(workspaceId: string, wahaSession: string): Promise<SyncJob | undefined>; save(job: SyncJob): Promise<void> };
-export type HistorySyncOptions = { chatPageSize?: number; messagePageSize?: number; maxChatsPerRun?: number; maxMessagesPerRun?: number; emergencyMaxMessages?: number; continuationDelayMs?: number; maxAttempts?: number; retryBaseMs?: number; maxConsecutiveChatTimeouts?: number; sleep?: (milliseconds: number) => Promise<void> };
+export type HistorySyncOptions = { chatPageSize?: number; messagePageSize?: number; maxChatsPerRun?: number; maxMessagesPerRun?: number; emergencyMaxMessages?: number; continuationDelayMs?: number; maxAttempts?: number; retryBaseMs?: number; maxConsecutiveChatTimeouts?: number; staleRunningAfterMs?: number; sleep?: (milliseconds: number) => Promise<void> };
 export type HistorySyncRunLimits = { maxChatsPerRun?: number; maxMessagesPerRun?: number };
 const transientCodes = new Set(['TIMEOUT', 'SERVICE_UNAVAILABLE']);
 // A provider timeout while paginating one chat is scoped to that chat. The WAHA
@@ -37,6 +37,7 @@ export class WhatsAppHistorySyncService {
       maxAttempts: options.maxAttempts ?? 3,
       retryBaseMs: options.retryBaseMs ?? 250,
       maxConsecutiveChatTimeouts: options.maxConsecutiveChatTimeouts ?? 5,
+      staleRunningAfterMs: options.staleRunningAfterMs ?? 300_000,
       sleep: options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))),
     };
   }
@@ -53,16 +54,29 @@ export class WhatsAppHistorySyncService {
   private async createStart(workspaceId: string, wahaSession: string, limits: Required<HistorySyncRunLimits>): Promise<SyncJobStatus> {
     const key = this.key(workspaceId, wahaSession);
     const previous = await this.jobs.get(workspaceId, wahaSession);
-    if ((this.active.has(key) || previous?.status === 'running') && previous) return this.view(previous);
+    if (previous && (this.active.has(key) || (previous.status === 'running' && !this.abandoned(previous)))) return this.view(previous);
     const now = new Date().toISOString();
     const job: SyncJob = previous && previous.status === 'completed'
       ? { ...previous, status: 'pending', currentChatId: null, chatCursor: '0', messageCursor: null, chatsProcessed: 0, messagesProcessed: 0, startedAt: now, completedAt: null, lastErrorSafe: null, updatedAt: now }
       : previous
         ? { ...previous, status: 'pending', completedAt: null, lastErrorSafe: null, updatedAt: now }
         : { id: randomUUID(), workspaceId, wahaSession, status: 'pending', currentChatId: null, chatCursor: '0', messageCursor: null, chatsProcessed: 0, messagesProcessed: 0, startedAt: now, completedAt: null, lastErrorSafe: null, updatedAt: now };
-    await this.save(job, previous?.status === 'failed' || previous?.status === 'cancelled' ? 'resumed manually' : 'started');
+    await this.save(job, previous?.status === 'running' ? 'adopted after an interrupted run' : previous?.status === 'failed' || previous?.status === 'cancelled' ? 'resumed manually' : 'started');
     this.launch(job, limits);
     return this.view(job);
+  }
+
+  /**
+   * `active` only knows about runs started by this process, so a job whose run
+   * died with the process stays `running` in the store forever: `start` would
+   * keep returning that view without relaunching, and the Inbox disables the
+   * button while the status reads `running`. A live run writes its checkpoint on
+   * every page, so silence far longer than one page means nobody owns the job
+   * and its checkpoint can be adopted.
+   */
+  private abandoned(job: SyncJob): boolean {
+    const updatedAt = Date.parse(job.updatedAt);
+    return !Number.isFinite(updatedAt) || Date.now() - updatedAt >= this.options.staleRunningAfterMs;
   }
 
   async status(workspaceId: string, wahaSession: string): Promise<SyncJobStatus | undefined> {
@@ -140,6 +154,11 @@ export class WhatsAppHistorySyncService {
         let page: { items: Record<string, unknown>[]; hasMore: boolean };
         try {
           page = await this.page(job, job.currentChatId, offset, Math.min(this.options.messagePageSize, remainingMessages));
+          // Any page that comes back proves the provider is answering, so the
+          // degraded-provider count below only ever reaches its threshold
+          // through chats that yielded nothing at all. That is what keeps a run
+          // of very long conversations, which always read their first pages
+          // before timing out deeper, from being mistaken for an outage.
           consecutiveChatTimeouts = 0;
         } catch (error) {
           if (!chatScopedCodes.has(errorCode(error))) throw error;
@@ -151,7 +170,7 @@ export class WhatsAppHistorySyncService {
           const closedChatId = job.currentChatId;
           chatsThisBatch += 1;
           job = await this.save({ ...job, currentChatId: null, messageCursor: null, chatCursor: String(integerCursor(job.chatCursor) + 1), chatsProcessed: job.chatsProcessed + 1, lastErrorSafe: safeError(error), updatedAt: new Date().toISOString() }, 'chat closed early after repeated provider timeout');
-          log('info', 'WhatsApp history sync closed a chat early', { workspaceId, wahaSession, jobId: job.id, chatId: closedChatId, offset, attempts: this.options.maxAttempts });
+          log('info', 'WhatsApp history sync closed a chat early', { workspaceId, wahaSession, jobId: job.id, chatId: closedChatId, offset, attempts: offset > 0 ? 1 : this.options.maxAttempts });
           continue;
         }
         for (const message of page.items) {
@@ -187,7 +206,7 @@ export class WhatsAppHistorySyncService {
         return { items: page.items ?? [], hasMore: page.hasMore === true };
       }
       last = response.error.code;
-      if (!transientCodes.has(last) || attempt === this.options.maxAttempts) throw new Error(last);
+      if (!retryable(last, chatId, offset) || attempt === this.options.maxAttempts) throw new Error(last);
       await this.options.sleep(Math.min(this.options.retryBaseMs * 2 ** (attempt - 1), 4_000));
     }
     throw new Error(last ?? 'SERVICE_UNAVAILABLE');
@@ -239,6 +258,19 @@ export class SupabaseWhatsAppHistorySyncStore implements SyncJobStore {
 function sqliteJob(row: Record<string, unknown>): SyncJob { return row as unknown as SyncJob; }
 function remoteJob(row: Record<string, any>): SyncJob { return { id: row.id, workspaceId: row.workspace_id, wahaSession: row.waha_session, status: row.status, currentChatId: row.current_chat_id, chatCursor: row.chat_cursor, messageCursor: row.message_cursor, chatsProcessed: row.chats_processed, messagesProcessed: row.messages_processed, startedAt: row.started_at, completedAt: row.completed_at, lastErrorSafe: row.last_error_safe, updatedAt: row.updated_at }; }
 function integerCursor(value: string | null): number { const number = Number(value ?? 0); return Number.isInteger(number) && number >= 0 ? number : 0; }
+/**
+ * Reading messages costs the WAHA WEBJS engine time proportional to the offset
+ * asked for: measured against the group this job is stuck on, offset 0 answers
+ * in 0.7s, offset 1000 in 15s and offset 2000 in 45-54s, past both the provider
+ * and the transport deadlines. A timeout that deep is a property of the offset,
+ * not a transient fault, so the extra attempts cannot succeed — they only spend
+ * the deadline again and leave more concurrent deep reads on the provider that
+ * is already the bottleneck. Chat listings and offset 0 cost the same every
+ * time, so a timeout there really is transient and stays worth retrying.
+ */
+function retryable(code: string, chatId: string | undefined, offset: number): boolean {
+  return transientCodes.has(code) && !(code === 'TIMEOUT' && chatId !== undefined && offset > 0);
+}
 /** `page` rejects with the provider error code as the message; this reads it back. */
 function errorCode(error: unknown): string { return error instanceof Error ? error.message : ''; }
 function safeError(error: unknown): string {
