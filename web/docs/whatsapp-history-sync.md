@@ -54,6 +54,29 @@ cancelamento continua interrompendo entre duas mensagens porque o serviço marca
 a intenção em memória; a leitura por página permanece e cobre um cancelamento
 gravado por qualquer outro processo.
 
+## Listagem de conversas
+
+A WAHA ordena os chats por atividade recente (`sortBy=conversationTimestamp&sortOrder=desc`)
+e o job caminha por offset. Uma conversa que recebe mensagem sobe para o topo e
+empurra as demais para trás, então a posição de um offset não é estável durante
+uma execução longa. Evidência real: o job registrou `chatCursor=2` apontando para
+`120363328209240027@g.us`, e duas horas depois essa conversa estava no offset 1.
+
+Duas decisões contêm o efeito:
+
+- **A página de 25 é consumida inteira antes de pedir a próxima.** Antes, cada
+  conversa custava uma listagem própria — 550 chamadas para consumir 550
+  conversas, cada uma sobre uma ordenação recém-calculada. Agora são ~22, e as 25
+  conversas de uma página vêm todas do mesmo instantâneo.
+- **Uma conversa já percorrida nesta execução não é percorrida de novo.** Quando
+  o deslocamento faz o cursor cair sobre ela, o job avança sem repaginar: o
+  histórico dela já está gravado e o que chegar depois entra por webhook.
+
+O deslocamento não pula conversas: uma que sobe para o topo empurra as demais
+para *baixo*, na direção que o cursor ainda vai percorrer. Ele causava releitura,
+não perda. Eliminar o deslocamento por completo exigiria persistir o conjunto de
+conversas já visitadas, o que hoje não cabe no schema do job.
+
 ## Provedor degradado
 
 `maxConsecutiveChatTimeouts` (padrão: 5) existe para não marcar centenas de

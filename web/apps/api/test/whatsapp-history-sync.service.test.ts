@@ -226,6 +226,40 @@ describe('WhatsAppHistorySyncService', () => {
     expect(store.job).toMatchObject({ status: 'completed', messagesProcessed: 10, chatsProcessed: 1 });
   });
 
+  it('asks WAHA for one chat listing per page instead of one per conversation', async () => {
+    const store = new MemoryStore();
+    const chats = Array.from({ length: 25 }, (_, index) => ({ id: `${index + 1}@c.us` }));
+    const send = vi.fn().mockImplementation((request: any) => {
+      const { chatId, offset } = request.command.payload;
+      if (!chatId) return offset === 0 ? response(chats, true) : response([]);
+      return response([{ id: `m-${chatId}`, chatId, timestamp: 1 }]);
+    });
+    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn().mockResolvedValue({ duplicate: false }) } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { sleep: vi.fn().mockResolvedValue(undefined), maxChatsPerRun: 100 });
+    await service.start('workspace-a', 'session-a');
+    await waitFor(() => store.job?.status === 'completed');
+    expect(store.job).toMatchObject({ status: 'completed', chatsProcessed: 25, messagesProcessed: 25, chatCursor: '25' });
+    // One listing for the page of 25, one more to find the end of the history.
+    expect(send.mock.calls.filter((call: any[]) => !call[0].command.payload.chatId)).toHaveLength(2);
+  });
+
+  it('does not walk a conversation twice when an arriving message reorders the listing', async () => {
+    const store = new MemoryStore();
+    // WAHA sorts by recency: after the first page is served, chat 3 receives a
+    // message and moves to the top, pushing the two already synchronized
+    // conversations back into the cursor's path.
+    const send = vi.fn().mockImplementation((request: any) => {
+      const { chatId, offset } = request.command.payload;
+      if (!chatId) return offset === 0 ? response([{ id: '1@c.us' }, { id: '2@c.us' }], true) : offset === 2 ? response([{ id: '1@c.us' }, { id: '2@c.us' }, { id: '3@c.us' }], true) : response([]);
+      return response([{ id: `m-${chatId}`, chatId, timestamp: 1 }]);
+    });
+    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn().mockResolvedValue({ duplicate: false }) } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { sleep: vi.fn().mockResolvedValue(undefined), maxChatsPerRun: 100 });
+    await service.start('workspace-a', 'session-a');
+    await waitFor(() => store.job?.status === 'completed');
+    const walked = send.mock.calls.filter((call: any[]) => call[0].command.payload.chatId).map((call: any[]) => call[0].command.payload.chatId);
+    expect(walked).toEqual(['1@c.us', '2@c.us', '3@c.us']);
+    expect(store.job).toMatchObject({ status: 'completed', chatsProcessed: 3, messagesProcessed: 3 });
+  });
+
   it('fails the job when consecutive chats time out, instead of marking them processed', async () => {
     const store = new MemoryStore();
     const send = vi.fn().mockImplementation((request: any) => request.command.payload.chatId ? failed('TIMEOUT') : response([{ id: `${request.command.payload.offset + 1}@c.us` }]));
