@@ -8,7 +8,7 @@
 - `totals`: ativos, aguardando operador/cliente, dentro do SLA, atenção, atrasados e congelados
 - `averages`: primeira resposta, espera do operador e espera do cliente em segundos
 - `percentages.withinSla`
-- `critical`: no máximo 20 conversas amarelas/vermelhas, com `conversationId` para navegação interna, `displayName`, `phoneNumber`, estado, indicador, prazo e última atividade
+- `critical`: amostra das conversas amarelas/vermelhas mais urgentes, limitada por `criticalSampleLimit` (hoje 100), com `conversationId` para navegação interna, `displayName`, `phoneNumber`, estado, indicador, prazo e última atividade
 
 O endpoint não devolve `conversation_sla_metrics` integralmente. A configuração SLA é carregada uma vez por workspace e as métricas são agregadas no serviço. A lista crítica é ordenada por atrasados e, depois, por prazo.
 
@@ -41,9 +41,10 @@ quebra) e a variável de linha é ajustada, deixando o teto de viewport valer.
 
 O cabeçalho da seção (título, subtítulo e badge) fica fora da área rolável. O
 badge conta `totals.warning + totals.overdue`, ou seja, todos os atendimentos em
-risco — não o tamanho da amostra devolvida. Como a API corta `critical` em 20,
-uma linha auxiliar informa quantos dos quantos estão visíveis quando há corte. O
-frontend não aplica corte próprio: tudo o que a API devolve é renderizado.
+risco — não o tamanho da amostra devolvida. Como a API corta `critical` numa
+amostra, uma linha auxiliar informa quantos dos quantos estão visíveis quando há
+corte. O frontend não aplica corte próprio nem depende do valor do corte: tudo o
+que a API devolve é renderizado.
 
 A área rolável é `role="region"` com `aria-label` e `tabIndex={0}`, contendo uma
 `<ul>` de itens, então é alcançável por teclado e anunciada como região nomeada.
@@ -67,10 +68,47 @@ itens em 2,4 ms, 49 em 3,9 ms, 100 em 5,6 ms, 200 em 10,1 ms, 500 em 31,9 ms e
 O custo de montagem do React medido em jsdom acompanha: 16,4 ms com 20 itens e
 18,5 ms com 49.
 
-Com o teto de 20 itens da API o DOM real fica em ~160 nós e a diferença entre 20
-e 49 linhas é de ~1,5 ms — abaixo de um quadro. Reavaliar só se o corte do
-servidor subir para a casa dos milhares; hoje o projeto não tem dependência de
-virtualização e adicionar uma seria a única forma de resolvê-lo.
+Com o teto de 100 itens da API o DOM real fica em ~640 nós e o render custa
+5,6 ms — ainda dentro de um quadro. Reavaliar só se o corte do servidor subir
+para a casa dos milhares; hoje o projeto não tem dependência de virtualização e
+adicionar uma seria a única forma de resolvê-lo.
+
+### Por que a amostra crítica é limitada, e em quanto
+
+O corte vive em `criticalSampleLimit` (`sla.service.ts`). Ele não existe por causa
+do render: o dashboard rola 1000 linhas a 60 fps e monta 100 em 5,6 ms. Também não
+é o banco: no SQLite, o `IN` de `criticalConversationIdentities` resolve 100 ids em
+0,19 ms e 1000 em 1,7 ms.
+
+Quem manda é o provider Supabase. Lá a mesma consulta vira um filtro
+`.in('id', [...])` que o PostgREST serializa **na URL**, e o tamanho cresce ~45 B
+por id:
+
+| ids | URL do filtro | payload JSON | payload gzip |
+| --- | --- | --- | --- |
+| 20 | 1,03 KB | 6,1 KB | 0,6 KB |
+| 49 | 2,31 KB | 14,6 KB | 0,8 KB |
+| **100** | **4,55 KB** | **29,5 KB** | **1,2 KB** |
+| 200 | 8,94 KB | 58,7 KB | 2,0 KB |
+| 1000 | 44,10 KB | 292,4 KB | 8,1 KB |
+
+Com 200 ids a URL já passa de 8 KB, o limite prático de header em proxies comuns —
+ou seja, remover o corte quebraria o Supabase exatamente no cenário em que o painel
+mais importa, um incidente com muita conversa em risco. Por isso o limite continua
+existindo; só deixou de ser 20.
+
+100 dá 5x de folga sobre o pior caso real observado (49 conversas fora do SLA),
+mantém a URL em ~4,5 KB e o payload em ~30 KB. O payload importa porque **a API não
+tem middleware de compressão**: os ~300 B por item trafegam crus, a cada atualização
+de 60 segundos, por dashboard aberto. Os números de gzip acima são o que se ganharia
+se a compressão fosse ligada, não o que trafega hoje.
+
+Para subir além de 100 não basta mexer na constante: é preciso paginar o filtro de
+identidades em lotes, e aí vale ligar compressão junto.
+
+`totals` continua contando a população inteira, então o badge nunca subestima o
+problema, e a linha "Mostrando os N mais urgentes de M" aparece sempre que a amostra
+for menor que o total.
 
 Os itens críticos usam a ordem devolvida pelo servidor e navegam para a Inbox
 com `conversationId` na URL. A seleção é feita sem pré-carregar mensagens ou
@@ -104,7 +142,12 @@ extraído do próprio componente e a `styles.css` real, em 1440x900, 1280x800,
   no fallback do sistema e o item mede entre 47px e 53px no desktop e entre 66px e
   75px abaixo de 760px, conforme a fonte resolvida. Com a fonte do ambiente medido
   (53px/75px) o contêiner mostra 9,3 linhas em vez das ~10 nominais — o "~" da
-  especificação, não um corte.
+  especificação, não um corte. **A constante não foi ajustada de propósito:** 47px
+  e 53px são ambos "certos" dependendo da fonte que o sistema resolve, então
+  cravá-la em 53px acertaria a pilha `system-ui`/Noto e passaria a errar por excesso
+  em Arial/Liberation/Ubuntu. Só faria sentido fixar a constante junto com um
+  `line-height` explícito nos elementos do item, tornando a linha determinística —
+  mudança de design, não de correção.
 - Quem manda no teto: o cálculo por linha só vence em viewports altas (acima de
   ~900px de altura no desktop). Em qualquer viewport estreita realista o teto de
   `62vh` é que governa — 634px em 760x1024, 397px em 360x640, 352px em 320x568.

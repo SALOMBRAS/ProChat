@@ -9,8 +9,9 @@ O timer da API avalia SLA a cada 60 segundos e publica
 conceitos diferentes: `slaStatus` descreve a espera; `indicator` define
 verde/amarelo/vermelho/neutro.
 
-`GET /api/v1/inbox/operations/sla-summary` retorna agregados compactos e no
-máximo 20 críticos. A identidade desses críticos é resolvida em lote no
+`GET /api/v1/inbox/operations/sla-summary` retorna agregados compactos e uma
+amostra crítica limitada por `criticalSampleLimit` (hoje 100). A identidade
+desses críticos é resolvida em lote no
 servidor, nunca por chamada individual no dashboard. O dashboard usa um único
 timer de 60 segundos, debounce de realtime e `visibilitychange`.
 
