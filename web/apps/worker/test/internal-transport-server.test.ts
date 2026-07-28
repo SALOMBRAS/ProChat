@@ -36,6 +36,42 @@ describe('internal worker transport server', () => {
     expect(waha.calls).toHaveLength(2);
   });
 
+  it('rejects a content payload the contract does not accept, before the worker sees it', async () => {
+    const executed: unknown[] = [];
+    const url = await start(createWorkerTransportHandler({ execute: async (_context: unknown, command: unknown) => { executed.push(command); return { timestamp: 'x' }; } } as never));
+    const content = (value: unknown) => ({ ...request, command: { type: 'message.sendContent', payload: { wahaSession: 'session-a', chatId: '1@c.us', content: value } } });
+    // A field that travels but is never validated is how `timeoutMs` used to be
+    // accepted and dropped. Every one of these must die at the door.
+    for (const invalid of [
+      { kind: 'location', latitude: 91, longitude: 0 },
+      { kind: 'location', latitude: 0, longitude: 181 },
+      { kind: 'location', latitude: '10', longitude: '20' },
+      { kind: 'location', longitude: 0 },
+      { kind: 'poll', name: 'Q', options: ['only-one'], multipleAnswers: false },
+      { kind: 'vcard', contacts: [] },
+      { kind: 'sticker', url: 'https://example.test/a.webp' },
+    ]) {
+      expect(await send(url, content(invalid))).toMatchObject({ success: false, error: { code: 'VALIDATION_ERROR' } });
+    }
+    expect(executed).toEqual([]);
+  });
+
+  it('hands every declared content kind to the worker with its fields intact', async () => {
+    const executed: any[] = [];
+    const url = await start(createWorkerTransportHandler({ execute: async (_context: unknown, command: unknown) => { executed.push(command); return { id: 'sent-a', timestamp: '2026-07-28T00:00:00.000Z' }; } } as never));
+    const kinds = [
+      { kind: 'location', latitude: -7.115, longitude: -34.861, title: 'Escritório' },
+      { kind: 'vcard', contacts: [{ fullName: 'Ada Lovelace', phoneNumber: '+55 85 92369359' }] },
+      { kind: 'poll', name: 'Qual horário?', options: ['Manhã', 'Tarde'], multipleAnswers: true },
+    ];
+    for (const content of kinds) {
+      const body = await send(url, { ...request, command: { type: 'message.sendContent', payload: { wahaSession: 'session-a', chatId: '1@c.us', content } } });
+      expect(body).toMatchObject({ success: true, data: { sentMessage: { id: 'sent-a' } } });
+    }
+    expect(executed.map(command => command.content)).toEqual(kinds);
+    expect(executed.every(command => command.type === 'sendContent' && command.chatId === '1@c.us')).toBe(true);
+  });
+
   it('does not charge background provisioning to the budget of the command that started it', async () => {
     // Session creation is answered immediately and provisions WAHA afterwards.
     // That work outlives the command, so the command's budget must not end it.
