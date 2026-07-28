@@ -44,6 +44,16 @@ comando, o worker gasta **esse** orçamento entre todas as chamadas WAHA que a
 página precisa, e o teto de profundidade de uma página é
 `WORKER_TRANSPORT_TIMEOUT_MS` (padrão e máximo: 30 s), não `WAHA_TIMEOUT_MS`.
 
+## Custo por mensagem
+
+O job lê a linha do job no banco uma vez por página, não uma vez por mensagem.
+Contra a instância remota do Supabase cada leitura custa ~162 ms medidos, então a
+versão anterior gastava cerca de um quinto do tempo de execução perguntando ao
+banco algo que só `cancel` muda — e `cancel` roda no mesmo processo. O
+cancelamento continua interrompendo entre duas mensagens porque o serviço marca
+a intenção em memória; a leitura por página permanece e cobre um cancelamento
+gravado por qualquer outro processo.
+
 ## Provedor degradado
 
 `maxConsecutiveChatTimeouts` (padrão: 5) existe para não marcar centenas de
