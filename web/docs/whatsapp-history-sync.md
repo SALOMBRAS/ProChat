@@ -4,7 +4,78 @@ Na Inbox, use **Sincronizar histórico** para criar ou retomar o job da sessão 
 
 O job busca chats em páginas de 25 e mensagens em páginas de 100. Cada ciclo processa, por padrão, até 25 chats ou 1.000 mensagens; ao atingir esse ponto, o checkpoint é salvo, o estado fica brevemente em `pending` e o próximo ciclo inicia automaticamente. Não é necessário clicar novamente para concluir o histórico.
 
-O sincronizador trabalha por ciclos: processa até 25 conversas e 1.000 mensagens por ciclo, em páginas de até 100 mensagens. Ao fim de um ciclo, o job permanece em `pending`, persiste o checkpoint e continua automaticamente no próximo ciclo. A única guarda de emergência é `WHATSAPP_HISTORY_SYNC_EMERGENCY_MAX_MESSAGES` (padrão: 100.000 por execução); ela não é um limite cumulativo do histórico. Timeouts e indisponibilidade recebem até três tentativas com backoff exponencial. Erros de validação, autorização ou não encontrado falham sem retry e podem ser retomados manualmente após correção.
+O sincronizador trabalha por ciclos: processa até 25 conversas e 1.000 mensagens por ciclo, em páginas de até 100 mensagens. Ao fim de um ciclo, o job permanece em `pending`, persiste o checkpoint e continua automaticamente no próximo ciclo. A única guarda de emergência é `WHATSAPP_HISTORY_SYNC_EMERGENCY_MAX_MESSAGES` (padrão: 100.000 por execução); ela não é um limite cumulativo do histórico. Erros de validação, autorização ou não encontrado falham sem retry e podem ser retomados manualmente após correção.
+
+## Custo de leitura por offset
+
+O motor WEBJS da WAHA paga um custo proporcional ao offset pedido. Medição real
+contra um grupo do workspace, com a sessão `WORKING`:
+
+| offset | tempo de resposta |
+| -----: | ----------------- |
+|      0 | 0,7 s             |
+|    300 | 3,7 s             |
+|  1.000 | 15,1 s            |
+|  2.000 | 45–54 s           |
+|  3.000 | 70,9 s            |
+
+Duas consequências governam o comportamento do job:
+
+- **Offset 0 é sempre barato**, mesmo em grupos com milhares de mensagens. Um
+  timeout na primeira página de uma conversa nunca é explicado pelo tamanho dela,
+  então só ele conta como evidência de provedor degradado. Timeouts mais fundos
+  são a curva de custo e apenas encerram aquela conversa mais cedo.
+- **Um timeout fundo é determinístico**, não transitório: repetir a chamada gasta
+  o mesmo deadline de novo e deixa mais leituras concorrentes num provedor que já
+  é o gargalo. Por isso o retry com backoff vale para a listagem de chats e para a
+  primeira página de mensagens; a partir do offset 1 a conversa é encerrada na
+  primeira falha, com o histórico já persistido preservado.
+
+A partir de aproximadamente 1.500–2.000 mensagens, nenhuma conversa consegue ser
+paginada até o fim dentro do deadline: o job encerra a conversa, registra o
+`chatId` truncado no log `WhatsApp history sync closed a chat early` e segue para
+as demais. Ao concluir, o rótulo informa que conversas muito longas foram
+truncadas.
+
+## Orçamento de tempo
+
+Uma única página de histórico atravessa três deadlines encadeados, e eles
+precisam ficar em ordem crescente do provedor para fora:
+
+1. `WAHA_TIMEOUT_MS` (worker → WAHA). O worker faz **duas** chamadas sequenciais
+   por página: a checagem de sessão e a leitura em si, cada uma com esse
+   orçamento.
+2. O deadline da API por comando (`30 s`, fixo em `page()`).
+3. `WORKER_TRANSPORT_TIMEOUT_MS`, limitado a `30 s` pela validação de config.
+
+Com `WAHA_TIMEOUT_MS=28000` a margem entre (1) e (2) é de 2 s: normalmente a
+checagem de sessão responde em milissegundos e a WAHA vence a corrida, mas subir
+`WAHA_TIMEOUT_MS` para além disso faz a API abortar primeiro e reportar `TIMEOUT`
+por conta própria, sem cancelar a requisição que continua correndo no worker.
+
+## Provedor degradado
+
+`maxConsecutiveChatTimeouts` (padrão: 5) existe para não marcar centenas de
+conversas como processadas e vazias quando a WAHA está fora do ar. Como qualquer
+página bem-sucedida zera o contador, o limiar só é alcançado por conversas que não
+entregaram nada — isto é, cinco falhas seguidas na chamada mais barata possível.
+Várias conversas profundas em sequência não derrubam o job: elas leem as primeiras
+páginas antes de estourar mais fundo, e essa leitura já zera o contador.
+
+## Retomada
+
+`Retomar sincronização` retoma do checkpoint persistido: preserva `chatCursor`,
+`messageCursor`, `currentChatId` e os contadores, limpando apenas o erro anterior.
+Só um job já `completed` reinicia do zero. Um job deixado em `running` por um
+processo interrompido é adotado pela próxima retomada depois de
+`staleRunningAfterMs` (padrão: 5 minutos) sem escrita — sem isso o checkpoint
+ficaria inalcançável, porque o botão da Inbox fica desabilitado enquanto o estado
+persistido diz `running`.
+
+Um job `failed` permanece visível como `Falhou; corrija o problema e retome` até
+alguém retomá-lo: nada limpa a linha automaticamente. Um rótulo de falha antigo,
+portanto, não significa que a sincronização falhou de novo — confira `updatedAt`
+em `GET /api/v1/inbox/sync/status` antes de investigar.
 
 ## Checklist de validação real
 
