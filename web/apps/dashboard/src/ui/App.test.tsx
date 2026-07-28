@@ -328,3 +328,70 @@ describe('Contacts', () => {
     expect(screen.getByRole('checkbox', { name: /VIP/ })).not.toBeChecked();
   });
 });
+
+describe('Inbox contact editing', () => {
+  const contactId = '30000000-0000-4000-8000-000000000001';
+  const identity = { displayName: null, phone: '5511999990001', pushName: null, profileName: 'Ada no WhatsApp', contactName: 'Ada Lovelace', avatarUrl: null, lastSyncAt: null, syncStatus: 'synced' as const, knownContact: true };
+  const withContact = {
+    id: 'conversation-a', whatsappSessionId: 'session-a', chatId: '5511999990001@c.us', contactId,
+    conversationType: 'direct' as const, status: 'open' as const, lastMessage: null, lastMessageAt: '2026-07-16T18:00:00.000Z',
+    unreadCount: 0, createdAt: '2026-07-16T18:00:00.000Z', updatedAt: '2026-07-16T18:00:00.000Z', identity,
+  };
+  const stored = { id: contactId, displayName: 'Ada Lovelace', phoneNumber: '5511999990001', email: 'ada@example.com', company: 'ChatPro' };
+  const inboxApi = (item: any) => ({
+    conversations: vi.fn().mockResolvedValue({ items: [item], page: 1, pageSize: 50, total: 1 }),
+    messages: vi.fn().mockResolvedValue({ items: [], page: 1, pageSize: 50, total: 0 }),
+    sendMessage: vi.fn(), markRead: vi.fn(),
+  }) as unknown as InboxApi;
+  const domainApi = () => ({
+    contact: vi.fn().mockResolvedValue(stored),
+    updateContact: vi.fn().mockImplementation((_id: string, body: any) => Promise.resolve({ ...stored, ...body })),
+  }) as unknown as DomainApi & { contact: ReturnType<typeof vi.fn>; updateContact: ReturnType<typeof vi.fn> };
+  // The panel only exists for an open conversation, reached here by deep link.
+  beforeEach(() => history.replaceState({}, '', '/inbox?conversationId=conversation-a'));
+  afterEach(() => history.replaceState({}, '', '/inbox'));
+
+  it('shows the stored contact of the selected conversation and saves an edit', async () => {
+    const api = inboxApi(withContact); const domain = domainApi();
+    render(<Inbox api={api} domain={domain} />);
+    await waitFor(() => expect(domain.contact).toHaveBeenCalledWith(contactId));
+    expect(await screen.findByText('ChatPro')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
+    fireEvent.change(screen.getByLabelText('Empresa'), { target: { value: 'Trynux' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(domain.updateContact).toHaveBeenCalled());
+    expect(domain.updateContact).toHaveBeenCalledWith(contactId, { displayName: 'Ada Lovelace', email: 'ada@example.com', company: 'Trynux' });
+    // The conversation list is reloaded so the identity label follows the edit.
+    await waitFor(() => expect(api.conversations).toHaveBeenCalledTimes(2));
+  });
+
+  it('never sends tagIds from the Inbox, so CRM tags survive an identity edit', async () => {
+    const api = inboxApi(withContact); const domain = domainApi();
+    render(<Inbox api={api} domain={domain} />);
+    await waitFor(() => expect(domain.contact).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(domain.updateContact).toHaveBeenCalled());
+    expect(domain.updateContact.mock.calls[0][1]).not.toHaveProperty('tagIds');
+    expect(domain.updateContact.mock.calls[0][1]).not.toHaveProperty('phoneNumber');
+  });
+
+  it('keeps the editor out of conversations with no contact and out of groups', async () => {
+    const api = inboxApi({ ...withContact, contactId: null }); const domain = domainApi();
+    render(<Inbox api={api} domain={domain} />);
+    await waitFor(() => expect(api.messages).toHaveBeenCalled());
+    expect(domain.contact).not.toHaveBeenCalled();
+    expect(screen.queryByText('DADOS DO CONTATO')).not.toBeInTheDocument();
+  });
+
+  it('reports a failed save and keeps the form open', async () => {
+    const api = inboxApi(withContact);
+    const domain = { contact: vi.fn().mockResolvedValue(stored), updateContact: vi.fn().mockRejectedValue(new ApiError('REQUEST_FAILED', 'Phone number already exists in this workspace')) } as unknown as DomainApi;
+    render(<Inbox api={api} domain={domain} />);
+    await waitFor(() => expect(domain.contact).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    expect(await screen.findByText('Phone number already exists in this workspace')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Salvar' })).toBeInTheDocument();
+  });
+});
