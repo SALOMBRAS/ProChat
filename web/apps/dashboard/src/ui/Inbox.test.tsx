@@ -181,7 +181,7 @@ beforeEach(() => {
 describe("Inbox — separação visual entre conversas", () => {
   // O fixture é a saída do componente real, então isto fixa o contrato de marcação
   // de que todas as regras de separação dependem.
-  it("renderiza cada conversa como um card próprio, com badge de não lidas e marca de seleção", () => {
+  it("renderiza cada conversa como uma linha própria, com badge de não lidas e marca de seleção", () => {
     expect(plain.className).toBe("conversation-item");
     expect(chosen.className).toBe("conversation-item selected");
     expect(within(chosen).getByText("12")).toHaveClass("unread");
@@ -189,7 +189,7 @@ describe("Inbox — separação visual entre conversas", () => {
     expect(chosen.querySelector(".conversation-content")).toBeTruthy();
   });
 
-  it("tira o card da regra genérica de <button>, que vencia por especificidade", () => {
+  it("tira a linha da regra genérica de <button>, que vencia por especificidade", () => {
     // `button:not(.nav):not(.text-button):not(.icon-button):not(.profile-button)`
     // tem especificidade (0,4,1) e vencia `.chat-inbox .conversation-item` (0,2,0):
     // todo card recebia o gradiente roxo do botão e a lista virava um bloco só.
@@ -201,57 +201,88 @@ describe("Inbox — separação visual entre conversas", () => {
     expect(genericButtonRule![0]).toContain(":not(.conversation-item)");
   });
 
-  it("separa os cards com divisória e espaçamento", () => {
+  it("separa as conversas por divisória, não por card", () => {
     const style = getComputedStyle(plain);
 
-    // Espaçamento: existe vão entre um card e o seguinte.
-    expect(px(style.marginBottom)).toBeGreaterThan(0);
-    // Divisória: o card é contornado, e o contorno é visível sobre a coluna.
-    expect(px(style.borderTopWidth)).toBeGreaterThanOrEqual(1);
+    // A lista é uma pauta contínua: fio embaixo, e só embaixo.
     expect(px(style.borderBottomWidth)).toBeGreaterThanOrEqual(1);
-    expect(contrast(over(parseColor(style.borderTopColor)!, base), base)).toBeGreaterThan(1.1);
-    // Superfície: o card se distingue do fundo da coluna mesmo sem hover.
-    expect(surfaceOf(plain, base)).not.toEqual(base);
+    expect(px(style.borderTopWidth)).toBe(0);
+    expect(px(style.borderLeftWidth)).toBe(0);
+    expect(px(style.borderRightWidth)).toBe(0);
+    // O fio precisa ser visível sobre a coluna, senão não separa nada.
+    expect(contrast(over(parseColor(style.borderBottomColor)!, base), base)).toBeGreaterThan(1.1);
+    // Nada de caixa: sem raio, sem vão e sem preenchimento próprio.
+    expect(px(style.borderRadius)).toBe(0);
+    expect(px(style.marginBottom)).toBe(0);
+    expect(parseColor(style.backgroundColor)![3]).toBe(0);
   });
 
-  it("paga o espaçamento com o padding interno, sem custar altura de linha", () => {
+  it("não custa densidade: o passo por conversa não cresce", () => {
     const card = getComputedStyle(plain);
     const content = getComputedStyle(plain.querySelector(".conversation-content")!);
 
-    // Orçamento vertical por linha, fora o texto: padding + bordas + vão + os dois
-    // gaps entre as três linhas do card. Antes da mudança era 10+10+0+1+0+5+5 = 31px
-    // (o padding vinha da regra genérica de botão). O passo medido no Chrome era, e
-    // continua sendo, 85px por conversa — nenhuma conversa a menos por tela.
+    // Orçamento vertical por linha, fora o texto. Antes eram 8+8 de padding, 1+1 de
+    // borda, 5 de vão e 4+4 de gap = 31px, com passo medido de 85px no Chrome.
+    // Agora são 9+9 de padding, 1 de divisória e 3+3 de gap = 25px, passo 80px:
+    // seis pixels do enfeite viraram hierarquia tipográfica, e cabe uma conversa a
+    // mais por tela (8 -> 9 numa coluna de 760px).
     const chrome =
-      px(card.paddingTop) +
-      px(card.paddingBottom) +
-      px(card.borderTopWidth) +
-      px(card.borderBottomWidth) +
-      px(card.marginBottom) +
-      2 * px(content.gap);
+      px(card.paddingTop) + px(card.paddingBottom) +
+      px(card.borderTopWidth) + px(card.borderBottomWidth) +
+      px(card.marginBottom) + 2 * px(content.gap);
 
     expect(chrome).toBeGreaterThan(0); // as longhands foram mesmo resolvidas
-    expect(chrome).toBeLessThanOrEqual(31);
+    expect(chrome).toBeLessThanOrEqual(25);
   });
 
-  it("mantém o card selecionado claramente distinguível do não selecionado", () => {
+  // A hierarquia é o objetivo declarado: nome, prévia, hora e chips em degraus
+  // legíveis. Antes o nome tinha 13px e a prévia 12px — um degrau de 1px, que o
+  // olho não distingue.
+  it("estabelece a escala tipográfica do item", () => {
+    const escala = (seletor: string) => {
+      const style = getComputedStyle(plain.querySelector(seletor)!);
+      return { px: px(style.fontSize), peso: Number(style.fontWeight), cor: parseColor(style.color)! };
+    };
+    const nome = escala(".conversation-top strong");
+    const previa = escala(".conversation-preview");
+    const hora = escala(".conversation-top time");
+    const chip = escala(".conversation-management-meta b");
+
+    expect(nome).toMatchObject({ px: 15, peso: 600 });
+    expect(previa.px).toBe(13);
+    expect(hora.px).toBe(11);
+    expect(chip.px).toBe(10);
+
+    // Cada nível é menor que o anterior, com degrau de pelo menos 1px...
+    const tamanhos = [nome.px, previa.px, hora.px, chip.px];
+    for (let i = 1; i < tamanhos.length; i++) expect(tamanhos[i]).toBeLessThan(tamanhos[i - 1]);
+    expect(nome.px - previa.px).toBeGreaterThanOrEqual(2);
+    // ...e mais apagado que o anterior, que é o que separa nome de contexto.
+    const brilho = [nome, previa, hora, chip].map(nivel => luminance(over(nivel.cor, base)));
+    for (let i = 1; i < brilho.length; i++) expect(brilho[i]).toBeLessThan(brilho[i - 1]);
+  });
+
+  it("marca o selecionado sem cor saturada", () => {
+    const chosenStyle = getComputedStyle(chosen);
     const chosenSurface = surfaceOf(chosen, base);
     const plainSurface = surfaceOf(plain, base);
-    expect(chosenSurface).not.toEqual(plainSurface);
 
-    // O preenchimento sozinho é sutil de propósito (senão abafa o badge de não
-    // lidas), então a distinção precisa vir também de sinais de alto contraste:
-    // o contorno claro e a barra lateral.
-    const chosenStyle = getComputedStyle(chosen);
-    const plainBorder = over(parseColor(getComputedStyle(plain).borderTopColor)!, plainSurface);
-    const chosenBorder = over(parseColor(chosenStyle.borderTopColor)!, chosenSurface);
-    expect(contrast(chosenBorder, plainBorder)).toBeGreaterThanOrEqual(1.8);
+    // Preenchimento neutro, um degrau acima do fundo: nada de gradiente roxo.
+    expect(chosenStyle.backgroundImage === "" || chosenStyle.backgroundImage === "none").toBe(true);
+    const fill = parseColor(chosenStyle.backgroundColor)!;
+    expect(fill[3]).toBeGreaterThan(0);
+    // Neutro = os três canais iguais na cor declarada.
+    expect(new Set([fill[0], fill[1], fill[2]]).size).toBe(1);
+    expect(contrast(chosenSurface, plainSurface)).toBeGreaterThan(1.1);
 
+    // O preenchimento neutro fica a poucos passos do hover, então quem torna o
+    // estado inequívoco é a barra lateral — 2px, marcador e não preenchimento.
     const accent = colorsIn(chosenStyle.boxShadow)[0];
     expect(accent, "estado selecionado sem barra lateral").toBeTruthy();
     expect(contrast(over(accent!, chosenSurface), plainSurface)).toBeGreaterThanOrEqual(3);
+    expect(chosenStyle.boxShadow).toContain("inset");
 
-    // E o nome do contato acompanha, ficando mais claro no card selecionado.
+    // E o nome acompanha, ficando mais claro na linha selecionada.
     const nameColor = (item: HTMLElement) =>
       parseColor(getComputedStyle(item.querySelector(".conversation-top strong")!).color)!;
     expect(luminance(nameColor(chosen))).toBeGreaterThan(luminance(nameColor(plain)));
@@ -268,7 +299,7 @@ describe("Inbox — separação visual entre conversas", () => {
     expect(cssDeclarationsFor(".chat-inbox .conversation-item:focus-visible")).toMatch(/outline/);
   });
 
-  it("mantém o badge de não lidas destacado nos dois estados do card", () => {
+  it("mantém o badge de não lidas destacado nos dois estados da linha", () => {
     const element = chosen.querySelector(".unread")!;
     const badge = parseColor(getComputedStyle(element).backgroundColor)!;
 
@@ -296,8 +327,15 @@ describe("Inbox — separação visual entre conversas", () => {
       ".chat-inbox .conversation-item",
       ".chat-inbox .conversation-item:hover",
       ".chat-inbox .conversation-item.selected",
+      ".chat-inbox .conversation-item.selected .conversation-top strong",
       ".chat-inbox .conversation-item:focus-visible",
       ".chat-inbox .unread",
+      // A escala tipográfica também traz cor: um tom novo aqui é tão inédito
+      // quanto um no preenchimento.
+      ".chat-inbox .conversation-top strong",
+      ".chat-inbox .conversation-top time",
+      ".chat-inbox .conversation-preview",
+      ".chat-inbox .conversation-management-meta b,\n.chat-inbox .conversation-management-meta small",
     ]
       .map(cssDeclarationsFor)
       .join(";");
