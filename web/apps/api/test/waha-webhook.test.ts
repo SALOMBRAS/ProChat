@@ -335,7 +335,11 @@ describe('WAHA system events are not conversation', () => {
     expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT chatId, direction, messageType FROM whatsapp_messages').get()).toMatchObject({ chatId, direction: 'outbound', messageType: 'text' });
   });
 
-  it('still records a call log, whose treatment is an open product decision', async () => {
+  // Decidido: a chamada perdida continua visível na Inbox, como hoje. É informação
+  // operacional que o atendente precisa ver, e é por isso que `call_log` está
+  // deliberadamente fora de technicalMessageTypes em conversation-identity.ts:42.
+  // Racional em docs/call-log-na-inbox.md. Este teste tranca o comportamento.
+  it('records a call log, keeping the missed call visible in the Inbox by decision', async () => {
     const app = await appFor();
     await send(app, event('evt-call', systemNotification('call-message', chatId, 'call_log'))).expect(202);
     expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS total FROM whatsapp_messages').get()).toEqual({ total: 1 });
