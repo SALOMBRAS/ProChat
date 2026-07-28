@@ -69,7 +69,10 @@ export class WahaProvider implements WhatsAppWorkerPort {
     const current = await this.refresh(context, stored);
     if (current.status !== 'connected') throw new WorkerOperationError('CONFLICT', 'WhatsApp session is not connected', context.correlationId, { status: current.status });
     switch (content.kind) {
-      case 'location':
+      case 'location': {
+        const sent = await this.call(context, () => this.client.sendLocation(stored.wahaName, chatId, { latitude: content.latitude, longitude: content.longitude, ...(content.title ? { title: content.title } : {}) }));
+        return { ...(sent.id ? { id: sent.id } : {}), pending: sent.pending, timestamp: new Date().toISOString() };
+      }
       case 'vcard':
       case 'poll':
         throw new WorkerOperationError('NOT_IMPLEMENTED', `Sending ${content.kind} is not implemented yet`, context.correlationId, { kind: content.kind });

@@ -157,6 +157,14 @@ const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
   const [failed, setFailed] = useState(false);
   const [playbackError, setPlaybackError] = useState<string>();
   useEffect(() => { if (!message.mediaUrl) return; let active = true; setUrl(undefined); setFailed(false); setPlaybackError(undefined); void api.mediaUrl(message.id).then(access => { if (active) setUrl(access.url); }).catch(() => { if (active) setFailed(true); }); return () => { active = false; }; }, [api, message.id, message.mediaUrl]);
+  // A location has no media to fetch: the coordinates travel in the stored
+  // payload, which the message reader hands over as metadata.
+  if (message.messageType === "location") {
+    const point = (message.metadata as { location?: { latitude?: number; longitude?: number; title?: string } } | undefined)?.location;
+    if (typeof point?.latitude !== "number" || typeof point?.longitude !== "number") return <span className="message-received-label">Localização</span>;
+    const label = point.title?.trim() || `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`;
+    return <a className="message-location" href={`https://www.google.com/maps/search/?api=1&query=${point.latitude},${point.longitude}`} target="_blank" rel="noreferrer noopener">📍 {label}</a>;
+  }
   if (!message.mediaUrl)
     return message.direction === "inbound" ? (
       <span className="message-received-label">Recebida</span>
@@ -839,6 +847,30 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       atBottomRef.current =
         list.scrollHeight - list.scrollTop - list.clientHeight < 48;
   };
+  const deliverLocation = async (latitude: number, longitude: number, title?: string) => {
+    const conversationId = selected?.id;
+    if (!conversationId || !api.sendLocation) return;
+    setAttachmentStatus("Enviando localização…");
+    try {
+      await api.sendLocation(conversationId, { latitude, longitude, ...(title ? { title } : {}) });
+      setAttachmentStatus("");
+    } catch (nextError) { setAttachmentStatus(errorMessage(nextError)); }
+  };
+  const sendCurrentLocation = async () => {
+    if (!navigator.geolocation) { setAttachmentStatus("Este navegador não expõe localização."); return; }
+    setAttachmentStatus("Obtendo localização…");
+    navigator.geolocation.getCurrentPosition(
+      position => void deliverLocation(position.coords.latitude, position.coords.longitude),
+      () => setAttachmentStatus("Não foi possível obter a localização."),
+    );
+  };
+  const sendTypedLocation = async () => {
+    const typed = window.prompt("Informe latitude, longitude (ex.: -7.115, -34.861)");
+    if (!typed) return;
+    const [latitude, longitude] = typed.split(",").map(part => Number(part.trim()));
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) { setAttachmentStatus("Coordenadas inválidas."); return; }
+    await deliverLocation(latitude, longitude);
+  };
   const startSync = async () => {
     const session = conversationPage.items[0]?.whatsappSessionId;
     if (!api.startSync) return;
@@ -1126,6 +1158,8 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                     <button type="button" role="menuitem" onClick={() => { setAttachmentAccept(CAMERA_ACCEPT); setAttachmentCapture(undefined); attachmentInputRef.current?.click(); }}><span className="attachment-option-icon media" aria-hidden="true">▣</span><span>Fotos/Vídeos</span></button>
                     <button type="button" role="menuitem" className="future-option" title="Gravação de áudio será disponibilizada em breve"><span className="attachment-option-icon audio" aria-hidden="true">◖</span><span>Áudio</span><small>Em breve</small></button>
                     <button type="button" role="menuitem" onClick={() => void openCamera()}><span className="attachment-option-icon camera" aria-hidden="true">◉</span><span>Câmera</span></button>
+                    <button type="button" role="menuitem" onClick={() => { setAttachmentMenuOpen(false); void sendCurrentLocation(); }}><span className="attachment-option-icon" aria-hidden="true">📍</span><span>Localização atual</span></button>
+                    <button type="button" role="menuitem" onClick={() => { setAttachmentMenuOpen(false); void sendTypedLocation(); }}><span className="attachment-option-icon" aria-hidden="true">📍</span><span>Informar coordenadas</span></button>
                   </div>}
                 </div>
                 <button type="button" className="composer-action composer-emoji-action" title="Emojis serão disponibilizados em breve" aria-label="Escolher emoji" disabled={sending}><span aria-hidden="true">☺</span></button>
