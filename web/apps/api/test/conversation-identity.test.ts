@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveConversationIdentity } from '../src/services/conversation-identity.js';
+import { isTechnicalMessageType, resolveConversationIdentity } from '../src/services/conversation-identity.js';
 
 describe('resolveConversationIdentity', () => {
   it('keeps inbound group messages in the group and never selects participant', () => {
@@ -16,5 +16,23 @@ describe('resolveConversationIdentity', () => {
     expect(resolveConversationIdentity({ direction: 'inbound', chatId: 'status@broadcast', participant: '5511999999999@c.us' })).toBeUndefined();
     expect(resolveConversationIdentity({ direction: 'inbound', participant: '5511999999999@c.us' })).toBeUndefined();
     expect(resolveConversationIdentity({ direction: 'inbound', from: '5511999999999@c.us', participant: '5511999999999@c.us' })).toBeUndefined();
+  });
+  it('rejects the WhatsApp system events that nobody writes and nobody answers', () => {
+    for (const messageType of ['e2e_notification', 'notification_template', 'gp2', 'ciphertext', 'E2E_Notification']) expect(resolveConversationIdentity({ direction: 'inbound', chatId: '5511999999999@c.us', messageType })).toBeUndefined();
+  });
+  it('accepts the conversation types of both payload formats', () => {
+    // `chat` is what WEBJS reports in _data.type for plain text; `text` is what
+    // the Inbox's own synthetic payload carries at the root.
+    for (const messageType of ['chat', 'text', 'image', 'ptt', 'call_log']) expect(resolveConversationIdentity({ direction: 'inbound', chatId: '5511999999999@c.us', messageType })).toMatchObject({ conversationChatId: '5511999999999@c.us', conversationType: 'direct' });
+  });
+});
+
+describe('isTechnicalMessageType', () => {
+  it('recognises the technical vocabulary regardless of casing and blank input', () => {
+    expect(isTechnicalMessageType('reaction')).toBe(true);
+    expect(isTechnicalMessageType(' E2E_NOTIFICATION ')).toBe(true);
+    expect(isTechnicalMessageType('chat')).toBe(false);
+    expect(isTechnicalMessageType(undefined)).toBe(false);
+    expect(isTechnicalMessageType('')).toBe(false);
   });
 });

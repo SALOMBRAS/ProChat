@@ -275,3 +275,69 @@ describe('WAHA webhook ingress', () => {
     expect(socket.messages.map(message => JSON.parse(message).eventType)).toContain('conversation.management.updated');
   });
 });
+
+// The WAHA/WEBJS payload has no `type` at the root: the real type is in
+// `_data.type`. Reading only the root classified every WhatsApp system event as
+// inbound text, which opened a conversation, marked it unread and started an SLA
+// clock nobody could stop. `systemNotification` reproduces a real production
+// payload: the 13 top-level keys observed, an empty body and the type reachable
+// only through `_data`.
+const systemNotification = (id: string, chatId: string, type: string, subtype?: string) => ({
+  id, to: '5511777770000@c.us', body: '', from: chatId, fromMe: false, source: 'app', vCards: [], ackName: 'DEVICE',
+  hasMedia: false, location: undefined, timestamp: Math.floor(Date.now() / 1000), _data: { type, ...(subtype ? { subtype } : {}) },
+});
+
+describe('WAHA system events are not conversation', () => {
+  const chatId = '5511999990000@c.us';
+  const send = (app: any, body: unknown) => { const signedBody = signed(body); return request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedBody.timestamp).send(signedBody.raw); };
+  const event = (id: string, payload: unknown) => ({ id, timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload });
+
+  it('accepts the event for auditing but never turns it into a message', async () => {
+    const app = await appFor();
+    await send(app, event('evt-e2e', systemNotification('e2e-message', chatId, 'e2e_notification', 'encrypt'))).expect(202);
+    const database = app.locals.persistenceDatabase.sqlite;
+    expect(database.prepare('SELECT count(*) AS total FROM waha_webhook_events').get()).toEqual({ total: 1 });
+    expect(database.prepare('SELECT count(*) AS total FROM whatsapp_messages').get()).toEqual({ total: 0 });
+  });
+
+  it('does not create a conversation', async () => {
+    const app = await appFor();
+    for (const [index, type] of ['e2e_notification', 'notification_template', 'gp2', 'ciphertext'].entries()) await send(app, event(`evt-system-${index}`, systemNotification(`system-message-${index}`, chatId, type))).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS total FROM conversations').get()).toEqual({ total: 0 });
+  });
+
+  it('does not increment the unread counter of an existing conversation', async () => {
+    // The notification has to be strictly newer than the real message: the
+    // unread counter only moves when the incoming event wins lastMessageAt, so
+    // an older stamp would make this pass even with the defect present.
+    const seconds = Math.floor(Date.now() / 1000); const app = await appFor(); const database = app.locals.persistenceDatabase.sqlite;
+    await send(app, event('evt-real', { id: 'real-message', chatId, body: 'Bom dia', timestamp: seconds - 60 })).expect(202);
+    expect(database.prepare('SELECT unreadCount FROM conversations WHERE chatId=?').get(chatId)).toEqual({ unreadCount: 1 });
+    await send(app, event('evt-e2e-after', { ...systemNotification('e2e-after', chatId, 'e2e_notification', 'encrypt'), timestamp: seconds })).expect(202);
+    expect(database.prepare('SELECT unreadCount FROM conversations WHERE chatId=?').get(chatId)).toEqual({ unreadCount: 1 });
+  });
+
+  it('does not start an SLA clock', async () => {
+    const app = await appFor(); const database = app.locals.persistenceDatabase.sqlite;
+    await send(app, event('evt-e2e-sla', systemNotification('e2e-sla', chatId, 'e2e_notification', 'encrypt'))).expect(202);
+    expect(database.prepare('SELECT count(*) AS total FROM conversation_sla_metrics').get()).toEqual({ total: 0 });
+  });
+
+  it('keeps ingesting a real message whose type only exists in _data', async () => {
+    const app = await appFor();
+    await send(app, event('evt-chat', { ...systemNotification('webjs-chat', chatId, 'chat'), body: 'Mensagem real do WEBJS' })).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT chatId, direction, body, messageType FROM whatsapp_messages').get()).toMatchObject({ chatId, direction: 'inbound', body: 'Mensagem real do WEBJS', messageType: 'text' });
+  });
+
+  it('keeps ingesting the payload built by the Inbox, which has type at the root and no _data', async () => {
+    const app = await appFor();
+    await send(app, event('evt-root-type', { id: 'root-type-message', chatId, body: 'Enviada pelo Inbox', type: 'text', fromMe: true })).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT chatId, direction, messageType FROM whatsapp_messages').get()).toMatchObject({ chatId, direction: 'outbound', messageType: 'text' });
+  });
+
+  it('still records a call log, whose treatment is an open product decision', async () => {
+    const app = await appFor();
+    await send(app, event('evt-call', systemNotification('call-message', chatId, 'call_log'))).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS total FROM whatsapp_messages').get()).toEqual({ total: 1 });
+  });
+});

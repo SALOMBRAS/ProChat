@@ -4,6 +4,12 @@ Data: 2026-07-27 (medições ao fim da tarde, UTC). Workspace investigado:
 `default-workspace`, Supabase remoto, **somente leitura** — nenhuma migration,
 nenhum DDL, nenhuma escrita.
 
+> **Estado em 2026-07-28:** a correção de ingestão descrita na seção 6 foi
+> implementada. A limpeza retroativa dos dados já gravados continua pendente de
+> aprovação, com o SQL proposto em
+> `docs/migrations-propostas-eventos-sistema.sql`. A modelagem de "conversa
+> nunca trabalhada" (seção 7) segue em aberto, como decisão de produto.
+
 ## Sintoma relatado
 
 38 das 50 conversas ativas não têm um único `outbound` em toda a sua história e
@@ -262,48 +268,115 @@ Independentemente da origem do evento, o desenho atual não tem freio:
   médio da primeira resposta" é calculado sobre no máximo 12 conversas e pode
   parecer saudável com o painel inteiro vermelho.
 
-## 6. Correção proposta da ingestão — **não implementada nesta tarefa**
+## 6. Correção da ingestão — **implementada**
 
-Prioridade alta: é defeito de ingestão, corrompe SLA, Kanban, contagem de não
-lidas e a própria lista de conversas.
+Entregue em `fix/ingestao-eventos-sistema`. O que mudou:
 
-1. **Ler o tipo real.** Em `messageFrom` (`waha-webhook.service.ts:122`), derivar
-   o tipo de `payload._data.type` quando `payload.type` estiver ausente, antes de
-   chamar `mediaType`. É a origem única do erro; as outras duas leituras
-   dependem dela. **Atenção ao caminho próprio do ChatPro:** o payload sintético
-   de `outboundRecord` (`:121`) não tem `_data` e traz `type: 'text'` na raiz —
-   confirmado no banco, as 13 mensagens enviadas pelo Inbox são exatamente as 13
-   sem `_data`. O fallback para `payload.type` precisa continuar valendo, ou o
-   envio pelo próprio produto passa a ser descartado.
-2. **Ampliar a lista de eventos técnicos.** `isTechnical` (`:140`) e
-   `isTechnicalInput` (`conversation-identity.ts:35`) devem incluir
-   `e2e_notification`, `notification_template` e `gp2`, que são os tipos
-   comprovadamente responsáveis pelo sintoma. `ciphertext` e
-   `biz_content_placeholder` são candidatos plausíveis pela semântica, mas nesta
-   base só aparecem no histórico importado (12 ocorrências, nenhuma ao vivo), de
-   modo que a inclusão deles é preventiva e não está sustentada por medição.
-3. **Descartar antes de persistir.** O descarte deve acontecer em `messageFrom`,
-   no mesmo ponto onde hoje se descarta um `chatId` inválido, com um
-   `discardReason` próprio. Assim o evento continua auditável em
-   `waha_webhook_events` (gravado em `:49`, antes de qualquer decisão) mas não
-   cria mensagem, não cria conversa, não incrementa não lidas e não abre SLA.
-4. **Decidir o caso `call_log` explicitamente.** Uma chamada perdida é
-   informação operacional legítima, ao contrário de uma troca de código de
-   segurança. Hoje ela é gravada como texto vazio. Tratá-la como evento visível
-   sem abrir SLA é decisão de produto e deve ser tomada antes de codificar — não
-   assumida.
-5. **Teste de regressão** com um payload real de `e2e_notification` (13 chaves de
-   topo, sem `type`, `body` vazio, tipo em `_data.type`), verificando que nada é
-   persistido e que nenhuma linha de SLA nasce.
-6. **Compatibilidade.** A mudança é inteiramente no normalizador compartilhado
-   pelos dois provedores. Não requer migration em SQLite nem em Supabase.
-7. **Retroativo.** A correção impede novos casos e não desfaz os existentes.
-   Ficam para decisão explícita, com SQL proposto e **não executado**: 174
-   mensagens de sistema ao vivo, 38 linhas de `conversation_sla_metrics` e 164
-   conversas visíveis sem conteúdo real. A assinatura de identificação é
-   `payload_json->'_data'->>'type' IN ('e2e_notification','notification_template',
-   'gp2')`. A remoção precisa respeitar a ordem métrica → mensagem → conversa e
-   preservar conversas que também tenham mensagem real.
+1. **O tipo real passou a ser lido.** `wahaMessageType`
+   (`waha-webhook.service.ts`) resolve `payload.type` e, quando ele está
+   ausente, `payload._data.type`. A raiz vem primeiro de propósito: o payload
+   sintético de `outboundRecord` não tem `_data` e traz `type: 'text'` na raiz —
+   medido, as 13 mensagens enviadas pelo Inbox são exatamente as 13 mensagens da
+   base sem `_data`. Ler só `_data` faria o produto descartar o próprio envio.
+2. **A lista de tipos técnicos virou fonte única.** Estava duplicada entre
+   `isTechnical` e `isTechnicalInput`, que podiam divergir. Agora
+   `conversation-identity.ts` exporta `isTechnicalMessageType` e os dois pontos
+   consultam a mesma constante, acrescida de `e2e_notification`,
+   `notification_template`, `gp2` e `ciphertext`.
+3. **O descarte acontece antes de persistir**, no mesmo ponto onde já se
+   descartava um `chatId` inválido, com `discardReason: 'technical_message_type'`
+   e o tipo recebido no log. O evento bruto continua gravado em
+   `waha_webhook_events` antes de qualquer decisão, então nada deixa de ser
+   auditável: o que some é a conversa fantasma, não o registro do que chegou.
+4. **Cobertura.** 10 testes novos. Seis falham sem a correção — a resolução de
+   identidade dos quatro tipos, o helper de classificação, e cada uma das três
+   consequências em separado: não vira mensagem, não cria conversa, não
+   incrementa não lidas, não abre linha de SLA. Os outros quatro são guardas de
+   regressão que passam dos dois lados de propósito: a mensagem real do WEBJS
+   (tipo só em `_data`), o payload do Inbox (tipo na raiz, sem `_data`), e a
+   caracterização do `call_log`, que segue sendo persistido.
+5. **Paridade.** A mudança está inteiramente no normalizador compartilhado pelos
+   dois provedores, antes da bifurcação SQLite/Supabase. Nenhuma migration.
+
+### O que deliberadamente NÃO mudou
+
+- **`call_log` continua sendo persistido.** Uma chamada perdida é informação
+  operacional, e decidir se ela pede resposta é decisão de produto. São 197
+  mensagens na base. Há um teste caracterizando o comportamento atual para que a
+  decisão, quando vier, seja explícita.
+- **O vocabulário de `message_type` não foi remapeado.** `mediaType` continua
+  derivando o tipo armazenado da raiz e do mime, como antes. Ligar `_data.type`
+  nele trocaria `text` por `chat`, `audio` por `ptt` e `image` por `sticker` em
+  toda mensagem futura, mexendo em prévia, renderização da Inbox e proxy de
+  mídia. É mudança maior, com risco próprio, e não é necessária para o defeito
+  aqui: o que abre conversa indevida é a classificação técnica, não o rótulo.
+- **`biz_content_placeholder` ficou de fora.** Semanticamente é candidato, mas na
+  base só aparece no histórico importado (12 ocorrências, nenhuma ao vivo).
+  Incluir sem medição seria adivinhação.
+
+### Um terceiro ponto lê a raiz — encontrado, não corrigido aqui
+
+`waha-webhook.controller.ts:19` passa
+`messageType: firstString(event.payload.type) ?? null` para
+`WhatsAppMediaPersistenceService.persist`. É a mesma leitura defeituosa, e o
+valor é `null` em 100% do tráfego real: as únicas 13 mensagens com `type` na raiz
+são as sintéticas do Inbox, que nunca têm mídia e portanto nunca chegam nesse
+`persist`.
+
+Consequência: `normalizedMime`
+(`whatsapp-media-persistence.service.ts:51`) nunca dispara no caminho ao vivo —
+`video`/`ptv` → `video/mp4`, `audio` → `audio/mp4` e `sticker` → `image/webp`
+não acontecem, e a mídia vai para o Storage com content-type genérico.
+
+Não foi corrigido nesta PR porque corrigir muda o content-type gravado da mídia,
+o que é blast radius de armazenamento e merece teste próprio. Achado
+independente do mesmo levantamento: `pendingMedia` (`waha-webhook.service.ts:69`
+e `:103`) não seleciona a coluna `message_type`, então `importPending` sempre
+chama `persist` com `messageType` indefinido — esse ramo do reparo de mime
+estaria morto mesmo sem o defeito de `payload.type`.
+
+Auditados e **não** afetados: `id`, `body`, `from`, `to`, `fromMe`, `hasMedia`,
+`media`, `timestamp` — todos existem na raiz e estão entre as 13 chaves medidas.
+`text`, `sender` e `mediaUrl` são fallbacks herdados de outro formato, inertes.
+`replyTo` alimenta `quoted_message_id`, que nenhum consumidor lê no monorepo
+inteiro — não há efeito observável, e se há lacuna ali ela é latente.
+
+### Limpeza retroativa — proposta, **não executada**
+
+A correção impede novos casos e não desfaz os já gravados. O SQL está em
+`docs/migrations-propostas-eventos-sistema.sql`, com os `SELECT` de conferência
+liberados e o `DELETE`/`UPDATE` comentados. Medido em 2026-07-28 (a base é viva;
+os números de 2026-07-27 nas seções anteriores mudaram um pouco):
+
+| Alvo | Quantidade |
+| --- | --- |
+| Mensagens que a nova regra classifica como técnicas | 237 de 3 007 (8 %) |
+| — `e2e_notification` / `notification_template` / `gp2` / `revoked` | 141 / 71 / 24 / 1 |
+| Conversas que ficariam sem nenhuma mensagem | 156 (134 diretas, 22 grupos) |
+| — destas, com badge de não lida | 68 |
+| — destas, com `contact_id` vinculado | 69 |
+| Conversas mistas: têm técnica **e** real | 17 (37 mensagens técnicas dentro) |
+| Linhas de SLA em conversas que somem (cascata da FK) | 37 |
+| Linhas de SLA em conversas que sobrevivem | 6 |
+| Eventos brutos preservados em `waha_webhook_events` | 12 917 — nada os toca |
+
+Três cuidados que o SQL documenta e que não são óbvios:
+
+1. **As 17 conversas mistas não podem ser apagadas.** Só as mensagens técnicas
+   saem; a conversa e o histórico real ficam.
+2. **As 6 linhas de SLA que sobrevivem precisam de recálculo, não de remoção.**
+   O relógio delas está ancorado numa mensagem técnica que vai deixar de existir.
+   Apagar a mensagem não conserta a métrica — deixa-a apontando para o vazio. E
+   os acumuladores (`operator_waiting_ms`, `customer_waiting_ms`) absorveram
+   intervalos medidos a partir de eventos técnicos, sem como separá-los. Se a
+   exatidão importar, o caminho honesto é apagar a linha e deixar a próxima
+   mensagem real recriá-la.
+3. **Os contatos não são removidos em cascata.** Podem ser compartilhados com
+   outra conversa ou criados à mão.
+
+O SQL foi escrito a partir do formato medido, mas **não foi executado nem
+validado sintaticamente contra o banco**: o acesso disponível é PostgREST, que
+não roda SQL arbitrário. Confira os `SELECT` antes de descomentar qualquer coisa.
 
 ## 7. Como o painel deveria modelar conversa nunca trabalhada
 
