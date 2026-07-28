@@ -80,6 +80,24 @@ const cssRule = (selector: string) => {
   return stylesheet.slice(start, stylesheet.indexOf("}", start));
 };
 
+// styles.css mistura blocos minificados (`.a{…}`) e legíveis (`.a { … }`), e alguns
+// seletores aparecem nos dois. Junta todas as declarações do seletor exato para poder
+// afirmar o que ele nunca declara, em qualquer um dos formatos.
+const cssDeclarationsFor = (selector: string) => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rule = new RegExp(`(?<=[};]|\\*/)\\s*(?:/\\*[^{}]*?\\*/\\s*)*${escaped}\\s*\\{([^}]*)\\}`, "g");
+  const blocks = [...stylesheet.matchAll(rule)].map((match) => match[1]);
+  expect(blocks.length, `regra ${selector} ausente em styles.css`).toBeGreaterThan(0);
+  return blocks.join(";");
+};
+
+const selectorsDeclaring = (customProperty: string) =>
+  [
+    ...stylesheet.matchAll(
+      new RegExp(`(?<=[};]|\\*/)\\s*(?:/\\*[^{}]*?\\*/\\s*)*([^{};]+?)\\s*\\{[^{}]*${customProperty}\\s*:`, "g"),
+    ),
+  ].map((match) => match[1].trim());
+
 const renderDashboard = (api = { slaSummary: vi.fn().mockResolvedValue(summary) }) => {
   const onOpenConversation = vi.fn();
   render(
@@ -188,6 +206,65 @@ describe("SlaOperationalDashboard", () => {
     expect(alert).toHaveTextContent("Resumo indisponível");
     expect(screen.queryByRole("region", { name: scrollRegionName })).not.toBeInTheDocument();
     expect(document.querySelector(".sla-critical-scroll")).toBeNull();
+  });
+
+  it("does not claim a clean queue when the first load fails", async () => {
+    renderDashboard({
+      slaSummary: vi.fn().mockRejectedValue(new Error("Resumo indisponível")),
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Resumo indisponível");
+    // Sem resumo não há como afirmar nada sobre a fila: o estado vazio positivo, o
+    // badge e os cartões alegariam operação em dia quando a carga apenas falhou.
+    expect(
+      screen.queryByText("Nenhum atendimento exige atenção neste momento."),
+    ).not.toBeInTheDocument();
+    expect(document.querySelector(".sla-critical-empty")).toBeNull();
+    expect(screen.queryByText(/em foco$/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Atendimentos ativos")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Atendimentos que exigem atenção" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the last good list visible when a later refresh fails", async () => {
+    vi.useFakeTimers();
+    const api = {
+      slaSummary: vi
+        .fn()
+        .mockResolvedValueOnce(summary)
+        .mockRejectedValueOnce(new Error("Resumo indisponível")),
+    };
+    renderDashboard(api);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("button", { name: /Abrir Cliente atrasado/ })).toBeInTheDocument();
+
+    await act(async () => {
+      realtime.handler?.({ eventType: "conversation.sla.updated", workspaceId: "workspace-a", payload: {} });
+      await vi.advanceTimersByTimeAsync(750);
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Resumo indisponível");
+    expect(screen.getByRole("region", { name: scrollRegionName })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Abrir Cliente atrasado/ })).toBeInTheDocument();
+  });
+
+  it("keeps the empty and error states out of the list height contract", () => {
+    // O jsdom não tem motor de layout, então a garantia verificável aqui é a da folha
+    // de estilo: nenhum dos dois estados declara altura e nenhum pode herdar as
+    // variáveis de linha, que existem só dentro do contêiner rolável — do qual eles
+    // são irmãos, nunca descendentes.
+    for (const selector of [".sla-critical-empty", ".sla-operational-error"]) {
+      const declarations = cssDeclarationsFor(selector);
+      expect(declarations, `${selector} não pode declarar altura`).not.toMatch(/min-height|max-height|height:/);
+    }
+    for (const property of ["--sla-critical-row", "--sla-critical-row-gap", "--sla-critical-rows"]) {
+      const owners = selectorsDeclaring(property);
+      expect(owners.length, `${property} não é declarada`).toBeGreaterThan(0);
+      expect(owners.every((selector) => selector === ".sla-critical-scroll"), `${property} escapa de .sla-critical-scroll: ${owners.join(", ")}`).toBe(true);
+    }
   });
 
   it("bounds the scroll region by row height instead of a fixed pixel box", () => {
