@@ -6,7 +6,7 @@ import { SqlitePersistenceDatabase } from '../src/persistence/database.js';
 import { RealtimeHub } from '../src/realtime.js';
 import { InternalInboxService } from '../src/services/internal-inbox.service.js';
 import { SlaMessageCoordinator } from '../src/services/sla-message-coordinator.service.js';
-import { projectSlaCard, SlaService, SqliteSlaStore } from '../src/services/sla.service.js';
+import { criticalSampleLimit, projectSlaCard, SlaService, SqliteSlaStore } from '../src/services/sla.service.js';
 import { historyRecord, SqliteWahaWebhookStore, webhookRecord } from '../src/services/waha-webhook.service.js';
 
 const directories: string[] = [];
@@ -92,6 +92,53 @@ describe('operational SLA lifecycle', () => {
       expect(database.sqlite.prepare('SELECT slaStatus,frozenAt,resolvedAt,waitingSinceAt FROM conversation_sla_metrics').get()).toMatchObject({ slaStatus: 'resolved', waitingSinceAt: null });
       const row = database.sqlite.prepare('SELECT frozenAt,resolvedAt FROM conversation_sla_metrics').get() as { frozenAt: string; resolvedAt: string };
       expect(row.frozenAt).toBe(row.resolvedAt);
+    } finally { database.close(); }
+  });
+
+  it('caps the critical sample without ever understating the population', async () => {
+    const { database, service } = setup();
+    try {
+      const overflow = criticalSampleLimit + 17;
+      const past = '2020-01-01T00:00:00.000Z';
+      const insert = database.sqlite.prepare('INSERT INTO conversations (id,workspaceId,wahaSession,chatId,contactId,status,lastMessage,lastMessageAt,unreadCount,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+      database.sqlite.transaction(() => {
+        for (let index = 0; index < overflow; index += 1) insert.run(`00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, workspaceId, 'waha-a', `55119${String(90000000 + index).padStart(8, '0')}@c.us`, null, 'open', 'Olá', past, 0, past, past);
+      })();
+      for (let index = 0; index < overflow; index += 1) await service.message(workspaceId, `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, 'inbound', past, false);
+
+      const summary = await service.summary(workspaceId);
+      // A amostra é cortada, mas o total continua sendo a população inteira — é o
+      // que o badge mostra e o que a linha de truncagem compara.
+      expect(summary.critical).toHaveLength(criticalSampleLimit);
+      expect(summary.totals.warning + summary.totals.overdue).toBe(overflow);
+      expect(summary.totals.active).toBe(overflow);
+      // Corte é dos MAIS urgentes: nada verde entra na amostra.
+      expect(summary.critical.every((item) => item.indicator !== 'green')).toBe(true);
+      // Toda a amostra tem identidade resolvida na mesma consulta em lote.
+      expect(summary.critical.every((item) => item.conversationId)).toBe(true);
+    } finally { database.close(); }
+  }, 30_000);
+
+  it('keeps the critical cap inside the Supabase URL budget', () => {
+    // No provider Supabase, `criticalConversationIdentities` vira um filtro
+    // `.in('id', [...])` que o PostgREST serializa na URL, a ~45 B por id. Medido:
+    // 100 ids -> 4,55 KB; 200 -> 8,94 KB, acima do limite prático de header (~8 KB).
+    // Subir o teto além dessa faixa exige paginar o filtro em lotes, não só trocar
+    // a constante — por isso o valor é verificado, não só o fato de existir corte.
+    const urlBytesPerId = 46;
+    expect(criticalSampleLimit * urlBytesPerId).toBeLessThan(6 * 1024);
+    // E precisa continuar cobrindo com folga o pior caso real observado (49).
+    expect(criticalSampleLimit).toBeGreaterThanOrEqual(98);
+  });
+
+  it('returns everything when the population fits under the cap', async () => {
+    const { database, service } = setup();
+    try {
+      conversation(database);
+      await service.message(workspaceId, conversationId, 'inbound', '2020-01-01T00:00:00.000Z', false);
+      const summary = await service.summary(workspaceId);
+      expect(summary.critical).toHaveLength(1);
+      expect(summary.totals.warning + summary.totals.overdue).toBe(1);
     } finally { database.close(); }
   });
 

@@ -202,9 +202,11 @@ export function SlaOperationalDashboard({
       ] as const
     : [];
 
-  // A API já corta `critical` nos 20 mais urgentes, então o tamanho do payload não
-  // é o total real de atendimentos em risco: esse total é a soma de amarelos e
-  // vermelhos ativos, a mesma população que o serviço filtra antes do corte.
+  // A API corta `critical` numa amostra dos mais urgentes (`criticalSampleLimit`,
+  // hoje 100), então o tamanho do payload não é o total real de atendimentos em
+  // risco: esse total é a soma de amarelos e vermelhos ativos, a mesma população
+  // que o serviço filtra antes do corte. Nada aqui depende do valor do corte — a
+  // lista renderiza o que vier e a linha de truncagem compara com o total.
   const criticalItems = summary?.critical ?? [];
   const criticalTotal = summary
     ? Math.max(criticalItems.length, summary.totals.warning + summary.totals.overdue)
