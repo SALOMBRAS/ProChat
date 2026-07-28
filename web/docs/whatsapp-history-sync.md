@@ -39,19 +39,10 @@ truncadas.
 
 ## Orçamento de tempo
 
-Uma única página de histórico atravessa três deadlines encadeados, e eles
-precisam ficar em ordem crescente do provedor para fora:
-
-1. `WAHA_TIMEOUT_MS` (worker → WAHA). O worker faz **duas** chamadas sequenciais
-   por página: a checagem de sessão e a leitura em si, cada uma com esse
-   orçamento.
-2. O deadline da API por comando (`30 s`, fixo em `page()`).
-3. `WORKER_TRANSPORT_TIMEOUT_MS`, limitado a `30 s` pela validação de config.
-
-Com `WAHA_TIMEOUT_MS=28000` a margem entre (1) e (2) é de 2 s: normalmente a
-checagem de sessão responde em milissegundos e a WAHA vence a corrida, mas subir
-`WAHA_TIMEOUT_MS` para além disso faz a API abortar primeiro e reportar `TIMEOUT`
-por conta própria, sem cancelar a requisição que continua correndo no worker.
+Veja `docs/worker-command-budget.md`. Em resumo: a API anuncia um orçamento por
+comando, o worker gasta **esse** orçamento entre todas as chamadas WAHA que a
+página precisa, e o teto de profundidade de uma página é
+`WORKER_TRANSPORT_TIMEOUT_MS` (padrão e máximo: 30 s), não `WAHA_TIMEOUT_MS`.
 
 ## Provedor degradado
 

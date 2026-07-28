@@ -1,4 +1,5 @@
 import { log } from './logging.js';
+import { remainingBudgetMs } from './request-deadline.js';
 
 export type WahaSession = { name: string; status: string };
 export type WahaSentMessage = { id?: string; pending: boolean };
@@ -8,10 +9,21 @@ export type WahaGroup = { chatId: string; name: string | null; pictureUrl: strin
 export type WahaHistoryPage = { items: Record<string, unknown>[]; hasMore: boolean; unsupported: string[] };
 
 export class WahaClientError extends Error {
-  constructor(readonly kind: 'unavailable' | 'timeout' | 'response' | 'contract', readonly status?: number, readonly providerMessage?: string, readonly details: Record<string, unknown> = {}) {
-    super(kind === 'timeout' ? 'WAHA request timed out' : kind === 'unavailable' ? 'WAHA is unavailable' : kind === 'contract' ? 'WAHA returned an unsupported response contract' : 'WAHA returned an unexpected response');
+  // `timeout` is WAHA failing to answer within the time it was given; `deadline`
+  // is this command running out of the budget the API announced, with WAHA still
+  // working. Both end the call, but only the second one says the operation did
+  // not fit in the budget, which is what an operator needs to read.
+  constructor(readonly kind: 'unavailable' | 'timeout' | 'deadline' | 'response' | 'contract', readonly status?: number, readonly providerMessage?: string, readonly details: Record<string, unknown> = {}) {
+    super(kind === 'timeout' ? 'WAHA request timed out' : kind === 'deadline' ? 'command budget ran out before WAHA answered' : kind === 'unavailable' ? 'WAHA is unavailable' : kind === 'contract' ? 'WAHA returned an unsupported response contract' : 'WAHA returned an unexpected response');
     this.name = 'WahaClientError';
   }
+  /**
+   * The call was abandoned while WAHA was still working on it, so WAHA may have
+   * applied it anyway and the state has to be reconciled by reading it back.
+   * Which clock ran out — WAHA's own or the command budget — does not change
+   * that.
+   */
+  get interrupted(): boolean { return this.kind === 'timeout' || this.kind === 'deadline'; }
 }
 
 export interface WahaClientPort {
@@ -92,8 +104,16 @@ export class WahaHttpClient implements WahaClientPort {
 
   private async request(path: string, method = 'GET', body?: unknown, timeoutMs = this.options.timeoutMs): Promise<unknown> { return (await this.requestResponse(path, method, body, timeoutMs)).data; }
   private async requestResponse(path: string, method = 'GET', body?: unknown, timeoutMs = this.options.timeoutMs): Promise<{ data: unknown; status: number }> {
+    // An operation may need several provider calls, so each one gets whatever is
+    // left of the command budget rather than a fresh copy of the configured
+    // timeout. Without this the budget multiplies by the number of calls and the
+    // caller gives up first, reporting its own abort instead of the real cause.
+    const budget = remainingBudgetMs();
+    const constrained = budget !== undefined && budget < timeoutMs;
+    const deadlineMs = constrained ? budget : timeoutMs;
+    if (deadlineMs <= 0) throw new WahaClientError('deadline');
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), deadlineMs);
     try {
       const response = await (this.options.fetchImpl ?? fetch)(`${this.options.baseUrl}${path}`, { method, headers: { accept: 'application/json', ...(this.options.apiKey ? { 'x-api-key': this.options.apiKey } : {}), ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: controller.signal });
       const text = await response.text();
@@ -102,7 +122,7 @@ export class WahaHttpClient implements WahaClientPort {
       try { return { data: JSON.parse(text), status: response.status }; } catch { return { data: undefined, status: response.status }; }
     } catch (error) {
       if (error instanceof WahaClientError) throw error;
-      if (error instanceof DOMException && error.name === 'AbortError') throw new WahaClientError('timeout');
+      if (error instanceof DOMException && error.name === 'AbortError') throw new WahaClientError(constrained ? 'deadline' : 'timeout');
       throw new WahaClientError('unavailable');
     } finally { clearTimeout(timer); }
   }

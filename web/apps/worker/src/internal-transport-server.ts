@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { internalTransportRequestSchema, type InternalTransportRequest, type InternalTransportResponse } from '@chatpro/contracts';
 import type { WhatsAppWorkerPort } from './ports.js';
 import { WorkerOperationError } from './ports.js';
+import { withRequestDeadline } from './request-deadline.js';
 
 export type InternalTransportServerOptions = { host: '127.0.0.1'; port: number };
 export type InternalTransportHandler = (request: InternalTransportRequest) => Promise<InternalTransportResponse>;
@@ -75,7 +76,10 @@ export function createInternalTransportServer(handler: InternalTransportHandler 
       const input = await readJson(req);
       const parsed = internalTransportRequestSchema.safeParse(input);
       if (!parsed.success) { const candidate = input !== null && typeof input === 'object' ? input as Record<string, unknown> : {}; const correlationId = typeof candidate.correlationId === 'string' ? candidate.correlationId : 'invalid'; const workspaceId = typeof candidate.workspaceId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(candidate.workspaceId) ? candidate.workspaceId : 'invalid'; respond(400, { success: false, correlationId, workspaceId, error: { code: 'VALIDATION_ERROR', message: 'Invalid internal transport request', details: {} } }); return; }
-      respond(200, await handler(parsed.data));
+      // Every provider call the command makes shares the budget the API
+      // announced, so the operation cannot outlive the caller no matter how many
+      // calls it needs.
+      respond(200, await withRequestDeadline(parsed.data.timeoutMs, () => handler(parsed.data)));
     } catch { respond(500, { success: false, correlationId: 'unknown', workspaceId: 'unknown', error: { code: 'SERVICE_UNAVAILABLE', message: 'Internal worker command failed', details: {} } }); }
   });
 }
