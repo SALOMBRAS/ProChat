@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { SqlitePersistenceDatabase } from '../src/persistence/database.js';
 import { createSqliteDomainRepository } from '../src/persistence/sqlite-domain.repository.js';
 import { AppError } from '../src/errors.js';
@@ -10,6 +10,10 @@ const dirs: string[] = [];
 const create = () => { const dir = mkdtempSync(join(tmpdir(), 'chatpro-drift-')); dirs.push(dir); const db = new SqlitePersistenceDatabase(join(dir, 'db.sqlite'), join(process.cwd(), 'migrations')); db.migrate(); return { db, repository: createSqliteDomainRepository(db.sqlite) as any }; };
 const rejection = async (work: Promise<unknown>) => work.then(() => undefined, (error: unknown) => error);
 afterEach(() => { dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); });
+// Once identifierHash exists the pepper is mandatory, so a database migrated past M3 has to carry one.
+const previousPepper = process.env.OPT_OUT_HASH_PEPPER;
+beforeAll(() => { process.env.OPT_OUT_HASH_PEPPER = 'test-pepper-with-at-least-32-characters'; });
+afterAll(() => { if (previousPepper === undefined) delete process.env.OPT_OUT_HASH_PEPPER; else process.env.OPT_OUT_HASH_PEPPER = previousPepper; });
 
 /**
  * The proposed contact migrations (docs/migrations-propostas-contatos.sql) are additive:

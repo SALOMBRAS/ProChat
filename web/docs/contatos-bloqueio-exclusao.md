@@ -634,7 +634,7 @@ gravado; versione o prefixo (`v1:`) se algum dia precisar rodar dois em paralelo
 A RPC **recusa** purgar contato que tenha opt-out sem hash. Falhar alto é melhor
 que destruir em silêncio a capacidade de honrar a manifestação.
 
-#### BLOQUEIO DE M3 — hoje o hash não teria quem o lesse
+#### O achado: o hash não tinha quem o lesse (RESOLVIDO)
 
 Este é o achado mais sério da verificação, e ele atinge o núcleo do desenho.
 
@@ -656,13 +656,56 @@ opt-out**: exatamente o dano que M3 existe para impedir, e o mesmo defeito pelo
 qual esta proposta recusa o `ON DELETE SET NULL`.
 
 Escrever o hash sem ler o hash não preserva nada; só produz a aparência de ter
-preservado. **M3 não deve ser aplicada** antes de existirem as duas leituras:
+preservado.
 
-- `prepareCampaign` e `chatpro_prepare_campaign` passam a excluir **também** por
-  `identifierHash` do telefone do destinatário;
-- `createContact` / `chatpro_create_contact` e o resolvedor de identidade
-  consultam `opt_out_history` por `identifierHash` ao materializar um contato
-  novo, e propagam o opt-out encontrado para o `contactId` novo.
+#### Caminho de leitura — IMPLEMENTADO
+
+Resolvido em `apps/api/src/services/opt-out-identity.ts`, por **adoção** em vez de
+espalhar o predicado de hash por todos os consumidores.
+
+**A adoção.** Ao materializar um contato — `createContact` nos dois providers, e
+o resolvedor de identidade quando uma mensagem cria o contato — o sistema calcula
+o hash do telefone e reata a linha órfã:
+
+```sql
+UPDATE opt_out_history SET contactId = <novo contato>
+ WHERE workspaceId = ? AND contactId IS NULL AND identifierHash = ?
+```
+
+A partir daí **todos os consumidores existentes voltam a funcionar sem saber que
+hashes existem**: `prepareCampaign`, `chatpro_prepare_campaign` e o filtro da
+listagem continuam casando por `contactId`. Isso é o que preserva a paridade sem
+tocar em nenhuma RPC — `chatpro_prepare_campaign` ficaria fora do alcance do
+código de aplicação, e mudá-la exigiria outra migration.
+
+**A leitura direta.** `optOutStatus` também passou a considerar o hash, como rede
+de segurança para contatos criados antes desta mudança:
+
+```sql
+WHERE workspaceId = ? AND (contactId = ? OR (contactId IS NULL AND identifierHash = ?))
+```
+
+O predicado só alcança linhas **órfãs** (`contactId IS NULL`), que é precisamente
+"quando o contactId não existir mais". Contatos com opt-out próprio intacto não
+mudam de comportamento.
+
+**Inerte antes de M3.** No SQLite a presença da coluna é lida do próprio schema a
+cada chamada — sem cache, porque uma resposta cacheada ficaria velha no instante
+em que a coluna aparecesse. No Supabase é uma sondagem cacheada por cliente, o
+que custa uma ida ao banco: **depois de aplicar M3 é preciso reiniciar a API**,
+senão o processo em execução mantém a resposta negativa. O SQLite não tem essa
+exigência, porque migra no boot.
+
+**O pepper.** `OPT_OUT_HASH_PEPPER`, mínimo de 32 caracteres, documentado em
+`.env.example` sem valor. Ausente ou curto demais, o cálculo **falha explícito**
+(`SERVICE_UNAVAILABLE`) — nunca cai para um hash sem chave, que pareceria
+conformidade sem entregar nenhuma. Enquanto a coluna não existir, o pepper não é
+exigido: o caminho inteiro fica inerte.
+
+**O que continua faltando.** A adoção cobre o contato que é materializado depois
+da purga. Não cobre `updateContact` trocando o telefone de um contato existente
+para um número com opt-out órfão — caso raro, deliberadamente fora de escopo, e
+que a rede de segurança do `optOutStatus` ainda reporta.
 
 É código, não migration. M1 e M2 não são afetadas.
 
@@ -940,15 +983,15 @@ carona nesta entrega.
 
 ## Resumo dos pontos em aberto
 
-### Bloqueiam a aplicação — precisam de código antes de qualquer migration
+### Bloqueiam a aplicação — RESOLVIDOS
 
-| # | Bloqueio | Alcance |
-|---|---|---|
-| A | `INSERT` posicional em `sqlite-domain.repository.ts:29` e `:61`, com o erro mascarado num 409 falso | **M1, M2 e M3** (só SQLite) |
-| B | `identifierHash` sem nenhum caminho de leitura — a purga revogaria o opt-out | **só M3** |
+| # | Bloqueio | Alcance | Estado |
+|---|---|---|---|
+| A | `INSERT` posicional em `sqlite-domain.repository.ts`, com o erro mascarado num 409 falso | M1, M2 e M3 (só SQLite) | **corrigido** — os 16 `INSERT` nomeiam colunas e o `catch` nu virou `conflictOn`, que só traduz para 409 a violação daquela constraint |
+| B | `identifierHash` sem nenhum caminho de leitura — a purga revogaria o opt-out | só M3 | **corrigido** — ver "Caminho de leitura" abaixo |
 
-Nenhum dos dois é decisão: são defeitos a corrigir. Estão detalhados nas seções
-4 e 3, com a correção exata.
+Ainda assim, **nenhuma migration foi aplicada**. O código agora sobrevive a M1,
+M2 e M3, e permanece inerte enquanto elas não rodarem.
 
 ### Dependem de decisão sua
 
