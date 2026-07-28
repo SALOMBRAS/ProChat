@@ -4,7 +4,7 @@ import type { InternalWorkerClient } from '../src/internal-worker-client.js';
 import type { WahaWebhookStore } from '../src/services/waha-webhook.service.js';
 import type { RealtimeHub } from '../src/realtime.js';
 
-class MemoryStore implements SyncJobStore { job?: SyncJob; async get() { return this.job ? { ...this.job } : undefined; } async save(job: SyncJob) { this.job = { ...job }; } }
+class MemoryStore implements SyncJobStore { job?: SyncJob; reads = 0; async get() { this.reads += 1; return this.job ? { ...this.job } : undefined; } async save(job: SyncJob) { this.job = { ...job }; } }
 const waitFor = async (check: () => boolean) => { for (let attempt = 0; attempt < 80; attempt += 1) { if (check()) return; await new Promise(resolve => setTimeout(resolve, 2)); } throw new Error('timed out'); };
 const response = (items: Record<string, unknown>[], hasMore = false) => ({ success: true as const, correlationId: 'c', workspaceId: 'workspace-a', data: { historyPage: { kind: 'chats' as const, items, unsupported: [], hasMore } } });
 const failed = (code: string) => ({ success: false as const, correlationId: 'c', workspaceId: 'workspace-a', error: { code, message: code, details: {} } });
@@ -176,6 +176,54 @@ describe('WhatsAppHistorySyncService', () => {
       // here is what let the API and the worker disagree about it.
       expect(send.mock.calls[0][0]).not.toHaveProperty('timeoutMs');
     }
+  });
+
+  it('reads the stored job once per page instead of once per message', async () => {
+    const store = new MemoryStore();
+    const page = Array.from({ length: 100 }, (_, index) => ({ id: `m-${index}`, chatId: '1@c.us', timestamp: index + 1 }));
+    const send = vi.fn().mockImplementation((request: any) => {
+      const { chatId, offset } = request.command.payload;
+      if (!chatId) return offset === 0 ? response([{ id: '1@c.us' }]) : response([]);
+      return offset === 0 ? response(page, true) : response([]);
+    });
+    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn().mockResolvedValue({ duplicate: false }) } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { sleep: vi.fn().mockResolvedValue(undefined) });
+    await service.start('workspace-a', 'session-a');
+    await waitFor(() => store.job?.status === 'completed');
+    expect(store.job).toMatchObject({ status: 'completed', messagesProcessed: 100, chatsProcessed: 1 });
+    // One hundred messages used to cost one hundred extra reads on their own.
+    expect(store.reads).toBeLessThan(20);
+  });
+
+  it('stops between two messages of a page when the run is cancelled', async () => {
+    const store = new MemoryStore();
+    const page = Array.from({ length: 50 }, (_, index) => ({ id: `m-${index}`, chatId: '1@c.us', timestamp: index + 1 }));
+    const send = vi.fn().mockImplementation((request: any) => request.command.payload.chatId ? response(page, true) : response([{ id: '1@c.us' }]));
+    let ingested = 0;
+    const ingest = vi.fn().mockImplementation(async () => { ingested += 1; if (ingested === 5) await service.cancel('workspace-a', 'session-a'); return { duplicate: false }; });
+    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { sleep: vi.fn().mockResolvedValue(undefined) });
+    await service.start('workspace-a', 'session-a');
+    await waitFor(() => store.job?.status === 'cancelled');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(ingested).toBe(5);
+    expect(store.job).toMatchObject({ status: 'cancelled', messageCursor: '0', messagesProcessed: 0 });
+  });
+
+  it('does not carry a cancellation into the next resume', async () => {
+    const store = new MemoryStore();
+    const page = Array.from({ length: 10 }, (_, index) => ({ id: `m-${index}`, chatId: '1@c.us', timestamp: index + 1 }));
+    const send = vi.fn().mockImplementation((request: any) => {
+      const { chatId, offset } = request.command.payload;
+      if (!chatId) return offset === 0 ? response([{ id: '1@c.us' }]) : response([]);
+      return offset === 0 ? response(page) : response([]);
+    });
+    let cancelDuringIngest = true;
+    const ingest = vi.fn().mockImplementation(async () => { if (cancelDuringIngest) { cancelDuringIngest = false; await service.cancel('workspace-a', 'session-a'); } return { duplicate: false }; });
+    const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { sleep: vi.fn().mockResolvedValue(undefined) });
+    await service.start('workspace-a', 'session-a');
+    await waitFor(() => store.job?.status === 'cancelled');
+    await service.start('workspace-a', 'session-a');
+    await waitFor(() => store.job?.status === 'completed');
+    expect(store.job).toMatchObject({ status: 'completed', messagesProcessed: 10, chatsProcessed: 1 });
   });
 
   it('fails the job when consecutive chats time out, instead of marking them processed', async () => {

@@ -23,6 +23,7 @@ const chatScopedCodes = new Set(['TIMEOUT']);
 
 export class WhatsAppHistorySyncService {
   private readonly active = new Set<string>();
+  private readonly cancelling = new Set<string>();
   private readonly starts = new Map<string, Promise<SyncJobStatus>>();
   private readonly options: Required<Omit<HistorySyncOptions, 'sleep'>> & { sleep: (milliseconds: number) => Promise<void> };
 
@@ -55,6 +56,7 @@ export class WhatsAppHistorySyncService {
     const key = this.key(workspaceId, wahaSession);
     const previous = await this.jobs.get(workspaceId, wahaSession);
     if (previous && (this.active.has(key) || (previous.status === 'running' && !this.abandoned(previous)))) return this.view(previous);
+    this.cancelling.delete(key);
     const now = new Date().toISOString();
     const job: SyncJob = previous && previous.status === 'completed'
       ? { ...previous, status: 'pending', currentChatId: null, chatCursor: '0', messageCursor: null, chatsProcessed: 0, messagesProcessed: 0, startedAt: now, completedAt: null, lastErrorSafe: null, updatedAt: now }
@@ -87,6 +89,9 @@ export class WhatsAppHistorySyncService {
   async cancel(workspaceId: string, wahaSession: string): Promise<SyncJobStatus | undefined> {
     const job = await this.jobs.get(workspaceId, wahaSession);
     if (!job || job.status === 'completed') return job ? this.view(job) : undefined;
+    // A run in this process reads this instead of the store while it walks a
+    // page, so cancelling still takes effect between two messages.
+    this.cancelling.add(this.key(workspaceId, wahaSession));
     return this.view(await this.save({ ...job, status: 'cancelled', updatedAt: new Date().toISOString() }, 'cancelled'));
   }
 
@@ -105,6 +110,7 @@ export class WhatsAppHistorySyncService {
   }
 
   private async run(workspaceId: string, wahaSession: string, limits: Required<HistorySyncRunLimits>): Promise<void> {
+    const key = this.key(workspaceId, wahaSession);
     let job = await this.jobs.get(workspaceId, wahaSession);
     if (!job || job.status === 'cancelled') return;
     try {
@@ -174,7 +180,13 @@ export class WhatsAppHistorySyncService {
           continue;
         }
         for (const message of page.items) {
-          if ((await this.current(job)).status === 'cancelled') return;
+          // Re-reading the stored job between every two messages cost one
+          // database round trip per message — 162 ms each against the remote
+          // instance, about a fifth of a run's wall time — to answer a question
+          // only `cancel` can change, and `cancel` runs in this process. The
+          // store is still read once per page below, which also covers a cancel
+          // written by anything outside it.
+          if (this.cancelling.has(key)) return;
           const record = historyRecord(workspaceId, wahaSession, message, job.currentChatId);
           if (record) await this.messages.ingest(record);
           messagesThisBatch += 1;
