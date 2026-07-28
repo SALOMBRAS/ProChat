@@ -1,6 +1,7 @@
 import type { RequestContext } from '@chatpro/contracts';
 import { AppError } from '../errors.js';
 import type { RealtimeHub } from '../realtime.js';
+import type { SlaService } from './sla.service.js';
 import type { ConversationEvent, ConversationPriority, ConversationStatus, ConversationStore, ConversationSummary } from './waha-webhook.service.js';
 import type { WorkspaceDirectoryService } from './workspace-directory.service.js';
 
@@ -13,7 +14,10 @@ const transitions: Record<ConversationStatus, ConversationStatus[]> = {
 };
 
 export class ConversationManagementService {
-  constructor(private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly directory: WorkspaceDirectoryService, private readonly onManualAssignment?: (workspaceId: string, conversationId: string) => void) {}
+  // `sla` é obrigatório e vem antes do callback opcional de propósito: se a fiação
+  // em app.ts sumir, o typecheck quebra. Como opcional, a Inbox voltaria a não
+  // congelar em silêncio — que é exatamente o defeito que este serviço corrige.
+  constructor(private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly directory: WorkspaceDirectoryService, private readonly sla: Pick<SlaService, 'applyOperationalStatus'>, private readonly onManualAssignment?: (workspaceId: string, conversationId: string) => void) {}
 
   async assign(context: RequestContext, conversationId: string, assignedUserId: string | null) {
     await this.directory.requireAssignableUser(context, assignedUserId);
@@ -34,6 +38,10 @@ export class ConversationManagementService {
     const current = await this.requireConversation(context.workspaceId, conversationId);
     if (current.status !== status && !transitions[current.status].includes(status)) throw new AppError(409, 'CONFLICT', `Invalid status transition from ${current.status} to ${status}`);
     const event = await this.conversations.setStatus(context.workspaceId, conversationId, status, this.actor(context));
+    // Resolver pela Inbox e arrastar o card para Resolvido são a mesma decisão
+    // operacional, então precisam parar o mesmo relógio. Só depois da persistência
+    // do status, para não congelar métrica de uma transição que falhou.
+    await this.sla.applyOperationalStatus(context.workspaceId, conversationId, status);
     return this.publish(context, conversationId, current, event);
   }
 
