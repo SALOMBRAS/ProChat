@@ -5,6 +5,9 @@
 export interface DomainRepository {
   contacts(workspaceId: string, query: Record<string, unknown>): Promise<unknown>;
   contact(workspaceId: string, id: string): Promise<unknown>;
+  /** Tag ids linked to one contact. The listing returns contact columns only,
+   * so an editor has no other way to know which tags are already applied. */
+  contactTags(workspaceId: string, id: string): Promise<string[]>;
   createContact(workspaceId: string, body: unknown): Promise<unknown>;
   updateContact(workspaceId: string, id: string, body: unknown): Promise<unknown>;
   deleteContact(workspaceId: string, id: string): Promise<void>;

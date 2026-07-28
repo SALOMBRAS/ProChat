@@ -36,6 +36,23 @@ describe('domain services',()=>{
     await expect(service.contacts('a',{page:-1})).rejects.toThrow();
     await expect(service.contacts('a',{pageSize:500})).rejects.toThrow();
   }finally{db.close()}});
+  // Parity contract for reading a contact's tags. The Supabase provider is
+  // asserted against the same expectations in supabase-domain.repository.test.ts.
+  it('reads the tags linked to a contact so an editor can preselect them',async()=>{const {db,service}=create();try{
+    const vip:any=await service.createTag('a',{name:'VIP',color:null});
+    const lead:any=await service.createTag('a',{name:'Lead',color:null});
+    const tagged:any=await service.createContact('a',{displayName:'Ada',phoneNumber:'5511999990001',tagIds:[vip.id,lead.id]});
+    const untagged:any=await service.createContact('a',{displayName:'Grace',phoneNumber:'5511999990002'});
+    expect([...await service.contactTags('a',tagged.id)].sort()).toEqual([vip.id,lead.id].sort());
+    expect(await service.contactTags('a',untagged.id)).toEqual([]);
+    await expect(service.contactTags('b',tagged.id)).rejects.toThrow();
+    // Editing other fields must leave the links alone; only an explicit
+    // tagIds replaces them.
+    await service.updateContact('a',tagged.id,{displayName:'Ada Lovelace'});
+    expect([...await service.contactTags('a',tagged.id)].sort()).toEqual([vip.id,lead.id].sort());
+    await service.updateContact('a',tagged.id,{tagIds:[vip.id]});
+    expect(await service.contactTags('a',tagged.id)).toEqual([vip.id]);
+  }finally{db.close()}});
   it('initializes CRM explicitly and records lead movement and notes',async()=>{const {db,service}=create();try{const init:any=await service.initPipeline('a',{});expect(init.stages).toHaveLength(5);const lead:any=await service.saveLead('a',undefined,{stageId:init.stages[0].id,title:'Opportunity'});await service.moveLead('a',lead.id,{stageId:init.stages[1].id});await service.note('a',lead.id,{body:'Follow up'});expect(await service.activities('a',lead.id)).toHaveLength(2);const stage=(await service.funnel('a') as any[]).find(s=>s.stageId===init.stages[1].id);expect(stage.total).toBe(1);}finally{db.close()}});
   it('normalizes template variables for new, variable-free, and legacy templates',async()=>{const {db,service}=create();try{const withVariables:any=await service.saveTemplate('a',undefined,{name:'Welcome',content:'Olá {{name}}, da {{company}}'});const withoutVariables:any=await service.saveTemplate('a',undefined,{name:'Plain',content:'Olá!'});expect(withVariables.variables).toEqual(['name','company']);expect(withoutVariables.variables).toEqual([]);db.sqlite.prepare('UPDATE templates SET variablesJson=? WHERE workspaceId=? AND id=?').run('[]','a',withVariables.id);const templates=(await service.templates('a')) as any[];expect(templates.find(template=>template.id===withVariables.id).variables).toEqual(['name','company']);expect(await service.preview('a',withVariables.id,{data:{name:'Ana',company:'ChatPro'}})).toEqual({content:'Olá Ana, da ChatPro',variables:['name','company']});}finally{db.close()}});
 });
