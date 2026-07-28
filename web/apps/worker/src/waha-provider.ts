@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createSessionRequestSchema, requestContextSchema, whatsAppSessionSchema, type RequestContext, type SessionStatus, type WhatsAppSession } from '@chatpro/contracts';
-import { assertSafeIdentifier } from './identifiers.js'; import { WorkerOperationError, type WhatsAppWorkerPort, type WorkerCommand } from './ports.js'; import { WahaClientError, type WahaClientPort, type WahaSession } from './waha-client.js'; import type { WahaSessionRegistryEntry } from './waha-session-registry.js';
+import { assertSafeIdentifier } from './identifiers.js'; import { WorkerOperationError, type WhatsAppWorkerPort, type WorkerCommand } from './ports.js'; import { detached } from './request-deadline.js'; import { WahaClientError, type WahaClientPort, type WahaSession } from './waha-client.js'; import type { WahaSessionRegistryEntry } from './waha-session-registry.js';
 const statusMap: Record<string, SessionStatus> = { STOPPED: 'stopped', STARTING: 'connecting', AUTHENTICATED: 'connecting', SYNCING: 'connecting', SCAN_QR_CODE: 'waiting_qr', WORKING: 'connected', READY: 'connected', CONNECTED: 'connected', FAILED: 'error', LOGGED_OUT: 'disconnected' }; type StoredSession = WhatsAppSession & { wahaName: string; aliases: string[] }; type Registry = { load(): Promise<WahaSessionRegistryEntry[]>; save(entries: WahaSessionRegistryEntry[]): Promise<void> };
 export class WahaProvider implements WhatsAppWorkerPort {
   private readonly sessions = new Map<string, StoredSession>(); private readonly pendingCreates = new Map<string, Promise<void>>(); private readonly orphans = new Map<string, WahaSession[]>(); private restored = false;
@@ -19,19 +19,22 @@ export class WahaProvider implements WhatsAppWorkerPort {
   }
   private provision(context: RequestContext, key: string, stored: StoredSession): void {
     if (this.pendingCreates.has(key)) return;
-    const operation = (async () => {
+    // Provisioning continues after the command that started it has been
+    // answered, and a later `connectSession` awaits this same promise, so it
+    // must not run on the budget of whichever command happened to create it.
+    const operation = detached(() => (async () => {
       try {
         const remote = await this.client.createSession(stored.wahaName);
         this.setStatus(stored, statusMap[remote.status.toUpperCase()] ?? 'error');
       } catch (error) {
         // POST is not safely retryable by itself: WAHA may have created the
         // session just before closing the connection. Reconcile by name.
-        if (error instanceof WahaClientError && (error.kind === 'timeout' || error.status === 409)) {
+        if (error instanceof WahaClientError && (error.interrupted || error.status === 409)) {
           try { const remote = await this.client.getSession(stored.wahaName); this.setStatus(stored, statusMap[remote.status.toUpperCase()] ?? 'error'); return; } catch { /* preserve the durable mapping for the next status/create retry */ }
         }
         this.setStatus(stored, 'error');
       } finally { this.pendingCreates.delete(key); }
-    })();
+    })());
     this.pendingCreates.set(key, operation);
   }
   private async restore(): Promise<void> { if (this.restored) return; for (const entry of await this.registry.load()) { const now = new Date().toISOString(); const stored: StoredSession = { ...whatsAppSessionSchema.parse({ id: entry.sessionId, workspaceId: entry.workspaceId, name: entry.name, status: 'disconnected', createdAt: now, updatedAt: now }), wahaName: entry.wahaName, aliases: entry.aliases ?? [] }; this.sessions.set(this.key(entry.workspaceId, entry.sessionId), stored); } this.restored = true; }
@@ -43,7 +46,7 @@ export class WahaProvider implements WhatsAppWorkerPort {
       const qr = await this.client.getQr(stored.wahaName);
       return { sessionId: stored.id, workspaceId: stored.workspaceId, qr, expiresAt: new Date(Date.now() + this.qrTtlMs).toISOString() };
     } catch (error) {
-      if (error instanceof WahaClientError && (error.kind === 'timeout' || error.status === 404 || error.status === 422)) {
+      if (error instanceof WahaClientError && (error.interrupted || error.status === 404 || error.status === 422)) {
         await this.refresh(context, stored);
         throw this.qrUnavailable(context, stored);
       }
@@ -75,5 +78,5 @@ export class WahaProvider implements WhatsAppWorkerPort {
   private key(workspaceId: string, sessionId: string): string { return `${workspaceId}:${sessionId}`; }
   private wahaName(workspaceId: string, sessionId: string): string { return `chatpro-${createHash('sha256').update(`${workspaceId}:${sessionId}`).digest('hex').slice(0, 40)}`; }
   private setStatus(session: StoredSession, status: SessionStatus): void { session.status = status; session.updatedAt = new Date().toISOString(); }
-  private async call<T>(context: RequestContext, action: () => Promise<T>): Promise<T> { try { return await action(); } catch (error) { if (error instanceof WahaClientError) { const code = error.kind === 'timeout' ? 'TIMEOUT' : error.kind === 'unavailable' || (error.status !== undefined && error.status >= 500) ? 'SERVICE_UNAVAILABLE' : error.kind === 'contract' ? 'PROVIDER_CONTRACT_ERROR' : error.status === 400 ? 'VALIDATION_ERROR' : error.status === 404 ? 'NOT_FOUND' : error.status === 409 ? 'CONFLICT' : 'PROVIDER_CONTRACT_ERROR'; const message = error.kind === 'timeout' ? 'WAHA request timed out' : error.kind === 'unavailable' ? 'WAHA provider is unavailable' : error.kind === 'contract' ? 'WAHA response contract is invalid' : error.providerMessage ? `WAHA request failed (${error.status}): ${error.providerMessage}` : `WAHA request failed with status ${error.status ?? 'unknown'}`; throw new WorkerOperationError(code, message, context.correlationId, { ...(error.status ? { providerStatus: error.status } : {}), ...(error.providerMessage ? { providerMessage: error.providerMessage } : {}), ...error.details }); } throw error; } }
+  private async call<T>(context: RequestContext, action: () => Promise<T>): Promise<T> { try { return await action(); } catch (error) { if (error instanceof WahaClientError) { const code = error.kind === 'timeout' || error.kind === 'deadline' ? 'TIMEOUT' : error.kind === 'unavailable' || (error.status !== undefined && error.status >= 500) ? 'SERVICE_UNAVAILABLE' : error.kind === 'contract' ? 'PROVIDER_CONTRACT_ERROR' : error.status === 400 ? 'VALIDATION_ERROR' : error.status === 404 ? 'NOT_FOUND' : error.status === 409 ? 'CONFLICT' : 'PROVIDER_CONTRACT_ERROR'; const message = error.kind === 'timeout' ? 'WAHA request timed out' : error.kind === 'deadline' ? 'command budget ran out before WAHA answered' : error.kind === 'unavailable' ? 'WAHA provider is unavailable' : error.kind === 'contract' ? 'WAHA response contract is invalid' : error.providerMessage ? `WAHA request failed (${error.status}): ${error.providerMessage}` : `WAHA request failed with status ${error.status ?? 'unknown'}`; throw new WorkerOperationError(code, message, context.correlationId, { ...(error.status ? { providerStatus: error.status } : {}), ...(error.providerMessage ? { providerMessage: error.providerMessage } : {}), ...error.details }); } throw error; } }
 }

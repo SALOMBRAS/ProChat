@@ -197,19 +197,23 @@ export class WhatsAppHistorySyncService {
   }
 
   private async page(job: SyncJob, chatId: string | undefined, offset: number, limit: number): Promise<{ items: Record<string, unknown>[]; hasMore: boolean }> {
-    let last: string | undefined;
+    let last: ProviderFailure | undefined;
     for (let attempt = 1; attempt <= this.options.maxAttempts; attempt += 1) {
-      const response = await this.worker.send({ correlationId: `history-sync-${randomUUID()}`, workspaceId: job.workspaceId, timeoutMs: 30_000, command: { type: 'history.page', payload: { wahaSession: job.wahaSession, ...(chatId ? { chatId } : {}), offset, limit } } });
+      // No deadline of its own: the transport client already carries the budget
+      // the deployment configured, and the worker spends that same budget across
+      // however many provider calls one page needs. A second number here is what
+      // used to let the two drift apart.
+      const response = await this.worker.send({ correlationId: `history-sync-${randomUUID()}`, workspaceId: job.workspaceId, command: { type: 'history.page', payload: { wahaSession: job.wahaSession, ...(chatId ? { chatId } : {}), offset, limit } } });
       if (response.success) {
         const page = (response.data as { historyPage?: { items?: Record<string, unknown>[]; hasMore?: boolean } }).historyPage;
-        if (!page) throw new Error('PROVIDER_CONTRACT_ERROR');
+        if (!page) throw new ProviderFailure('PROVIDER_CONTRACT_ERROR');
         return { items: page.items ?? [], hasMore: page.hasMore === true };
       }
-      last = response.error.code;
-      if (!retryable(last, chatId, offset) || attempt === this.options.maxAttempts) throw new Error(last);
+      last = new ProviderFailure(response.error.code, response.error.message);
+      if (!retryable(last.code, chatId, offset) || attempt === this.options.maxAttempts) throw last;
       await this.options.sleep(Math.min(this.options.retryBaseMs * 2 ** (attempt - 1), 4_000));
     }
-    throw new Error(last ?? 'SERVICE_UNAVAILABLE');
+    throw last ?? new ProviderFailure('SERVICE_UNAVAILABLE');
   }
 
   private async current(job: SyncJob): Promise<SyncJob> { return (await this.jobs.get(job.workspaceId, job.wahaSession)) ?? job; }
@@ -271,8 +275,21 @@ function integerCursor(value: string | null): number { const number = Number(val
 function retryable(code: string, chatId: string | undefined, offset: number): boolean {
   return transientCodes.has(code) && !(code === 'TIMEOUT' && chatId !== undefined && offset > 0);
 }
-/** `page` rejects with the provider error code as the message; this reads it back. */
-function errorCode(error: unknown): string { return error instanceof Error ? error.message : ''; }
+/**
+ * Carries the provider error code, which drives retry and chat-closing
+ * decisions, next to the message that says what actually failed. Collapsing the
+ * two used to persist a bare `TIMEOUT` for three different causes: WAHA not
+ * answering, the command budget running out, and the API aborting its own
+ * request.
+ */
+class ProviderFailure extends Error {
+  constructor(readonly code: string, detail?: string) {
+    super(detail && detail !== code ? `${code}: ${detail}` : code);
+    this.name = 'ProviderFailure';
+  }
+}
+/** `page` rejects with the provider error code; this reads it back. */
+function errorCode(error: unknown): string { return error instanceof ProviderFailure ? error.code : error instanceof Error ? error.message : ''; }
 function safeError(error: unknown): string {
   const source = error instanceof Error
     ? error.message

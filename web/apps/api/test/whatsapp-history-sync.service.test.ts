@@ -159,6 +159,25 @@ describe('WhatsAppHistorySyncService', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it('records which timeout actually happened instead of a bare code, and never names a deadline of its own', async () => {
+    const causes = [
+      { message: 'command budget ran out before WAHA answered', expected: 'TIMEOUT: command budget ran out before WAHA answered' },
+      { message: 'WAHA request timed out', expected: 'TIMEOUT: WAHA request timed out' },
+      { message: 'Internal worker command timed out', expected: 'TIMEOUT: Internal worker command timed out' },
+    ];
+    for (const cause of causes) {
+      const store = new MemoryStore();
+      const send = vi.fn().mockResolvedValue({ success: false as const, correlationId: 'c', workspaceId: 'workspace-a', error: { code: 'TIMEOUT', message: cause.message, details: {} } });
+      const service = new WhatsAppHistorySyncService({ send } as unknown as InternalWorkerClient, { ingest: vi.fn() } as unknown as WahaWebhookStore, store, { publish: vi.fn() } as unknown as RealtimeHub, { sleep: vi.fn().mockResolvedValue(undefined), retryBaseMs: 1 });
+      await service.start('workspace-a', 'session-a');
+      await waitFor(() => store.job?.status === 'failed');
+      expect(store.job?.lastErrorSafe).toBe(cause.expected);
+      // The deployment configures one budget on the transport client; a literal
+      // here is what let the API and the worker disagree about it.
+      expect(send.mock.calls[0][0]).not.toHaveProperty('timeoutMs');
+    }
+  });
+
   it('fails the job when consecutive chats time out, instead of marking them processed', async () => {
     const store = new MemoryStore();
     const send = vi.fn().mockImplementation((request: any) => request.command.payload.chatId ? failed('TIMEOUT') : response([{ id: `${request.command.payload.offset + 1}@c.us` }]));

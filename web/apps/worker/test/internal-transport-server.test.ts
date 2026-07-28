@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createInternalTransportServer, listenInternalTransport } from '../src/internal-transport-server.js';
+import { createInternalTransportServer, createWorkerTransportHandler, listenInternalTransport } from '../src/internal-transport-server.js';
+import { WahaHttpClient } from '../src/waha-client.js';
+import { WahaProvider } from '../src/waha-provider.js';
 
 const closers: Array<() => Promise<void>> = [];
 afterEach(async () => { await Promise.all(closers.splice(0).map(close => close())); });
@@ -11,4 +13,63 @@ describe('internal worker transport server', () => {
   it('returns worker errors as typed responses', async () => { const body = await send(await start(), { ...request, command: { type: 'transport.ping', payload: { message: 'hello', fail: true } } }); expect(body).toMatchObject({ success: false, error: { code: 'SERVICE_UNAVAILABLE' } }); });
   it('sends only one response when a handler finishes after the request is closed', async () => { const url = await start(async input => ({ success: true, correlationId: input.correlationId, workspaceId: input.workspaceId, data: { message: 'once' } })); const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request) }); expect(await response.text()).toContain('once'); });
   it('closes gracefully and stops accepting commands', async () => { const runtime = await listenInternalTransport({ host: '127.0.0.1', port: 0 }); const address = runtime.server.address(); if (!address || typeof address === 'string') throw new Error('missing address'); await runtime.close(); await expect(fetch(`http://127.0.0.1:${address.port}/internal/transport`)).rejects.toThrow(); });
+
+  it('keeps an operation that needs several provider calls inside the announced budget, and names the budget as the cause', async () => {
+    const waha = slowWaha(600);
+    const url = await start(createWorkerTransportHandler(historyWorker(waha.fetchImpl)));
+    const started = Date.now();
+    const body = await send(url, { ...request, timeoutMs: 1_000, command: historyPage });
+    const elapsed = Date.now() - started;
+    // Two 600 ms provider calls do not fit in 1 000 ms. Sharing the budget makes
+    // the second one end early with the real cause instead of letting the whole
+    // command outlive the caller, which then reports only its own abort.
+    expect(body).toMatchObject({ success: false, error: { code: 'TIMEOUT', message: 'command budget ran out before WAHA answered' } });
+    expect(waha.calls).toHaveLength(2);
+    expect(elapsed).toBeLessThan(1_200);
+  });
+
+  it('leaves an operation that fits the budget untouched', async () => {
+    const waha = slowWaha(20);
+    const url = await start(createWorkerTransportHandler(historyWorker(waha.fetchImpl)));
+    const body = await send(url, { ...request, timeoutMs: 1_000, command: historyPage });
+    expect(body).toMatchObject({ success: true, data: { historyPage: { kind: 'messages', items: [{ id: 'message-a' }] } } });
+    expect(waha.calls).toHaveLength(2);
+  });
+
+  it('does not charge background provisioning to the budget of the command that started it', async () => {
+    // Session creation is answered immediately and provisions WAHA afterwards.
+    // That work outlives the command, so the command's budget must not end it.
+    const waha = slowWaha(150);
+    const client = new WahaHttpClient({ baseUrl: 'http://waha.test', timeoutMs: 30_000, fetchImpl: waha.fetchImpl });
+    const provider = new WahaProvider(client, 60_000);
+    const url = await start(createWorkerTransportHandler(provider));
+    const body = await send(url, { ...request, timeoutMs: 60, command: { type: 'session.create', payload: { sessionId: 'session-a', name: 'Primary' } } });
+    expect(body).toMatchObject({ success: true, data: { session: { id: 'session-a' } } });
+    await new Promise(resolve => setTimeout(resolve, 400));
+    expect(waha.calls).toEqual(['http://waha.test/api/sessions']);
+    expect(waha.aborted).toEqual([]);
+  });
 });
+
+const wahaName = 'chatpro-b60c5708e0c4a09d91258bd25a5a81a0c48104a9';
+const historyPage = { type: 'history.page', payload: { wahaSession: wahaName, chatId: '120363363444637332@g.us', offset: 0, limit: 100 } };
+
+/** A session already linked, so the command spends its budget only on the two calls it makes. */
+function historyWorker(fetchImpl: typeof fetch) {
+  // Far longer than any budget below: a per-call timeout must never be what
+  // bounds the command.
+  const client = new WahaHttpClient({ baseUrl: 'http://waha.test', timeoutMs: 30_000, fetchImpl });
+  return new WahaProvider(client, 60_000, { load: async () => [{ workspaceId: 'workspace-a', sessionId: 'session-a', name: 'Primary', wahaName }], save: async () => undefined });
+}
+
+function slowWaha(delayMs: number) {
+  const calls: string[] = [];
+  const aborted: string[] = [];
+  const fetchImpl = ((input: string, init?: { signal?: AbortSignal }) => new Promise((resolve, reject) => {
+    calls.push(input);
+    const payload = input.includes('/messages') ? [{ id: 'message-a', timestamp: 1 }] : { name: wahaName, status: 'WORKING' };
+    const timer = setTimeout(() => resolve(new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })), delayMs);
+    init?.signal?.addEventListener('abort', () => { aborted.push(input); clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); });
+  })) as unknown as typeof fetch;
+  return { calls, aborted, fetchImpl };
+}
