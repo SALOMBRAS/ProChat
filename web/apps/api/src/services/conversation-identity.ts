@@ -54,6 +54,23 @@ export function isConversationChatId(value: unknown): value is string { return i
 const technicalMessageTypes: ReadonlySet<string> = new Set(['ack', 'receipt', 'reaction', 'status', 'protocol', 'revoked', 'e2e_notification', 'notification_template', 'gp2', 'ciphertext', 'biz_content_placeholder']);
 export function isTechnicalMessageType(value: string | null | undefined): boolean { const type = value?.trim().toLowerCase(); return Boolean(type && technicalMessageTypes.has(type)); }
 
+/** The real WhatsApp message type, from wherever the payload happens to carry it.
+ *
+ * WAHA/WEBJS does not put `type` at the payload root — it lives in `_data.type`.
+ * Measured on the live base: the root is filled in 13 of 4 638 messages, and all
+ * 13 are Inbox sends, whose synthetic payload (`outboundRecord`) carries `type`
+ * at the root and no `_data` at all. So the root has to be read first, and
+ * `_data.type` is the fallback that answers for every inbound.
+ *
+ * Reading only the root is what made `messageType` null for the whole WAHA
+ * traffic; every consumer that classifies a message must come through here. */
+export function wahaMessageType(payload: unknown): string | undefined {
+  const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : undefined;
+  const nested = record?._data && typeof record._data === 'object' ? (record._data as Record<string, unknown>).type : undefined;
+  return firstNonEmpty(record?.type, nested);
+}
+function firstNonEmpty(...values: unknown[]): string | undefined { return values.find(value => typeof value === 'string' && value.length > 0) as string | undefined; }
+
 function isTechnicalInput(input: ConversationIdentityInput): boolean {
   if (isTechnicalMessageType(input.messageType)) return true;
   return [input.chatId, input.from, input.to, input.remoteJid].some(value => value === 'status@broadcast' || (typeof value === 'string' && (value.endsWith('@broadcast') || value.endsWith('@newsletter'))));
