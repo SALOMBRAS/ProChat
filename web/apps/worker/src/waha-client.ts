@@ -40,6 +40,7 @@ export interface WahaClientPort {
   sendAttachment(session: string, chatId: string, attachment: WahaAttachment): Promise<WahaSentMessage>;
   getIdentity(session: string, whatsappId: string): Promise<WahaIdentity>;
   getGroup(session: string, chatId: string): Promise<WahaGroup>;
+  sendLocation(session: string, chatId: string, location: { latitude: number; longitude: number; title?: string }): Promise<WahaSentMessage>;
   listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage>;
   listMessages(session: string, chatId: string, offset: number, limit: number): Promise<WahaHistoryPage>;
 }
@@ -88,6 +89,12 @@ export class WahaHttpClient implements WahaClientPort {
     const response = await this.requestResponse(path, 'POST', { session, chatId, file: { url: attachment.url, mimetype: attachment.mimeType, filename: attachment.filename }, ...(attachment.caption ? { caption: attachment.caption } : {}), ...(attachment.type === 'audio' ? { convert: true } : {}), ...(attachment.type === 'video' ? { convert: attachment.mimeType !== 'video/mp4', asNote: false } : {}) });
     const id = messageId(response.data);
     log('info', 'WAHA attachment accepted', { providerStatus: response.status, endpoint: path, mediaType: attachment.type, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
+    return id ? { id, pending: false } : { pending: true };
+  }
+  async sendLocation(session: string, chatId: string, location: { latitude: number; longitude: number; title?: string }): Promise<WahaSentMessage> {
+    const response = await this.requestResponse('/api/sendLocation', 'POST', { session, chatId, latitude: location.latitude, longitude: location.longitude, ...(location.title ? { title: location.title } : {}) });
+    const id = messageId(response.data);
+    log('info', 'WAHA location accepted', { providerStatus: response.status, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
     return id ? { id, pending: false } : { pending: true };
   }
   async listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage> {
