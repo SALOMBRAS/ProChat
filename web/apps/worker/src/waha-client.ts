@@ -41,6 +41,7 @@ export interface WahaClientPort {
   getIdentity(session: string, whatsappId: string): Promise<WahaIdentity>;
   getGroup(session: string, chatId: string): Promise<WahaGroup>;
   sendLocation(session: string, chatId: string, location: { latitude: number; longitude: number; title?: string }): Promise<WahaSentMessage>;
+  sendContactVcard(session: string, chatId: string, contacts: ReadonlyArray<Record<string, unknown>>): Promise<WahaSentMessage>;
   listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage>;
   listMessages(session: string, chatId: string, offset: number, limit: number): Promise<WahaHistoryPage>;
 }
@@ -95,6 +96,12 @@ export class WahaHttpClient implements WahaClientPort {
     const response = await this.requestResponse('/api/sendLocation', 'POST', { session, chatId, latitude: location.latitude, longitude: location.longitude, ...(location.title ? { title: location.title } : {}) });
     const id = messageId(response.data);
     log('info', 'WAHA location accepted', { providerStatus: response.status, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
+    return id ? { id, pending: false } : { pending: true };
+  }
+  async sendContactVcard(session: string, chatId: string, contacts: ReadonlyArray<Record<string, unknown>>): Promise<WahaSentMessage> {
+    const response = await this.requestResponse('/api/sendContactVcard', 'POST', { session, chatId, contacts });
+    const id = messageId(response.data);
+    log('info', 'WAHA contact card accepted', { providerStatus: response.status, contacts: contacts.length, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
     return id ? { id, pending: false } : { pending: true };
   }
   async listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage> {

@@ -102,3 +102,31 @@ describe('InboxContactService', () => {
     } finally { db.close(); }
   });
 });
+
+describe('InboxContactService.cards', () => {
+  const cards = (contact: Record<string, unknown> | undefined) =>
+    new InboxContactService({} as unknown as ConversationStore, { contact: async () => contact } as unknown as DomainRepository)
+      .cards('workspace-a', ['30000000-0000-4000-8000-000000000001']);
+
+  it('maps a stored contact to the four fields WAHA accepts, and leaves the e-mail out', async () => {
+    // The structured contact has fullName, organization, phoneNumber and
+    // whatsappId — no e-mail. Sending it inside a hand-built vCard would rely
+    // on behaviour the provider documentation never demonstrates.
+    await expect(cards({ displayName: 'Ada Lovelace', phoneNumber: '558592369359', company: 'ChatPro', email: 'ada@example.com' }))
+      .resolves.toEqual([{ fullName: 'Ada Lovelace', phoneNumber: '558592369359', organization: 'ChatPro' }]);
+  });
+
+  it('omits the organization when the contact has no company', async () => {
+    await expect(cards({ displayName: 'Ada Lovelace', phoneNumber: '558592369359', company: null }))
+      .resolves.toEqual([{ fullName: 'Ada Lovelace', phoneNumber: '558592369359' }]);
+  });
+
+  it('refuses a contact that would arrive as an empty card', async () => {
+    await expect(cards({ displayName: 'Ada Lovelace', phoneNumber: '' })).rejects.toMatchObject({ status: 422 });
+    await expect(cards({ displayName: '', phoneNumber: '558592369359' })).rejects.toMatchObject({ status: 422 });
+  });
+
+  it('refuses a contact that does not belong to the workspace', async () => {
+    await expect(cards(undefined)).rejects.toMatchObject({ status: 404 });
+  });
+});

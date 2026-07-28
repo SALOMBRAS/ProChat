@@ -73,7 +73,10 @@ export class WahaProvider implements WhatsAppWorkerPort {
         const sent = await this.call(context, () => this.client.sendLocation(stored.wahaName, chatId, { latitude: content.latitude, longitude: content.longitude, ...(content.title ? { title: content.title } : {}) }));
         return { ...(sent.id ? { id: sent.id } : {}), pending: sent.pending, timestamp: new Date().toISOString() };
       }
-      case 'vcard':
+      case 'vcard': {
+        const sent = await this.call(context, () => this.client.sendContactVcard(stored.wahaName, chatId, content.contacts));
+        return { ...(sent.id ? { id: sent.id } : {}), pending: sent.pending, timestamp: new Date().toISOString() };
+      }
       case 'poll':
         throw new WorkerOperationError('NOT_IMPLEMENTED', `Sending ${content.kind} is not implemented yet`, context.correlationId, { kind: content.kind });
       default: {
