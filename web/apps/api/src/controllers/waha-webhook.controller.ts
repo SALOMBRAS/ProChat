@@ -4,6 +4,7 @@ import { WahaWebhookValidationError, parseWebhook, verifyWahaWebhook, webhookRec
 import type { RealtimeHub } from '../realtime.js';
 import type { WhatsAppIdentitySyncService } from '../services/whatsapp-identity-sync.service.js';
 import type { WhatsAppMediaPersistenceService } from '../services/whatsapp-media-persistence.service.js';
+import { wahaMessageType } from '../services/conversation-identity.js';
 
 export class WahaWebhookController {
   constructor(private readonly store: WahaWebhookStore, private readonly realtime: RealtimeHub, private readonly options: { hmacKey?: string; workspaceId?: string }, private readonly identitySync?: WhatsAppIdentitySyncService, private readonly onOutboundMessage?: (workspaceId: string, externalMessageId: string) => Promise<void>, private readonly mediaPersistence?: WhatsAppMediaPersistenceService) {}
@@ -16,7 +17,7 @@ export class WahaWebhookController {
       const messageId = firstString(event.payload.id, nestedString(event.payload.key, 'id'));
       const media = event.payload.media as Record<string, unknown> | undefined;
       const url = firstString(media?.url, event.payload.mediaUrl);
-      if (messageId && url) try { await this.mediaPersistence?.persist({ workspaceId: this.options.workspaceId, externalMessageId: messageId, url, mimeType: firstString(media?.mimetype, media?.mimeType) ?? null, filename: firstString(media?.filename, event.payload.filename) ?? null, messageType: firstString(event.payload.type) ?? null }); } catch { log('error', 'WAHA media persistence failed', { session: event.session, messageId }); }
+      if (messageId && url) try { await this.mediaPersistence?.persist({ workspaceId: this.options.workspaceId, externalMessageId: messageId, url, mimeType: firstString(media?.mimetype, media?.mimeType) ?? null, filename: firstString(media?.filename, event.payload.filename) ?? null, messageType: wahaMessageType(event.payload) ?? null }); } catch { log('error', 'WAHA media persistence failed', { session: event.session, messageId }); }
       if (!result.duplicate) {
         this.realtime.publish(this.options.workspaceId, event.payload.fromMe === true ? 'message.sent' : 'message.received', { wahaSession: event.session, messageId });
         if (result.conversationChatId) this.realtime.publish(this.options.workspaceId, 'conversation.updated', { wahaSession: event.session, chatId: result.conversationChatId });

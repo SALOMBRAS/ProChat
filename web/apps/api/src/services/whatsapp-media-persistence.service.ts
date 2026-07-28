@@ -4,7 +4,7 @@ import { AppError } from '../errors.js';
 
 export const WHATSAPP_MEDIA_BUCKET = 'chatpro-whatsapp-media';
 export type PersistableMedia = { workspaceId: string; externalMessageId: string; url: string; mimeType: string | null; filename: string | null; messageType?: string | null };
-export interface WhatsAppMediaPersistenceStore { persistMedia(input: { workspaceId: string; externalMessageId: string; storagePath: string; checksum: string; size: number; mimeType: string; filename: string }): Promise<void>; pendingMedia(limit: number): Promise<PersistableMedia[]>; storedMediaWithGenericMime(limit: number): Promise<Array<{ workspaceId: string; externalMessageId: string; storagePath: string; mimeType: string | null; messageType: string }>>; updateMediaMime(workspaceId: string, externalMessageId: string, mimeType: string): Promise<void>; markMediaUnavailable(workspaceId: string, externalMessageId: string): Promise<void>; }
+export interface WhatsAppMediaPersistenceStore { persistMedia(input: { workspaceId: string; externalMessageId: string; storagePath: string; checksum: string; size: number; mimeType: string; filename: string }): Promise<void>; pendingMedia(limit: number): Promise<PersistableMedia[]>; storedMediaWithGenericMime(limit: number): Promise<Array<{ workspaceId: string; externalMessageId: string; storagePath: string; mimeType: string | null; messageType: string | null }>>; updateMediaMime(workspaceId: string, externalMessageId: string, mimeType: string): Promise<void>; markMediaUnavailable(workspaceId: string, externalMessageId: string): Promise<void>; }
 
 export class SupabaseWhatsAppMediaStorage {
   constructor(private readonly client: SupabaseClient, private readonly bucket = WHATSAPP_MEDIA_BUCKET) {}
@@ -48,4 +48,20 @@ export class WhatsAppMediaPersistenceService {
 }
 function safeSegment(value: string) { return value.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 128) || 'workspace'; }
 function safeFilename(value: string | null, mime: string) { const source = value ?? (mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'attachment'); const name = source.normalize('NFKD').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[._-]+|[._-]+$/g, '').slice(0, 180); return name || 'attachment'; }
-function normalizedMime(value: string, messageType?: string | null) { const mime = value.toLowerCase(); if ((messageType === 'video' || messageType === 'ptv') && (mime === 'application/mp4' || mime === 'application/octet-stream')) return 'video/mp4'; if (messageType === 'audio' && (mime === 'application/mp4' || mime === 'application/octet-stream')) return 'audio/mp4'; if (messageType === 'sticker' && mime === 'application/octet-stream') return 'image/webp'; return value; }
+/** `messageType` here is the raw WhatsApp type (`wahaMessageType`), never the
+ * normalized `message_type` column: when the content-type is generic the column
+ * is decided by sniffing that same generic mime and lands on 'document', which
+ * would make every branch below miss exactly when it is needed.
+ *
+ * `ptt` is the push-to-talk voice note and is how WhatsApp sends nearly all
+ * audio — 111 of the 113 audio messages on the live base — so leaving it out
+ * would keep the audio branch dead in practice. */
+const GENERIC_MIMES = new Set(['application/mp4', 'application/octet-stream']);
+function normalizedMime(value: string, messageType?: string | null) {
+  const mime = value.toLowerCase(); const type = messageType?.trim().toLowerCase();
+  if (!GENERIC_MIMES.has(mime)) return value;
+  if (type === 'video' || type === 'ptv') return 'video/mp4';
+  if (type === 'audio' || type === 'ptt') return 'audio/mp4';
+  if (type === 'sticker' && mime === 'application/octet-stream') return 'image/webp';
+  return value;
+}
