@@ -16,6 +16,7 @@ import { createSupabasePersistenceClient } from './persistence/supabase.js';
 import { WahaWebhookController } from './controllers/waha-webhook.controller.js';
 import { InboxController } from './controllers/inbox.controller.js';
 import { SqliteWahaWebhookStore, SupabaseWahaWebhookStore } from './services/waha-webhook.service.js';
+import { InboxContactService } from './services/inbox-contact.service.js';
 import { InternalInboxService } from './services/internal-inbox.service.js';
 import { RealtimeHub } from './realtime.js';
 import { SqliteWhatsAppIdentityStore, SupabaseWhatsAppIdentityStore, WhatsAppIdentitySyncService } from './services/whatsapp-identity-sync.service.js';
@@ -102,7 +103,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
     const historySync = new WhatsAppHistorySyncService(workerClient, webhookStore, syncStore, realtimeHub, { maxChatsPerRun: config.whatsappHistorySyncBatchChats, maxMessagesPerRun: config.whatsappHistorySyncBatchMessages, emergencyMaxMessages: config.whatsappHistorySyncEmergencyMaxMessages });
     app.locals.routingJobs = database ? new SqliteRoutingJobStore(database.sqlite) : undefined;
-    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub, kanbanAutomation, slaMessages), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments, new WahaMediaProxyService({ baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey, signingKey: config.mediaProxyTokenSecret }), permanentMedia, sla, kanban), new WorkspaceDirectoryController(directory), new RoutingController(routing))); app.use(errorHandler);
+    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub, kanbanAutomation, slaMessages), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments, new WahaMediaProxyService({ baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey, signingKey: config.mediaProxyTokenSecret }), permanentMedia, sla, kanban, new InboxContactService(webhookStore, repositories)), new WorkspaceDirectoryController(directory), new RoutingController(routing))); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }
   return app;
 }

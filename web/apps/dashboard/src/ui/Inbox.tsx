@@ -229,6 +229,9 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [conversationSearchTerm, setConversationSearchTerm] = useState("");
   const [activeConversationMatch, setActiveConversationMatch] = useState(0);
   const [visualQueue, setVisualQueue] = useState("");
+  const [creatingContact, setCreatingContact] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+  const [contactError, setContactError] = useState("");
   const [slaMetrics, setSlaMetrics] = useState<SlaMetrics>();
   const [loadingSla, setLoadingSla] = useState(false);
   const [requestedConversationId, setRequestedConversationId] = useState(() => conversationIdFromLocation());
@@ -307,6 +310,29 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       if (activeConversationId.current === conversationId && request === slaRequest.current) setSlaMetrics(undefined);
     } finally {
       if (activeConversationId.current === conversationId && request === slaRequest.current) setLoadingSla(false);
+    }
+  };
+  useEffect(() => { setCreatingContact(false); setContactError(""); }, [selected?.id]);
+  const createContact = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const conversationId = selected?.id;
+    if (!conversationId) return;
+    const form = new FormData(event.currentTarget);
+    const text = (name: string) => String(form.get(name) ?? "").trim();
+    const phoneNumber = text("phoneNumber");
+    setSavingContact(true);
+    setContactError("");
+    try {
+      // The API links the new contact to this conversation; without that the
+      // binding would only happen when the contact wrote again.
+      const created = await api.createContact(conversationId, { displayName: text("displayName"), ...(phoneNumber ? { phoneNumber } : {}), email: text("email") || null, company: text("company") || null });
+      setSelected(created.conversation);
+      setConversationPage((current) => ({ ...current, items: current.items.map((item) => item.id === created.conversation.id ? created.conversation : item) }));
+      setCreatingContact(false);
+    } catch (nextError) {
+      setContactError(errorMessage(nextError));
+    } finally {
+      setSavingContact(false);
     }
   };
   const refreshConversations = async () => {
@@ -969,6 +995,26 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                 </div>
                 <div className="customer-future-fields"><div className="customer-section-title">CAMPOS PERSONALIZADOS</div><div><span>Empresa</span><strong>Não informado</strong></div><div><span>Origem do lead</span><strong>Não informado</strong></div><div><span>Responsável</span><strong>{workspaceUsers.find((user) => user.id === selected.assignedUserId)?.displayName ?? teams.find((team) => team.id === selected.assignedTeamId)?.name ?? "Não atribuído"}</strong></div><div><span>Status</span><strong>{statusLabel[selected.status]}</strong></div><div><span>Informações extras</span><strong>Disponível em breve</strong></div></div>
               </div>
+              {!isGroup(selected) && !selected.contactId && (
+                <div className="customer-details customer-contact">
+                  <div className="customer-section-title"><span>CONTATO</span>{!creatingContact && <button type="button" onClick={() => setCreatingContact(true)}>Criar contato</button>}</div>
+                  {contactError && <p className="customer-contact-error">{contactError}</p>}
+                  {creatingContact ? (
+                    <form className="customer-contact-form" onSubmit={createContact}>
+                      <label>Nome ChatPro<input name="displayName" required maxLength={160} defaultValue={contactName(selected)} /></label>
+                      <label>Telefone<input name="phoneNumber" defaultValue={selected.identity?.phone ?? phoneFallback(selected) ?? ""} placeholder="Somente números" /></label>
+                      <label>E-mail<input name="email" type="email" /></label>
+                      <label>Empresa<input name="company" maxLength={160} /></label>
+                      <div className="customer-contact-actions">
+                        <button type="button" className="secondary" onClick={() => { setCreatingContact(false); setContactError(""); }}>Cancelar</button>
+                        <button disabled={savingContact}>{savingContact ? "Salvando…" : "Salvar"}</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <p className="customer-contact-hint">Esta conversa ainda não tem contato no ChatPro.</p>
+                  )}
+                </div>
+              )}
               <div className="conversation-context sla-detail" aria-live="polite">
                 <div className="context-heading"><span>SLA OPERACIONAL</span><small>{loadingSla ? "Atualizando…" : "Tempo real"}</small></div>
                 {slaMetrics ? <div className={`sla-detail-card sla-${slaMetrics.slaIndicator}`}><span className="sla-detail-dot" /><div><strong>{slaStatusLabel[slaMetrics.status]}</strong><small>{slaMetrics.deadlineAt ? new Date(slaMetrics.deadlineAt).getTime() <= Date.now() ? `Atrasado há ${durationLabel(Date.now() - new Date(slaMetrics.deadlineAt).getTime())}` : `Prazo restante: ${durationLabel(new Date(slaMetrics.deadlineAt).getTime() - Date.now())}` : slaMetrics.frozenAt ? "Métrica congelada" : `Em espera há ${durationLabel(slaMetrics.waitingTime)}`}</small></div></div> : !loadingSla ? <p className="sla-detail-empty">Sem métrica SLA para esta conversa.</p> : <p className="sla-detail-empty">Carregando SLA…</p>}
