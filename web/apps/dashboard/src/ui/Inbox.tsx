@@ -58,6 +58,24 @@ const activityLabel = (value?: string) =>
         minute: "2-digit",
       }).format(new Date(value))
     : "—";
+/** Espelho dos limites do servidor (`policy` em attachment-outbox.service.ts).
+ *  Não dá para importar: é outro workspace. Ultrapassar não corrompe nada — a API
+ *  responde 413 "Arquivo excede o limite permitido" e o job nem é criado —, mas
+ *  gravar dois minutos de vídeo para descobrir isso no envio é tempo perdido do
+ *  operador, então a captura para sozinha ao atingir o teto. */
+const ATTACHMENT_LIMITS = { image: 15 * 1024 * 1024, video: 50 * 1024 * 1024 } as const;
+/** A allowlist do servidor é mais estreita que `image/*`: HEIC do iPhone e 3gpp de
+ *  Android seriam recusados com 415. Pedir só o que é aceito evita que o seletor
+ *  ofereça um arquivo que vai falhar depois do upload. */
+const CAMERA_ACCEPT = "image/jpeg,image/png,image/webp,video/mp4,video/webm";
+const cameraErrorMessage = (error: unknown) => {
+  const name = error instanceof Error ? error.name : "";
+  if (name === "NotAllowedError" || name === "SecurityError") return "Permissão de câmera negada. Autorize o acesso à câmera nas configurações do navegador e tente de novo.";
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") return "Nenhuma câmera encontrada neste dispositivo.";
+  if (name === "NotReadableError" || name === "TrackStartError") return "A câmera está em uso por outro aplicativo. Feche o outro programa e tente de novo.";
+  if (name === "OverconstrainedError") return "Nenhuma câmera compatível com a resolução pedida.";
+  return "Não foi possível acessar a câmera.";
+};
 const statusLabel: Record<ConversationStatus, string> = { open: "Aberta", in_progress: "Em atendimento", waiting_customer: "Aguardando cliente", resolved: "Resolvida", archived: "Arquivada" };
 const priorityLabel: Record<ConversationPriority, string> = { low: "Baixa", normal: "Normal", high: "Alta", urgent: "Urgente" };
 const operationLabel: Record<ConversationEvent["action"], string> = { assigned: "Responsável alterado", unassigned: "Conversa sem responsável", status_changed: "Status alterado", priority_changed: "Prioridade alterada", archived: "Conversa arquivada", reopened: "Conversa reaberta" };
@@ -222,7 +240,17 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const recorderRef = useRef<MediaRecorder>();
   const recordingStreamRef = useRef<MediaStream>();
   const recordingTimerRef = useRef<ReturnType<typeof setInterval>>();
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const [cameraRecording, setCameraRecording] = useState(false);
+  const [cameraSeconds, setCameraSeconds] = useState(0);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream>();
+  const cameraRecorderRef = useRef<MediaRecorder>();
+  const cameraTimerRef = useRef<ReturnType<typeof setInterval>>();
   const discardRecordingRef = useRef(false);
+  const discardCameraRef = useRef(false);
+  const [attachmentCapture, setAttachmentCapture] = useState<"environment" | "user">();
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [copiedPhone, setCopiedPhone] = useState(false);
@@ -251,6 +279,11 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     discardRecordingRef.current = true;
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    // A câmera fica com a luz acesa se o stream sobreviver ao desmonte.
+    if (cameraTimerRef.current) clearInterval(cameraTimerRef.current);
+    discardCameraRef.current = true;
+    if (cameraRecorderRef.current?.state === "recording") cameraRecorderRef.current.stop();
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -695,6 +728,111 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       setError(nextError instanceof Error ? `Não foi possível acessar o microfone: ${nextError.message}` : "Não foi possível acessar o microfone.");
     }
   };
+  const stopCamera = () => {
+    if (cameraTimerRef.current) clearInterval(cameraTimerRef.current);
+    cameraTimerRef.current = undefined;
+    if (cameraRecorderRef.current?.state === "recording") cameraRecorderRef.current.stop();
+    cameraRecorderRef.current = undefined;
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = undefined;
+    setCameraRecording(false);
+    setCameraSeconds(0);
+  };
+  const closeCamera = () => { stopCamera(); setCameraOpen(false); setCameraError(""); };
+  const openCamera = async () => {
+    if (sending || isRecording) return;
+    setAttachmentMenuOpen(false);
+    // Sem `mediaDevices` não há preview possível: é navegador antigo ou origem
+    // insegura (HTTPS ou localhost são exigidos). Aí o input com `capture` ainda
+    // resolve no celular, então caímos nele em vez de só recusar.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setAttachmentAccept(CAMERA_ACCEPT);
+      setAttachmentCapture("environment");
+      setAttachmentStatus("Câmera indisponível neste navegador (exige HTTPS ou localhost). Abrindo o seletor de arquivos.");
+      requestAnimationFrame(() => attachmentInputRef.current?.click());
+      return;
+    }
+    setCameraOpen(true);
+    setCameraError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
+      cameraStreamRef.current = stream;
+      if (cameraVideoRef.current) { cameraVideoRef.current.srcObject = stream; void cameraVideoRef.current.play().catch(() => undefined); }
+    } catch (nextError) {
+      setCameraError(cameraErrorMessage(nextError));
+    }
+  };
+  const takePhoto = () => {
+    const video = cameraVideoRef.current;
+    if (!video || !video.videoWidth) { setCameraError("A câmera ainda não está pronta. Aguarde a imagem aparecer."); return; }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) { setCameraError("Não foi possível capturar a imagem neste navegador."); return; }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // JPEG porque é o que o servidor aceita para imagem, e é o que a checagem de
+    // magic bytes espera (ff d8 ff).
+    canvas.toBlob((blob) => {
+      if (!blob) { setCameraError("Não foi possível capturar a imagem."); return; }
+      if (blob.size > ATTACHMENT_LIMITS.image) { setCameraError(`A foto tem ${fileSizeLabel(blob.size)} e o limite é ${fileSizeLabel(ATTACHMENT_LIMITS.image)}.`); return; }
+      setAttachment(new File([blob], `foto-${Date.now()}.jpg`, { type: "image/jpeg" }));
+      setAttachmentStatus("Foto pronta para envio");
+      closeCamera();
+    }, "image/jpeg", 0.92);
+  };
+  const stopCameraRecording = (discard = false) => {
+    const recorder = cameraRecorderRef.current;
+    if (!recorder || recorder.state !== "recording") return;
+    discardCameraRef.current = discard;
+    recorder.stop();
+  };
+  const startCameraRecording = () => {
+    const stream = cameraStreamRef.current;
+    if (!stream || cameraRecording) return;
+    if (typeof MediaRecorder === "undefined") { setCameraError("Este navegador não grava vídeo."); return; }
+    // webm é o que o MediaRecorder produz e está na allowlist do servidor; mp4
+    // sairia da allowlist em boa parte dos navegadores.
+    const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((type) => MediaRecorder.isTypeSupported(type));
+    let recorder: MediaRecorder;
+    try { recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream); }
+    catch { setCameraError("Este navegador não grava vídeo no formato aceito."); return; }
+    const chunks: BlobPart[] = [];
+    let recorded = 0;
+    let overLimit = false;
+    discardCameraRef.current = false;
+    cameraRecorderRef.current = recorder;
+    recorder.ondataavailable = (event) => {
+      if (!event.data.size) return;
+      chunks.push(event.data);
+      recorded += event.data.size;
+      // Vídeo de câmera cresce rápido: parar no limite evita gravar minutos que o
+      // servidor recusaria com 413 no envio.
+      if (recorded > ATTACHMENT_LIMITS.video && recorder.state === "recording") {
+        overLimit = true;
+        setCameraError(`Gravação encerrada: o vídeo passou do limite de ${fileSizeLabel(ATTACHMENT_LIMITS.video)}. Grave um trecho mais curto.`);
+        recorder.stop();
+      }
+    };
+    recorder.onstop = () => {
+      if (cameraTimerRef.current) clearInterval(cameraTimerRef.current);
+      cameraTimerRef.current = undefined;
+      cameraRecorderRef.current = undefined;
+      setCameraRecording(false);
+      // A mensagem do limite já explica o que houve; não sobrescrever com outra.
+      if (discardCameraRef.current || overLimit || !chunks.length) return;
+      const type = recorder.mimeType?.split(";", 1)[0] || "video/webm";
+      const blob = new Blob(chunks, { type });
+      if (blob.size > ATTACHMENT_LIMITS.video) { setCameraError(`O vídeo tem ${fileSizeLabel(blob.size)} e o limite é ${fileSizeLabel(ATTACHMENT_LIMITS.video)}.`); return; }
+      setAttachment(new File([blob], `video-${Date.now()}.webm`, { type }));
+      setAttachmentStatus("Vídeo pronto para envio");
+      closeCamera();
+    };
+    setCameraError("");
+    setCameraSeconds(0);
+    setCameraRecording(true);
+    cameraTimerRef.current = setInterval(() => setCameraSeconds((seconds) => seconds + 1), 1000);
+    recorder.start(1000);
+  };
   const onScroll = () => {
     const list = listRef.current;
     if (list)
@@ -965,7 +1103,16 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 className="message-composer"
                 onSubmit={(event) => void submitMessage(event)}
               >
-                <input ref={attachmentInputRef} className="attachment-input" type="file" accept={attachmentAccept} aria-label="Selecionar anexo" onChange={(event) => { setAttachment(event.target.files?.[0]); setAttachmentStatus(""); setAttachmentMenuOpen(false); }} disabled={sending} />
+                <input ref={attachmentInputRef} className="attachment-input" type="file" accept={attachmentAccept} capture={attachmentCapture} aria-label="Selecionar anexo" onChange={(event) => { setAttachment(event.target.files?.[0]); setAttachmentStatus(""); setAttachmentMenuOpen(false); setAttachmentCapture(undefined); }} disabled={sending} />
+                {cameraOpen && <div className="composer-camera" role="dialog" aria-label="Capturar pela câmera">
+                  <video ref={cameraVideoRef} className="composer-camera-preview" autoPlay playsInline muted aria-label="Prévia da câmera" />
+                  {cameraError && <p className="composer-camera-error" role="alert">{cameraError}</p>}
+                  <div className="composer-camera-actions">
+                    {cameraRecording
+                      ? <><span className="composer-recording-indicator" aria-hidden="true" /><time>{`${Math.floor(cameraSeconds / 60)}:${String(cameraSeconds % 60).padStart(2, "0")}`}</time><button type="button" onClick={() => stopCameraRecording(true)}>Descartar</button><button type="button" className="composer-recording-send" onClick={() => stopCameraRecording()}>Concluir vídeo</button></>
+                      : <><button type="button" className="composer-camera-shoot" onClick={takePhoto} disabled={Boolean(cameraError) && !cameraStreamRef.current}>Tirar foto</button><button type="button" onClick={startCameraRecording} disabled={Boolean(cameraError) && !cameraStreamRef.current}>Gravar vídeo</button><button type="button" onClick={closeCamera}>Fechar</button></>}
+                  </div>
+                </div>}
                 {isRecording && <div className="composer-recording" role="status" aria-live="polite"><span className="composer-recording-indicator" aria-hidden="true" /><strong>Gravando áudio</strong><time>{`${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`}</time><button type="button" onClick={() => finishRecording(true)} aria-label="Cancelar gravação">Cancelar</button><button type="button" className="composer-recording-send" onClick={() => finishRecording()} aria-label="Concluir gravação">Enviar</button></div>}
                 {attachment && <div className="composer-pending-attachment" aria-label={`Anexo pendente: ${attachment.name}`}>
                   {attachmentPreview ? <img className="composer-pending-thumbnail" src={attachmentPreview} alt={`Prévia de ${attachment.name}`} /> : <span className="composer-pending-file-icon" aria-hidden="true">{attachment.type.startsWith("video/") ? "▣" : "▤"}</span>}
@@ -976,9 +1123,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                   <button type="button" className="composer-action composer-add-action" onClick={() => setAttachmentMenuOpen((open) => !open)} disabled={sending} aria-label="Adicionar anexo" aria-expanded={attachmentMenuOpen} aria-controls="composer-attachment-options"><span aria-hidden="true">+</span></button>
                   {attachmentMenuOpen && <div className="composer-attachment-options" id="composer-attachment-options" role="menu" aria-label="Opções de anexo">
                     <button type="button" role="menuitem" onClick={() => { setAttachmentAccept(".pdf,.doc,.docx,.xls,.xlsx,.txt"); attachmentInputRef.current?.click(); }}><span className="attachment-option-icon document" aria-hidden="true">▤</span><span>Documento</span></button>
-                    <button type="button" role="menuitem" onClick={() => { setAttachmentAccept("image/*,video/*"); attachmentInputRef.current?.click(); }}><span className="attachment-option-icon media" aria-hidden="true">▣</span><span>Fotos/Vídeos</span></button>
+                    <button type="button" role="menuitem" onClick={() => { setAttachmentAccept(CAMERA_ACCEPT); setAttachmentCapture(undefined); attachmentInputRef.current?.click(); }}><span className="attachment-option-icon media" aria-hidden="true">▣</span><span>Fotos/Vídeos</span></button>
                     <button type="button" role="menuitem" className="future-option" title="Gravação de áudio será disponibilizada em breve"><span className="attachment-option-icon audio" aria-hidden="true">◖</span><span>Áudio</span><small>Em breve</small></button>
-                    <button type="button" role="menuitem" className="future-option" title="Captura pela câmera será disponibilizada em breve"><span className="attachment-option-icon camera" aria-hidden="true">◉</span><span>Câmera</span><small>Em breve</small></button>
+                    <button type="button" role="menuitem" onClick={() => void openCamera()}><span className="attachment-option-icon camera" aria-hidden="true">◉</span><span>Câmera</span></button>
                   </div>}
                 </div>
                 <button type="button" className="composer-action composer-emoji-action" title="Emojis serão disponibilizados em breve" aria-label="Escolher emoji" disabled={sending}><span aria-hidden="true">☺</span></button>

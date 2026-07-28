@@ -253,3 +253,15 @@
 .customer-contact-form input { padding: 7px 9px; border: 1px solid #ffffff14; border-radius: 6px; background: #090910; color: #ddd7e5; font-size: 11px; }
 .customer-contact-actions { display: flex; justify-content: flex-end; gap: 7px; }
 .customer-contact-actions button { padding: 6px 11px; border-radius: 6px; font-size: 10px; }
+
+/* Captura pela câmera no composer. Mesma faixa de tokens do painel de gravação de
+   áudio, em roxo em vez de rosa: é captura de mídia, não gravação de voz. */
+.chat-inbox .composer-camera { order: -3; display: grid; gap: 9px; width: min(430px, 100%); padding: 10px 11px; border: 1px solid #a855f755; border-radius: 14px; background: linear-gradient(145deg, #201631, #12111e); box-shadow: 0 10px 24px #00000032, 0 0 18px #8b5cf61c; color: #f3eff8; }
+.chat-inbox .composer-camera-preview { width: 100%; max-height: 240px; border-radius: 10px; background: #090910; object-fit: cover; }
+.chat-inbox .composer-camera-error { margin: 0; color: #ff9c9c; font-size: 11px; line-height: 1.4; }
+.chat-inbox .composer-camera-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.chat-inbox .composer-camera-actions time { margin-right: auto; color: #e5d9ec; font-size: 12px; font-variant-numeric: tabular-nums; }
+.chat-inbox .composer-camera-actions button { padding: 7px 10px !important; border: 1px solid #ffffff22 !important; border-radius: 9px !important; background: #ffffff0b !important; color: #e8dcea !important; font-size: 11px !important; font-weight: 700; }
+.chat-inbox .composer-camera-actions button:disabled { opacity: .48; }
+.chat-inbox .composer-camera-actions .composer-camera-shoot { border-color: #d8b4fe88 !important; background: #a855f744 !important; color: #fff !important; }
+@media (max-width: 760px) { .chat-inbox .composer-camera { width: 100%; padding: 9px; } .chat-inbox .composer-camera-preview { max-height: 190px; } }
