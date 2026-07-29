@@ -116,15 +116,42 @@ describe("envio de localização", () => {
     expect(within(painel).getByLabelText("Latitude, longitude")).toBeTruthy();
   });
 
+  /* Antes o botão só desabilitava com o campo vazio: "abc" o deixava aceso, e o
+     operador só lia o erro depois de clicar. A recusa agora acontece antes do
+     clique, então o teste passou a exigir o botão apagado — a asserção de que
+     nada chega ao servidor continua a mesma. */
   it("recusa coordenadas fora de faixa em vez de mandar para o servidor", async () => {
     geolocation({ getCurrentPosition: vi.fn() } as never);
     const { client, painel } = await abrirPainel();
+    const enviar = within(painel).getByRole("button", { name: "Enviar localização" });
     for (const invalido of ["abc", "91, 0", "0, 181", "-7.115"]) {
       fireEvent.change(within(painel).getByLabelText("Latitude, longitude"), { target: { value: invalido } });
-      fireEvent.click(within(painel).getByRole("button", { name: "Enviar localização" }));
-      expect((await within(painel).findByRole("alert")).textContent ?? "").toMatch(/coordenadas inv(á|a)lidas/i);
+      expect((await within(painel).findByText(/coordenadas inv(á|a)lidas/i)).textContent ?? "").toMatch(/-7\.115, -34\.861/);
+      expect(enviar, `botão aceso para ${invalido}`).toBeDisabled();
+      fireEvent.click(enviar);
     }
     expect(client.sendLocation).not.toHaveBeenCalled();
+  });
+
+  it("acende o envio quando a coordenada resolve, e não antes", async () => {
+    geolocation({ getCurrentPosition: vi.fn() } as never);
+    const { painel } = await abrirPainel();
+    const campo = within(painel).getByLabelText("Latitude, longitude");
+    const enviar = within(painel).getByRole("button", { name: "Enviar localização" });
+    expect(enviar).toBeDisabled();
+    expect(within(painel).queryByText(/coordenadas inv(á|a)lidas/i)).toBeNull();
+    fireEvent.change(campo, { target: { value: "-3.781427, -38.499123" } });
+    expect(enviar).toBeEnabled();
+    expect(within(painel).queryByText(/coordenadas inv(á|a)lidas/i)).toBeNull();
+  });
+
+  it("aceita o par colado num campo só, com vírgula ou espaço", async () => {
+    geolocation({ getCurrentPosition: vi.fn() } as never);
+    const { client, painel } = await abrirPainel();
+    fireEvent.change(within(painel).getByLabelText("Latitude, longitude"), { target: { value: "-3.781427 -38.499123" } });
+    fireEvent.click(within(painel).getByRole("button", { name: "Enviar localização" }));
+    await waitFor(() => expect(client.sendLocation).toHaveBeenCalled());
+    expect((client.sendLocation as ReturnType<typeof vi.fn>).mock.calls[0][1]).toMatchObject({ latitude: -3.781427, longitude: -38.499123 });
   });
 });
 

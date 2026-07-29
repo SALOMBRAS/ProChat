@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
 import type {
   ConversationContext,
   ConversationEvent,
@@ -27,6 +27,7 @@ export { coordinatesLabel, locationOf, mapsUrl } from "./messageMedia.js";
 import { ImageAnnotator } from "./ImageAnnotator.js";
 import { isEditableImage, type Stroke } from "./imageAnnotation.js";
 import { AttachmentComposer } from "./AttachmentComposer.js";
+import { ContactPicker } from "./ContactPicker.js";
 import {
   ATTACHMENT_POLICY,
   HTML_IMAGE_ONLY_MESSAGE,
@@ -99,6 +100,9 @@ const CAMERA_ACCEPT = "image/jpeg,image/png,image/webp,video/mp4,video/webm";
  *  nota de voz: ela é gravada no compositor e sai dali, e tomar a conversa para
  *  mostrar uma barra de reprodução acrescentaria um passo sem nada em troca. */
 const STAGE_KINDS: readonly string[] = ["image", "video"];
+/** Página da busca de contato. 79 contatos hoje, mas a base cresce: a lista pede
+ *  a próxima página sob demanda em vez de carregar tudo. */
+const CONTACT_PAGE_SIZE = 20;
 /** Os três motivos que a API de geolocalização distingue. O `code` é o contrato —
  *  `message` é texto do navegador, varia por fabricante e não é para o operador. */
 const geolocationErrorMessage = (error: unknown) => {
@@ -206,6 +210,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const recorderRef = useRef<MediaRecorder>();
   const recordingStreamRef = useRef<MediaStream>();
   const recordingTimerRef = useRef<ReturnType<typeof setInterval>>();
+  const [contactPickerOpen, setContactPickerOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [locatingNow, setLocatingNow] = useState(false);
@@ -878,22 +883,25 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       atBottomRef.current =
         list.scrollHeight - list.scrollTop - list.clientHeight < 48;
   };
-  const sendContactCard = async () => {
+  /** A listagem já filtra no banco (PR #22), então só o que casa viaja pela rede.
+   *  Estável por `useCallback` porque a tela de contato usa esta função como
+   *  dependência de efeito: recriá-la a cada render dispararia uma busca por
+   *  render. */
+  const searchContacts = useCallback(
+    async (term: string, page: number) => {
+      const result = await domain.contacts({ search: term, page, pageSize: CONTACT_PAGE_SIZE });
+      return { items: result.items, total: result.total };
+    },
+    [domain],
+  );
+  const openContactPicker = () => { setAttachmentMenuOpen(false); setContactPickerOpen(true); };
+  const sendContactCards = async (contactIds: string[]) => {
     const conversationId = selected?.id;
-    if (!conversationId || !api.sendVcard) return;
-    const search = window.prompt("Buscar contato por nome, telefone ou e-mail");
-    if (!search?.trim()) return;
-    setAttachmentStatus("Buscando contato…");
+    if (!conversationId || !api.sendVcard || !contactIds.length) return;
+    setContactPickerOpen(false);
+    setAttachmentStatus(contactIds.length > 1 ? "Enviando contatos…" : "Enviando contato…");
     try {
-      // The listing already filters in the database, so only the matches travel.
-      const page = await domain.contacts({ search: search.trim(), pageSize: 10 });
-      if (!page.items.length) { setAttachmentStatus("Nenhum contato encontrado."); return; }
-      const chosen = page.items.length === 1
-        ? page.items[0]
-        : page.items[Number(window.prompt(page.items.map((item, index) => `${index + 1}. ${item.displayName} — ${item.phoneNumber}`).join("\n"), "1")) - 1];
-      if (!chosen) { setAttachmentStatus(""); return; }
-      setAttachmentStatus("Enviando contato…");
-      await api.sendVcard(conversationId, [chosen.id]);
+      await api.sendVcard(conversationId, contactIds);
       setAttachmentStatus("");
     } catch (nextError) { setAttachmentStatus(errorMessage(nextError)); }
   };
@@ -1225,6 +1233,12 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
               >
                 {intakeMessage && <p className={`composer-intake-message${intakeMessage.failed ? " failed" : ""}`} role={intakeMessage.failed ? "alert" : "status"}>{intakeMessage.text}</p>}
                 <input ref={attachmentInputRef} className="attachment-input" type="file" accept={attachmentAccept} capture={attachmentCapture} aria-label="Selecionar anexo" onChange={(event) => { applyAttachment(event.target.files?.[0]); setAttachmentStatus(""); setAttachmentMenuOpen(false); setAttachmentCapture(undefined); }} disabled={sending} />
+                {contactPickerOpen && <ContactPicker
+                  search={searchContacts}
+                  onSend={(contactIds) => void sendContactCards(contactIds)}
+                  onClose={() => setContactPickerOpen(false)}
+                  sending={sending}
+                />}
                 {locationOpen && <div className="composer-location" role="dialog" aria-label="Enviar localização">
                   <div className="composer-location-head"><strong>Enviar localização</strong><button type="button" onClick={closeLocation} aria-label="Fechar localização">×</button></div>
                   <button type="button" className="composer-location-current" onClick={useCurrentLocation} disabled={locatingNow}>{locatingNow ? "Obtendo localização…" : "Usar minha localização atual"}</button>
@@ -1232,7 +1246,12 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                   <label className="composer-location-field"><span>Latitude, longitude</span><input value={locationCoords} onChange={(event) => { setLocationCoords(event.target.value); setLocationError(""); }} placeholder="-7.115, -34.861" inputMode="decimal" aria-label="Latitude, longitude" /></label>
                   <label className="composer-location-field"><span>Nome do ponto (opcional)</span><input value={locationTitle} onChange={(event) => setLocationTitle(event.target.value)} placeholder="Loja centro" maxLength={120} aria-label="Nome do ponto" /></label>
                   {locationPoint && <a className="composer-location-check" href={mapsUrl(locationPoint.latitude, locationPoint.longitude)} target="_blank" rel="noreferrer noopener">Conferir no mapa antes de enviar</a>}
-                  <div className="composer-location-actions"><button type="button" onClick={closeLocation}>Cancelar</button><button type="button" className="composer-location-send" onClick={() => void confirmLocation()} disabled={!locationCoords.trim()}>Enviar localização</button></div>
+                  {/* Desabilitar só quando o campo está vazio deixava passar
+                      "abc": o operador clicava e só então lia o erro. Agora o
+                      botão exige coordenada que resolve, e a dica explica por
+                      que ele está apagado — senão o botão morto não diz nada. */}
+                  {locationCoords.trim() && !parseCoordinates(locationCoords) && <p className="composer-location-error" role="status">Coordenadas inválidas. Use latitude, longitude — por exemplo -7.115, -34.861.</p>}
+                  <div className="composer-location-actions"><button type="button" onClick={closeLocation}>Cancelar</button><button type="button" className="composer-location-send" onClick={() => void confirmLocation()} disabled={!parseCoordinates(locationCoords)}>Enviar localização</button></div>
                 </div>}
                 {cameraOpen && <div className="composer-camera" role="dialog" aria-label="Capturar pela câmera">
                   <video ref={cameraVideoRef} className="composer-camera-preview" autoPlay playsInline muted aria-label="Prévia da câmera" />
@@ -1261,7 +1280,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                     <button type="button" role="menuitem" className="future-option" title="Gravação de áudio será disponibilizada em breve"><span className="attachment-option-icon audio" aria-hidden="true">◖</span><span>Áudio</span><small>Em breve</small></button>
                     <button type="button" role="menuitem" onClick={() => void openCamera()}><span className="attachment-option-icon camera" aria-hidden="true">◉</span><span>Câmera</span></button>
                     <button type="button" role="menuitem" onClick={openLocation}><span className="attachment-option-icon location" aria-hidden="true">◎</span><span>Localização</span></button>
-                    <button type="button" role="menuitem" onClick={() => { setAttachmentMenuOpen(false); void sendContactCard(); }}><span className="attachment-option-icon" aria-hidden="true">👤</span><span>Contato</span></button>
+                    <button type="button" role="menuitem" onClick={openContactPicker}><span className="attachment-option-icon" aria-hidden="true">👤</span><span>Contato</span></button>
                   </div>}
                 </div>
                 <button type="button" className="composer-action composer-emoji-action" title="Emojis serão disponibilizados em breve" aria-label="Escolher emoji" disabled={sending}><span aria-hidden="true">☺</span></button>
