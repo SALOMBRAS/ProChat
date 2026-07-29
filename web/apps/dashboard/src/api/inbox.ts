@@ -23,6 +23,7 @@ export class InboxApi {
   mediaUrl=(messageId:string)=>this.http.get<{ url: string; expiresAt: string }>(`/api/v1/inbox/messages/${encodeURIComponent(messageId)}/media/access`);
   sendMessage=(id:string,text:string)=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages`, { text });
   sendLocation=(conversationId:string,body:{latitude:number;longitude:number;title?:string})=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${conversationId}/location`,body);
+  sendVcard=(conversationId:string,contactIds:string[])=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${conversationId}/vcard`,{ contactIds });
   sendAttachment=(id:string,file:File,clientRequestId:string,caption?:string)=>{ const body = new FormData(); body.set('file', file); body.set('clientRequestId', clientRequestId); if (caption?.trim()) body.set('caption', caption.trim()); return this.http.postForm<InboxOutboxJob>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/attachments`, body); };
   outbox=(jobId:string)=>this.http.get<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}`);
   cancelOutbox=(jobId:string)=>this.http.post<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}/cancel`);

@@ -225,6 +225,14 @@ const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
       </a>
     );
   }
+  if (message.messageType === "contact") {
+    const cards = (message.metadata as { contacts?: Array<{ fullName?: string; phoneNumber?: string; organization?: string }> } | undefined)?.contacts;
+    // Outbound cards are rendered from what this app stored. The shape WAHA
+    // sends for an inbound card is not identified — no sample exists in the
+    // base — so anything else falls back to the body.
+    if (!cards?.length) return <span className="message-received-label">{message.content?.trim() || "Contato"}</span>;
+    return <ul className="message-contact-card">{cards.map((card, index) => <li key={`${card.phoneNumber ?? index}`}><strong>{card.fullName ?? "Contato"}</strong>{card.organization ? <small>{card.organization}</small> : null}{card.phoneNumber ? <a href={`tel:${card.phoneNumber.replace(/[^\d+]/g, "")}`}>{card.phoneNumber}</a> : null}</li>)}</ul>;
+  }
   if (!message.mediaUrl)
     return message.direction === "inbound" ? (
       <span className="message-received-label">Recebida</span>
@@ -913,6 +921,25 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       atBottomRef.current =
         list.scrollHeight - list.scrollTop - list.clientHeight < 48;
   };
+  const sendContactCard = async () => {
+    const conversationId = selected?.id;
+    if (!conversationId || !api.sendVcard) return;
+    const search = window.prompt("Buscar contato por nome, telefone ou e-mail");
+    if (!search?.trim()) return;
+    setAttachmentStatus("Buscando contato…");
+    try {
+      // The listing already filters in the database, so only the matches travel.
+      const page = await domain.contacts({ search: search.trim(), pageSize: 10 });
+      if (!page.items.length) { setAttachmentStatus("Nenhum contato encontrado."); return; }
+      const chosen = page.items.length === 1
+        ? page.items[0]
+        : page.items[Number(window.prompt(page.items.map((item, index) => `${index + 1}. ${item.displayName} — ${item.phoneNumber}`).join("\n"), "1")) - 1];
+      if (!chosen) { setAttachmentStatus(""); return; }
+      setAttachmentStatus("Enviando contato…");
+      await api.sendVcard(conversationId, [chosen.id]);
+      setAttachmentStatus("");
+    } catch (nextError) { setAttachmentStatus(errorMessage(nextError)); }
+  };
   const deliverLocation = async (latitude: number, longitude: number, title?: string) => {
     const conversationId = selected?.id;
     if (!conversationId || !api.sendLocation) return;
@@ -1242,6 +1269,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                     <button type="button" role="menuitem" className="future-option" title="Gravação de áudio será disponibilizada em breve"><span className="attachment-option-icon audio" aria-hidden="true">◖</span><span>Áudio</span><small>Em breve</small></button>
                     <button type="button" role="menuitem" onClick={() => void openCamera()}><span className="attachment-option-icon camera" aria-hidden="true">◉</span><span>Câmera</span></button>
                     <button type="button" role="menuitem" onClick={openLocation}><span className="attachment-option-icon location" aria-hidden="true">◎</span><span>Localização</span></button>
+                    <button type="button" role="menuitem" onClick={() => { setAttachmentMenuOpen(false); void sendContactCard(); }}><span className="attachment-option-icon" aria-hidden="true">👤</span><span>Contato</span></button>
                   </div>}
                 </div>
                 <button type="button" className="composer-action composer-emoji-action" title="Emojis serão disponibilizados em breve" aria-label="Escolher emoji" disabled={sending}><span aria-hidden="true">☺</span></button>

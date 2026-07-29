@@ -46,6 +46,26 @@ describe('Inbox location send', () => {
     expect(recordOutbound.mock.calls[0][0]).toMatchObject({ type: 'text', text: 'Olá' });
   });
 
+  it('asks the worker for a vcard content command and stores it as a contact', async () => {
+    const send = vi.fn().mockResolvedValue(accepted);
+    const recordOutbound = vi.fn().mockResolvedValue(persisted({ messageType: 'contact' }));
+    const cards = [{ fullName: 'Ada Lovelace', phoneNumber: '+55 85 92369359', organization: 'ChatPro' }];
+    await service(send, recordOutbound).sendVcard(context, 'conversation-a', cards);
+    expect(send.mock.calls[0][0].command).toEqual({ type: 'message.sendContent', payload: { wahaSession: 'session-a', chatId: conversation.chatId, content: { kind: 'vcard', contacts: cards } } });
+    // `contact` and not `vcard`: the preview of the conversation already spoke
+    // that word before this existed.
+    expect(recordOutbound.mock.calls[0][0]).toMatchObject({ type: 'contact', text: 'Ada Lovelace', payload: { contacts: cards } });
+  });
+
+  it('summarises more than one contact in the body and sends the whole list', async () => {
+    const send = vi.fn().mockResolvedValue(accepted);
+    const recordOutbound = vi.fn().mockResolvedValue(persisted({ messageType: 'contact' }));
+    const cards = [{ fullName: 'Ada Lovelace', phoneNumber: '+55 85 92369359' }, { fullName: 'Grace Hopper', phoneNumber: '+55 85 90000001' }, { fullName: 'Alan Turing', phoneNumber: '+55 85 90000002' }];
+    await service(send, recordOutbound).sendVcard(context, 'conversation-a', cards);
+    expect(send.mock.calls[0][0].command.payload.content.contacts).toEqual(cards);
+    expect(recordOutbound.mock.calls[0][0].text).toBe('Ada Lovelace e mais 2');
+  });
+
   it('reports a worker refusal as the operator-facing failure it is', async () => {
     const send = vi.fn().mockResolvedValue({ success: false as const, correlationId: 'c', workspaceId: 'workspace-a', error: { code: 'NOT_IMPLEMENTED', message: 'Sending poll is not implemented yet', details: {} } });
     const recordOutbound = vi.fn();
@@ -72,6 +92,25 @@ describe('Inbox location persistence (SQLite, the shape both providers share)', 
       // already exposes as `metadata`, and messageType has no CHECK to fight.
       expect(row.messageType).toBe('location');
       expect(JSON.parse(row.payloadJson).location).toEqual({ latitude: -7.115, longitude: -34.861, title: 'Escritório' });
+    } finally { database.close(); }
+  });
+
+  it('stores a contact card the same way, and returns what it stored', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'chatpro-vcard-'));
+    directories.push(directory);
+    const database = new SqlitePersistenceDatabase(join(directory, 'db.sqlite'), join(process.cwd(), 'migrations'));
+    database.migrate();
+    try {
+      const store = new SqliteWahaWebhookStore(database.sqlite);
+      const contacts = [{ fullName: 'Ada Lovelace', phoneNumber: '+55 85 92369359', organization: 'ChatPro' }];
+      const stored = await store.recordOutbound({ workspaceId: 'workspace-a', wahaSession: 'session-a', chatId: '5585999990001@c.us', externalMessageId: 'wamid-b', text: 'Ada Lovelace', occurredAt: '2026-07-28T12:00:00.000Z', type: 'contact', payload: { contacts } });
+      const row = database.sqlite.prepare('SELECT messageType, payloadJson FROM whatsapp_messages WHERE externalMessageId=?').get('wamid-b') as { messageType: string; payloadJson: string };
+      // Both halves, because the returned value used to be hardcoded to text
+      // while the row was already correct.
+      expect(row.messageType).toBe('contact');
+      expect(JSON.parse(row.payloadJson).contacts).toEqual(contacts);
+      expect(stored.messageType).toBe('contact');
+      expect(stored.metadata).toEqual({ contacts });
     } finally { database.close(); }
   });
 });

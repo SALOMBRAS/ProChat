@@ -19,6 +19,27 @@ const createInput = z.object({
 export class InboxContactService {
   constructor(private readonly conversations: ConversationStore, private readonly domain: DomainRepository) {}
 
+  /**
+   * WAHA's structured contact carries exactly fullName, organization,
+   * phoneNumber and whatsappId. The stored e-mail has nowhere to go there, and
+   * smuggling it inside a hand-built vCard string would rely on behaviour the
+   * provider documentation does not demonstrate — so it is left out rather than
+   * sent in a shape nobody verified.
+   */
+  async cards(workspaceId: string, contactIds: readonly string[]): Promise<Array<{ fullName: string; phoneNumber: string; organization?: string }>> {
+    const contacts = await Promise.all(contactIds.map(id => this.domain.contact(workspaceId, id) as Promise<Record<string, unknown> | undefined>));
+    return contacts.map((contact, index) => {
+      if (!contact) throw new AppError(404, 'NOT_FOUND', 'Contact not found');
+      const fullName = typeof contact.displayName === 'string' ? contact.displayName.trim() : '';
+      const phoneNumber = typeof contact.phoneNumber === 'string' ? contact.phoneNumber.trim() : '';
+      // Name and phone are what makes a card usable on the other side; a card
+      // without either would arrive as an empty entry in WhatsApp.
+      if (!fullName || !phoneNumber) throw new AppError(422, 'VALIDATION_ERROR', 'Contact has no name or phone number to share', { contactId: contactIds[index] });
+      const organization = typeof contact.company === 'string' && contact.company.trim() ? contact.company.trim() : undefined;
+      return { fullName, phoneNumber, ...(organization ? { organization } : {}) };
+    });
+  }
+
   async create(workspaceId: string, conversationId: string, body: unknown): Promise<{ contact: unknown; conversation: ConversationSummary }> {
     const input = createInput.parse(body);
     const conversation = await this.conversations.getConversation(workspaceId, conversationId);

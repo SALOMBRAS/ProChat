@@ -26,6 +26,20 @@ export class InternalInboxService {
       payload: { location: { latitude: location.latitude, longitude: location.longitude, ...(location.title ? { title: location.title } : {}) } },
     });
   }
+  /**
+   * `message_type` is `contact`, not `vcard`: `vcard` names WAHA's endpoint,
+   * while `contact` is the value this codebase already speaks — the conversation
+   * preview answered `Contato` for it before this existed. The contract keeps
+   * `kind: 'vcard'` because that is the provider's vocabulary.
+   */
+  sendVcard(context: RequestContext, conversationId: string, contacts: ReadonlyArray<{ fullName: string; phoneNumber: string; organization?: string }>): Promise<InboxMessage> {
+    return this.deliver(context, conversationId, {
+      command: session => ({ type: 'message.sendContent' as const, payload: { wahaSession: session.wahaSession, chatId: session.chatId, content: { kind: 'vcard' as const, contacts } } }),
+      messageType: 'contact',
+      body: contacts.length === 1 ? contacts[0].fullName : `${contacts[0].fullName} e mais ${contacts.length - 1}`,
+      payload: { contacts },
+    });
+  }
   send(context: RequestContext, conversationId: string, text: string): Promise<InboxMessage> {
     return this.deliver(context, conversationId, {
       command: session => ({ type: 'message.send' as const, payload: { wahaSession: session.wahaSession, chatId: session.chatId, text } }),

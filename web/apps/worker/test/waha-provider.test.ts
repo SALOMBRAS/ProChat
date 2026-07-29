@@ -4,8 +4,9 @@ import { WahaClientError, type WahaClientPort } from '../src/waha-client.js';
 
 const context = { workspaceId: 'workspace-a', correlationId: 'correlation-a' };
 class FakeWahaClient implements WahaClientPort {
-  status = 'STOPPED'; qr = 'temporary-real-qr'; calls: string[] = []; location?: { latitude: number; longitude: number; title?: string };
+  status = 'STOPPED'; qr = 'temporary-real-qr'; calls: string[] = []; location?: { latitude: number; longitude: number; title?: string }; vcards?: ReadonlyArray<Record<string, unknown>>;
   async health() {} async listSessions(): Promise<Array<{ name: string; status: string }>> { return []; } async createSession(name: string) { this.calls.push('create'); return { name, status: this.status }; } async startSession() { this.calls.push('start'); this.status = 'SCAN_QR_CODE'; } async getSession(name: string) { return { name, status: this.status }; } async getQr() { this.calls.push('qr'); return this.qr; } async stopSession() { this.calls.push('stop'); this.status = 'STOPPED'; } async logoutSession() { this.calls.push('logout'); this.status = 'LOGGED_OUT'; } async removeSession() { this.calls.push('remove'); } async sendText() { this.calls.push('sendText'); return { id: 'sent-message-a', pending: false }; } async sendAttachment() { this.calls.push('sendAttachment'); return { id: 'sent-file-a', pending: false }; } async getIdentity(_session: string, whatsappId: string) { this.calls.push('identity'); return { whatsappId, canonicalWhatsappId: whatsappId, phone: '5511999999999', name: 'Contato', pushName: 'Contato', shortName: 'Contato', profilePictureUrl: null }; } async getGroup(_session: string, chatId: string) { this.calls.push('group'); return { chatId, name: 'Grupo', pictureUrl: null, metadata: {}, participants: [{ whatsappId: '5511999999999@c.us', role: 'participant' }] }; } async sendLocation(_session: string, _chatId: string, location: { latitude: number; longitude: number; title?: string }) { this.calls.push('location'); this.location = location; return { id: 'sent-location-a', pending: false }; }
+  async sendContactVcard(_session: string, _chatId: string, contacts: ReadonlyArray<Record<string, unknown>>) { this.calls.push('vcard'); this.vcards = contacts; return { id: 'sent-vcard-a', pending: false }; }
   async listChats() { return { items: [], unsupported: [], hasMore: false }; } async listMessages() { return { items: [], unsupported: [], hasMore: false }; }
 }
 describe('WahaProvider', () => {
@@ -28,7 +29,11 @@ describe('WahaProvider', () => {
     expect(await provider.execute(context, { type: 'sendContent', wahaSession: session, chatId: '1@c.us', content: { ...location, title: 'Escritório' } })).toMatchObject({ id: 'sent-location-a' });
     expect(client.location).toEqual({ latitude: -7.115, longitude: -34.861, title: 'Escritório' });
     expect(client.calls).toContain('location');
-    for (const content of [{ kind: 'vcard' as const, contacts: [{ fullName: 'Ada', phoneNumber: '+55 85 90000000' }] }, { kind: 'poll' as const, name: 'Q', options: ['A', 'B'], multipleAnswers: false }]) {
+    const cards = [{ fullName: 'Ada Lovelace', phoneNumber: '+55 85 92369359', organization: 'ChatPro' }, { fullName: 'Grace Hopper', phoneNumber: '+55 85 90000001' }];
+    expect(await provider.execute(context, { type: 'sendContent', wahaSession: session, chatId: '1@c.us', content: { kind: 'vcard', contacts: cards } })).toMatchObject({ id: 'sent-vcard-a' });
+    // The list travels whole: WAHA accepts more than one contact per message.
+    expect(client.vcards).toEqual(cards);
+    for (const content of [{ kind: 'poll' as const, name: 'Q', options: ['A', 'B'], multipleAnswers: false }]) {
       await expect(provider.execute(context, { type: 'sendContent', wahaSession: session, chatId: '1@c.us', content })).rejects.toMatchObject({ response: { error: { code: 'NOT_IMPLEMENTED', details: { kind: content.kind } } } });
     }
     await expect(provider.execute(context, { type: 'sendContent', wahaSession: 'chatpro-unknown', chatId: '1@c.us', content: location })).rejects.toMatchObject({ response: { error: { code: 'NOT_FOUND' } } });
