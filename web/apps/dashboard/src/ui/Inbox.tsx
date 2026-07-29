@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
 import type {
   ConversationContext,
   ConversationEvent,
@@ -21,6 +21,16 @@ import { conversationIdFromLocation, inboxUrlForConversation } from "./conversat
 import { contactLabel, conversationPhone, participantLabel } from "./contactIdentity.js";
 import { ImageAnnotator } from "./ImageAnnotator.js";
 import { isEditableImage, type Stroke } from "./imageAnnotation.js";
+import {
+  ATTACHMENT_POLICY,
+  HTML_IMAGE_ONLY_MESSAGE,
+  acceptAttachment,
+  extraFilesMessage,
+  fileSizeLabel,
+  readTransfer,
+  rejectedMessage,
+  verdictMessage,
+} from "./attachmentIntake.js";
 
 const defaultApi = new InboxApi();
 const workspaceApi = new WorkspaceApi();
@@ -60,12 +70,12 @@ const activityLabel = (value?: string) =>
         minute: "2-digit",
       }).format(new Date(value))
     : "—";
-/** Espelho dos limites do servidor (`policy` em attachment-outbox.service.ts).
- *  Não dá para importar: é outro workspace. Ultrapassar não corrompe nada — a API
+/** Os limites que a captura consulta. Ultrapassar não corrompe nada — a API
  *  responde 413 "Arquivo excede o limite permitido" e o job nem é criado —, mas
  *  gravar dois minutos de vídeo para descobrir isso no envio é tempo perdido do
- *  operador, então a captura para sozinha ao atingir o teto. */
-const ATTACHMENT_LIMITS = { image: 15 * 1024 * 1024, video: 50 * 1024 * 1024 } as const;
+ *  operador, então a captura para sozinha ao atingir o teto. O espelho de `policy`
+ *  agora é um só, em attachmentIntake.ts. */
+const ATTACHMENT_LIMITS = { image: ATTACHMENT_POLICY.image.max, video: ATTACHMENT_POLICY.video.max } as const;
 /** A allowlist do servidor é mais estreita que `image/*`: HEIC do iPhone e 3gpp de
  *  Android seriam recusados com 415. Pedir só o que é aceito evita que o seletor
  *  ofereça um arquivo que vai falhar depois do upload. */
@@ -131,12 +141,6 @@ const priorityLabel: Record<ConversationPriority, string> = { low: "Baixa", norm
 const operationLabel: Record<ConversationEvent["action"], string> = { assigned: "Responsável alterado", unassigned: "Conversa sem responsável", status_changed: "Status alterado", priority_changed: "Prioridade alterada", archived: "Conversa arquivada", reopened: "Conversa reaberta" };
 type InboxFilter = "all" | "mine" | "unassigned" | "in_progress" | "waiting_customer" | "resolved" | "archived" | "high_priority";
 const currentUserId = import.meta.env.VITE_USER_ID || "00000000-0000-4000-8000-000000000001";
-const fileSizeLabel = (bytes: number) => {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB"];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length);
-  return `${(bytes / 1024 ** index).toFixed(index === 1 ? 0 : 1)} ${units[index - 1]}`;
-};
 const Avatar = ({
   conversation,
   large = false,
@@ -323,6 +327,12 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [editorOpen, setEditorOpen] = useState(false);
   const [attachmentPreview, setAttachmentPreview] = useState<string>();
   const [attachmentStatus, setAttachmentStatus] = useState("");
+  /** Recado de colar ou arrastar. Fica separado de `attachmentStatus` porque
+   *  recusa precisa ser anunciada (`role="alert"`) e não pode passar despercebida
+   *  como o "Anexo em processamento" passa. */
+  const [intakeMessage, setIntakeMessage] = useState<{ text: string; failed: boolean }>();
+  const [dropping, setDropping] = useState(false);
+  const dropDepth = useRef(0);
   const [composerText, setComposerText] = useState("");
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [attachmentAccept, setAttachmentAccept] = useState<string>();
@@ -373,10 +383,54 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   /** Ponto único por onde um anexo entra ou sai do composer. Trocar o arquivo tem
    *  de descartar a marcação da imagem anterior junto, senão os traços de uma foto
    *  reapareceriam sobre a próxima. */
-  const applyAttachment = (file?: File) => { setAttachment(file); setAttachmentSource(file); setAttachmentStrokes([]); setEditorOpen(false); };
+  const applyAttachment = (file?: File) => { setAttachment(file); setAttachmentSource(file); setAttachmentStrokes([]); setEditorOpen(false); setIntakeMessage(undefined); };
   /** Só imagem da allowlist entra no editor: vídeo e documento não têm o que
    *  marcar, e um mime fora dela voltaria 415 depois de reexportado. */
   const editableAttachment = isEditableImage(attachmentSource?.type) ? attachmentSource : undefined;
+  /** Anexa o que veio de colar ou arrastar. É a mesma função para os dois porque
+   *  `clipboardData` e `dataTransfer` são o mesmo `DataTransfer`; o que muda é só
+   *  quem chamou. Termina no mesmo `applyAttachment` do menu "+". */
+  const takeTransfer = async (data: DataTransfer | null) => {
+    const intake = readTransfer(data);
+    if (!intake.accepted.length) {
+      setIntakeMessage({ text: intake.rejected.length ? rejectedMessage(intake.rejected) : HTML_IMAGE_ONLY_MESSAGE, failed: true });
+      return;
+    }
+    const [first] = intake.accepted;
+    const verdict = await acceptAttachment(first, Date.now());
+    if (!verdict.ok) { setIntakeMessage({ text: verdictMessage(verdict, first), failed: true }); return; }
+    applyAttachment(verdict.file);
+    setAttachmentStatus("");
+    const extra = intake.accepted.length + intake.rejected.length;
+    setIntakeMessage(extra > 1 ? { text: extraFilesMessage(extra), failed: false } : undefined);
+    // Imagem cai direto no editor de traço, que é o que o WhatsApp Web faz ao
+    // colar. Fechar o painel no × deixa o anexo pendente igual ao do menu "+".
+    if (isEditableImage(verdict.file.type)) setEditorOpen(true);
+  };
+  const pasteIntoComposer = (event: ClipboardEvent<HTMLFormElement>) => {
+    if (sending) return;
+    const intake = readTransfer(event.clipboardData);
+    // Sem arquivo e sem imagem órfã no HTML é colagem de texto: sair sem
+    // `preventDefault` é o que deixa o textarea receber o texto normalmente.
+    if (!intake.accepted.length && !intake.rejected.length && !(intake.imageWithoutFile && !intake.text)) return;
+    event.preventDefault();
+    void takeTransfer(event.clipboardData);
+  };
+  const carriesFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
+  const dragEnter = (event: DragEvent<HTMLElement>) => { if (!carriesFiles(event) || sending) return; dropDepth.current += 1; setDropping(true); };
+  // Sem `preventDefault` no dragover o navegador recusa o drop e abre o arquivo
+  // numa aba, jogando fora a conversa aberta.
+  const dragOver = (event: DragEvent<HTMLElement>) => { if (!carriesFiles(event) || sending) return; event.preventDefault(); };
+  // `dragleave` dispara também ao passar de um filho para outro; o contador evita
+  // que a moldura pisque no meio do arrasto.
+  const dragLeave = (event: DragEvent<HTMLElement>) => { if (!carriesFiles(event)) return; dropDepth.current = Math.max(0, dropDepth.current - 1); if (!dropDepth.current) setDropping(false); };
+  const drop = (event: DragEvent<HTMLElement>) => {
+    if (!carriesFiles(event) || sending) return;
+    event.preventDefault();
+    dropDepth.current = 0;
+    setDropping(false);
+    void takeTransfer(event.dataTransfer);
+  };
   useEffect(() => () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     discardRecordingRef.current = true;
@@ -1201,7 +1255,14 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
             ))
           )}
         </aside>
-        <section className="inbox-history">
+        <section
+          className={`inbox-history${dropping ? " dropping" : ""}`}
+          onDragEnter={dragEnter}
+          onDragOver={dragOver}
+          onDragLeave={dragLeave}
+          onDrop={drop}
+        >
+          {dropping && <div className="conversation-drop-hint" aria-hidden="true"><strong>Solte para anexar</strong><span>Um arquivo por vez</span></div>}
           {selected ? (
             <>
               <div className="inbox-history-head">
@@ -1256,7 +1317,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
               <form
                 className="message-composer"
                 onSubmit={(event) => void submitMessage(event)}
+                onPaste={pasteIntoComposer}
               >
+                {intakeMessage && <p className={`composer-intake-message${intakeMessage.failed ? " failed" : ""}`} role={intakeMessage.failed ? "alert" : "status"}>{intakeMessage.text}</p>}
                 <input ref={attachmentInputRef} className="attachment-input" type="file" accept={attachmentAccept} capture={attachmentCapture} aria-label="Selecionar anexo" onChange={(event) => { applyAttachment(event.target.files?.[0]); setAttachmentStatus(""); setAttachmentMenuOpen(false); setAttachmentCapture(undefined); }} disabled={sending} />
                 {locationOpen && <div className="composer-location" role="dialog" aria-label="Enviar localização">
                   <div className="composer-location-head"><strong>Enviar localização</strong><button type="button" onClick={closeLocation} aria-label="Fechar localização">×</button></div>
