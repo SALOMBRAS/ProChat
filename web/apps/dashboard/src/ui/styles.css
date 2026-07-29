@@ -306,3 +306,33 @@
 .chat-inbox .message-location-pin { color: #cda5ff; }
 .chat-inbox .message-location-open { color: #cda5ff; font-size: 11px; font-weight: 700; }
 @media (max-width: 760px) { .chat-inbox .composer-location { width: 100%; } .chat-inbox .message-location { width: 100%; } }
+
+/* Editor de imagem antes do envio. Mesma casca dos painéis de câmera e
+   localização — é o mesmo momento do composer. O que muda é a área de marcação,
+   que precisa de fundo escuro para a foto não brigar com o gradiente do painel,
+   e de `touch-action: none` para o dedo desenhar em vez de rolar a conversa. */
+.chat-inbox .composer-editor { order: -3; display: grid; gap: 9px; width: min(430px, 100%); padding: 10px 11px; border: 1px solid #a855f755; border-radius: 14px; background: linear-gradient(145deg, #201631, #12111e); box-shadow: 0 10px 24px #00000032, 0 0 18px #8b5cf61c; color: #f3eff8; }
+.chat-inbox .composer-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chat-inbox .composer-editor-head strong { font-size: 13px; }
+.chat-inbox .composer-editor-head button { padding: 2px 7px !important; border: 0 !important; background: transparent !important; color: #c6b9d0 !important; font-size: 19px !important; }
+.chat-inbox .composer-editor-canvas { width: 100%; max-height: 260px; border-radius: 10px; background: #090910; object-fit: contain; touch-action: none; cursor: crosshair; }
+.chat-inbox .composer-editor-notice { margin: 0; color: #a697b4; font-size: 10px; line-height: 1.4; }
+.chat-inbox .composer-editor-error { margin: 0; color: #ff9c9c; font-size: 11px; line-height: 1.4; }
+.chat-inbox .composer-editor-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.chat-inbox .composer-editor-colors { display: flex; align-items: center; gap: 6px; }
+.chat-inbox .composer-editor-colors button { width: 20px; height: 20px; padding: 0 !important; border: 2px solid #ffffff22 !important; border-radius: 50% !important; }
+.chat-inbox .composer-editor-colors button[aria-checked="true"] { border-color: #fff !important; box-shadow: 0 0 0 2px #a855f744; }
+.chat-inbox .composer-editor-width { flex: 1; flex-direction: row; align-items: center; gap: 7px; min-width: 148px; color: #a697b4; font-size: 10px; font-weight: 700; }
+.chat-inbox .composer-editor-width input { flex: 1; width: auto; padding: 0; border: 0; background: transparent; accent-color: #c084fc; }
+.chat-inbox .composer-editor-width b { color: #e8dcea; font-variant-numeric: tabular-nums; }
+.chat-inbox .composer-editor-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
+.chat-inbox .composer-editor-actions button { padding: 7px 10px !important; border: 1px solid #ffffff22 !important; border-radius: 9px !important; background: #ffffff0b !important; color: #e8dcea !important; font-size: 11px !important; font-weight: 700; }
+.chat-inbox .composer-editor-actions button:disabled { opacity: .48; }
+.chat-inbox .composer-editor-actions .composer-editor-undo { margin-right: auto; }
+.chat-inbox .composer-editor-actions .composer-editor-confirm { border-color: #d8b4fe88 !important; background: #a855f744 !important; color: #fff !important; }
+/* Editar e remover dividem a última coluna do cartão do anexo pendente, que
+   continua com três colunas. */
+.chat-inbox .composer-pending-tools { display: flex; align-items: center; gap: 6px; }
+.chat-inbox .composer-pending-edit { display: grid; place-items: center; width: 30px; height: 30px; padding: 0 !important; border: 1px solid #ffffff1b !important; border-radius: 10px !important; background: #ffffff0b !important; color: #d7c3e9 !important; font-size: 14px; line-height: 1; transition: color .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease; }
+.chat-inbox .composer-pending-edit:hover:not(:disabled), .chat-inbox .composer-pending-edit:focus-visible { border-color: #d8b4fe88 !important; background: #a855f744 !important; box-shadow: 0 0 14px #8b5cf644; color: #fff !important; outline: none; }
+@media (max-width: 760px) { .chat-inbox .composer-editor { width: 100%; padding: 9px; } .chat-inbox .composer-editor-canvas { max-height: 210px; } }

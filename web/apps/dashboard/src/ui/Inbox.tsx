@@ -19,6 +19,8 @@ import type { PersistenceContact, Team, WorkspaceUser } from "@chatpro/contracts
 import { InboxKanban } from "./InboxKanban.js";
 import { conversationIdFromLocation, inboxUrlForConversation } from "./conversationNavigation.js";
 import { contactLabel, conversationPhone, participantLabel } from "./contactIdentity.js";
+import { ImageAnnotator } from "./ImageAnnotator.js";
+import { isEditableImage, type Stroke } from "./imageAnnotation.js";
 
 const defaultApi = new InboxApi();
 const workspaceApi = new WorkspaceApi();
@@ -307,6 +309,12 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [attachment, setAttachment] = useState<File>();
+  /** O arquivo como foi escolhido, antes de qualquer marcação. O editor sempre
+   *  parte dele: reeditar a partir da exportação anterior empilharia perda de
+   *  qualidade a cada rodada. Os traços aplicados voltam por `attachmentStrokes`. */
+  const [attachmentSource, setAttachmentSource] = useState<File>();
+  const [attachmentStrokes, setAttachmentStrokes] = useState<Stroke[]>([]);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [attachmentPreview, setAttachmentPreview] = useState<string>();
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [composerText, setComposerText] = useState("");
@@ -356,6 +364,13 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const slaRequest = useRef(0);
   const slaAbort = useRef<AbortController>();
   useEffect(() => { if (!attachment?.type.startsWith('image/')) { setAttachmentPreview(undefined); return; } const url = URL.createObjectURL(attachment); setAttachmentPreview(url); return () => URL.revokeObjectURL(url); }, [attachment]);
+  /** Ponto único por onde um anexo entra ou sai do composer. Trocar o arquivo tem
+   *  de descartar a marcação da imagem anterior junto, senão os traços de uma foto
+   *  reapareceriam sobre a próxima. */
+  const applyAttachment = (file?: File) => { setAttachment(file); setAttachmentSource(file); setAttachmentStrokes([]); setEditorOpen(false); };
+  /** Só imagem da allowlist entra no editor: vídeo e documento não têm o que
+   *  marcar, e um mime fora dela voltaria 415 depois de reexportado. */
+  const editableAttachment = isEditableImage(attachmentSource?.type) ? attachmentSource : undefined;
   useEffect(() => () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     discardRecordingRef.current = true;
@@ -737,7 +752,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
             ? "Falhou"
             : "Anexo em processamento; aguardando confirmação",
         );
-        setAttachment(undefined);
+        applyAttachment(undefined);
       } else await api.sendMessage(selected.id, text);
       form.reset();
       setComposerText("");
@@ -753,7 +768,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     }
   };
   const clearAttachment = () => {
-    setAttachment(undefined);
+    applyAttachment(undefined);
     setAttachmentStatus("");
     if (attachmentInputRef.current) attachmentInputRef.current.value = "";
   };
@@ -798,7 +813,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
         if (!discardRecordingRef.current && chunks.length) {
           const type = recorder.mimeType || "audio/webm";
           const extension = type.includes("ogg") ? "ogg" : "webm";
-          setAttachment(new File([new Blob(chunks, { type })], `audio-${Date.now()}.${extension}`, { type }));
+          applyAttachment(new File([new Blob(chunks, { type })], `audio-${Date.now()}.${extension}`, { type }));
           setAttachmentStatus("Áudio pronto para envio");
         }
       };
@@ -857,7 +872,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     canvas.toBlob((blob) => {
       if (!blob) { setCameraError("Não foi possível capturar a imagem."); return; }
       if (blob.size > ATTACHMENT_LIMITS.image) { setCameraError(`A foto tem ${fileSizeLabel(blob.size)} e o limite é ${fileSizeLabel(ATTACHMENT_LIMITS.image)}.`); return; }
-      setAttachment(new File([blob], `foto-${Date.now()}.jpg`, { type: "image/jpeg" }));
+      applyAttachment(new File([blob], `foto-${Date.now()}.jpg`, { type: "image/jpeg" }));
       setAttachmentStatus("Foto pronta para envio");
       closeCamera();
     }, "image/jpeg", 0.92);
@@ -905,7 +920,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       const type = recorder.mimeType?.split(";", 1)[0] || "video/webm";
       const blob = new Blob(chunks, { type });
       if (blob.size > ATTACHMENT_LIMITS.video) { setCameraError(`O vídeo tem ${fileSizeLabel(blob.size)} e o limite é ${fileSizeLabel(ATTACHMENT_LIMITS.video)}.`); return; }
-      setAttachment(new File([blob], `video-${Date.now()}.webm`, { type }));
+      applyAttachment(new File([blob], `video-${Date.now()}.webm`, { type }));
       setAttachmentStatus("Vídeo pronto para envio");
       closeCamera();
     };
@@ -1236,7 +1251,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 className="message-composer"
                 onSubmit={(event) => void submitMessage(event)}
               >
-                <input ref={attachmentInputRef} className="attachment-input" type="file" accept={attachmentAccept} capture={attachmentCapture} aria-label="Selecionar anexo" onChange={(event) => { setAttachment(event.target.files?.[0]); setAttachmentStatus(""); setAttachmentMenuOpen(false); setAttachmentCapture(undefined); }} disabled={sending} />
+                <input ref={attachmentInputRef} className="attachment-input" type="file" accept={attachmentAccept} capture={attachmentCapture} aria-label="Selecionar anexo" onChange={(event) => { applyAttachment(event.target.files?.[0]); setAttachmentStatus(""); setAttachmentMenuOpen(false); setAttachmentCapture(undefined); }} disabled={sending} />
                 {locationOpen && <div className="composer-location" role="dialog" aria-label="Enviar localização">
                   <div className="composer-location-head"><strong>Enviar localização</strong><button type="button" onClick={closeLocation} aria-label="Fechar localização">×</button></div>
                   <button type="button" className="composer-location-current" onClick={useCurrentLocation} disabled={locatingNow}>{locatingNow ? "Obtendo localização…" : "Usar minha localização atual"}</button>
@@ -1256,10 +1271,19 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                   </div>
                 </div>}
                 {isRecording && <div className="composer-recording" role="status" aria-live="polite"><span className="composer-recording-indicator" aria-hidden="true" /><strong>Gravando áudio</strong><time>{`${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`}</time><button type="button" onClick={() => finishRecording(true)} aria-label="Cancelar gravação">Cancelar</button><button type="button" className="composer-recording-send" onClick={() => finishRecording()} aria-label="Concluir gravação">Enviar</button></div>}
+                {editorOpen && editableAttachment && <ImageAnnotator
+                  file={editableAttachment}
+                  initialStrokes={attachmentStrokes}
+                  onCancel={() => setEditorOpen(false)}
+                  onConfirm={(edited, strokes) => { setAttachment(edited); setAttachmentStrokes(strokes); setEditorOpen(false); setAttachmentStatus(strokes.length ? "Imagem editada, pronta para envio" : ""); }}
+                />}
                 {attachment && <div className="composer-pending-attachment" aria-label={`Anexo pendente: ${attachment.name}`}>
                   {attachmentPreview ? <img className="composer-pending-thumbnail" src={attachmentPreview} alt={`Prévia de ${attachment.name}`} /> : <span className="composer-pending-file-icon" aria-hidden="true">{attachment.type.startsWith("video/") ? "▣" : "▤"}</span>}
                   <div className="composer-pending-details"><strong title={attachment.name}>{attachment.name}</strong><span>{fileSizeLabel(attachment.size)}</span></div>
-                  <button type="button" className="composer-pending-remove" onClick={clearAttachment} disabled={sending} aria-label={`Remover ${attachment.name}`} title="Remover anexo">×</button>
+                  <span className="composer-pending-tools">
+                    {editableAttachment && <button type="button" className="composer-pending-edit" onClick={() => setEditorOpen(true)} disabled={sending} aria-label={`Editar ${attachment.name}`} title="Editar imagem">✎</button>}
+                    <button type="button" className="composer-pending-remove" onClick={clearAttachment} disabled={sending} aria-label={`Remover ${attachment.name}`} title="Remover anexo">×</button>
+                  </span>
                 </div>}
                 <div className="composer-attachment-menu">
                   <button type="button" className="composer-action composer-add-action" onClick={() => setAttachmentMenuOpen((open) => !open)} disabled={sending} aria-label="Adicionar anexo" aria-expanded={attachmentMenuOpen} aria-controls="composer-attachment-options"><span aria-hidden="true">+</span></button>
