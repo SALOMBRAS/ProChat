@@ -19,6 +19,11 @@ import type { PersistenceContact, Team, WorkspaceUser } from "@chatpro/contracts
 import { InboxKanban } from "./InboxKanban.js";
 import { conversationIdFromLocation, inboxUrlForConversation } from "./conversationNavigation.js";
 import { contactLabel, conversationPhone, participantLabel } from "./contactIdentity.js";
+import { Media } from "./MessageMedia.js";
+import { bodyRepeatsCard, mapsUrl } from "./messageMedia.js";
+// Os leitores de localização moram em messageMedia.ts junto dos outros; o
+// reexporte mantém o caminho de importação que já existia.
+export { coordinatesLabel, locationOf, mapsUrl } from "./messageMedia.js";
 import { ImageAnnotator } from "./ImageAnnotator.js";
 import { isEditableImage, type Stroke } from "./imageAnnotation.js";
 import { AttachmentComposer } from "./AttachmentComposer.js";
@@ -113,35 +118,6 @@ const parseCoordinates = (value: string) => {
   if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return undefined;
   return { latitude, longitude };
 };
-/** Lê o ponto das duas origens, que não têm a mesma forma:
- *
- *  - enviada por nós: `metadata.location = { latitude, longitude, title }`, montado
- *    por internal-inbox.service;
- *  - recebida do WhatsApp: `metadata` é o payload cru, e o ponto vem em
- *    `location` com `name`, `address`, `description` e `thumbnail` além das
- *    coordenadas. Medido em duas mensagens reais da base.
- *
- *  `title` e `name` são o mesmo campo com nomes diferentes de cada lado — quem só
- *  lê `title` mostra coordenadas nuas para um lugar que veio nomeado. */
-export const locationOf = (metadata: unknown) => {
-  const point = (metadata as { location?: Record<string, unknown> } | undefined)?.location;
-  if (!point) return undefined;
-  const latitude = Number(point.latitude), longitude = Number(point.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
-  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
-  const thumbnail = text(point.thumbnail);
-  return {
-    latitude, longitude,
-    title: text(point.title) ?? text(point.name),
-    address: text(point.address),
-    // O WhatsApp já manda a miniatura embutida em base64: dá para mostrar o mapa
-    // sem chave de API e sem terceiro no caminho.
-    thumbnail: thumbnail && !thumbnail.startsWith("data:") ? `data:image/jpeg;base64,${thumbnail}` : thumbnail,
-    live: point.live === true,
-  };
-};
-export const mapsUrl = (latitude: number, longitude: number) => `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
-export const coordinatesLabel = (latitude: number, longitude: number) => `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
 const cameraErrorMessage = (error: unknown) => {
   const name = error instanceof Error ? error.name : "";
   if (name === "NotAllowedError" || name === "SecurityError") return "Permissão de câmera negada. Autorize o acesso à câmera nas configurações do navegador e tente de novo.";
@@ -177,130 +153,6 @@ const Avatar = ({
     )}
   </span>
 );
-let activeAudio: HTMLAudioElement | undefined;
-// A recorded note and a music file are the same audio element and differ only
-// in what they are: `ptt` is the note, anything else that reaches here is a file.
-// Minimal on purpose — the label and the filename are what prove the distinction
-// survived the round trip; the waveform-versus-track treatment is not this step.
-const AudioMessage = ({ url, message }: { url: string; message: InboxMessage }) => {
-  const voice = message.messageType === "ptt";
-  const audio = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [current, setCurrent] = useState(0);
-  const [duration, setDuration] = useState(message.duration ?? 0);
-  const [speed, setSpeed] = useState(1);
-  const [unavailable, setUnavailable] = useState(false);
-  const format = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
-  const toggle = async () => { const node = audio.current; if (!node) return; if (node.paused) { if (activeAudio && activeAudio !== node) activeAudio.pause(); activeAudio = node; try { await node.play(); } catch { setUnavailable(true); } } else node.pause(); };
-  const changeSpeed = () => { const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1; setSpeed(next); if (audio.current) audio.current.playbackRate = next; };
-  return <div className="audio-player" aria-label={voice ? "Mensagem de voz" : "Arquivo de áudio"}><audio ref={audio} preload="metadata" onLoadedMetadata={() => setDuration(audio.current?.duration || message.duration || 0)} onTimeUpdate={() => setCurrent(audio.current?.currentTime || 0)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCurrent(0); }} onError={() => setUnavailable(true)}><source src={url} type={message.mediaMimeType ?? undefined} /></audio>{unavailable ? <span className="media-error" role="status">Áudio indisponível.</span> : <><button type="button" className="audio-play" onClick={() => void toggle()} aria-label={playing ? "Pausar áudio" : "Reproduzir áudio"}>{playing ? "Ⅱ" : "▶"}</button><span className="audio-mark" aria-hidden="true">{voice ? "♬" : "▤"}</span>{!voice && message.mediaFilename ? <small title={message.mediaFilename}>{message.mediaFilename}</small> : null}<input aria-label="Progresso do áudio" type="range" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(current, duration || 0)} onChange={event => { const value = Number(event.target.value); if (audio.current) audio.current.currentTime = value; setCurrent(value); }} /><time>{format(current)} / {format(duration)}</time><button type="button" className="audio-speed" onClick={changeSpeed} aria-label={`Velocidade ${speed}x`}>{speed}x</button></>}</div>;
-};
-const documentIcon = (filename?: string | null, mimeType?: string | null) => {
-  const extension = filename?.split(".").pop()?.toLowerCase();
-  if (mimeType?.includes("pdf") || extension === "pdf") return "PDF";
-  if (["doc", "docx", "odt"].includes(extension ?? "")) return "DOC";
-  if (["xls", "xlsx", "csv"].includes(extension ?? "")) return "XLS";
-  if (["ppt", "pptx"].includes(extension ?? "")) return "PPT";
-  return "FILE";
-};
-const ImageMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
-  const [expanded, setExpanded] = useState(false);
-  const filename = message.mediaFilename?.trim();
-  const hasMeaningfulFilename = Boolean(filename && !/^(image|imagem)(\.[a-z0-9]+)?$/i.test(filename));
-  const label = hasMeaningfulFilename ? filename! : "Imagem";
-  return <>
-    <div className="message-image-card">
-      <button type="button" className="message-image-preview" onClick={() => setExpanded(true)} aria-label={`Ampliar ${label}`}><img src={url} alt={label} /></button>
-      <div className={`message-media-footer${hasMeaningfulFilename ? "" : " icon-only"}`}>{hasMeaningfulFilename && <span title={filename}>{filename}</span>}<a href={url} download={message.mediaFilename ?? undefined} aria-label={`Baixar ${label}`} title="Baixar imagem">⇩</a></div>
-    </div>
-    {expanded && <div className="media-modal-backdrop" role="presentation" onClick={() => setExpanded(false)}><section className="media-modal" role="dialog" aria-modal="true" aria-label={label} onClick={(event) => event.stopPropagation()}><div className="media-modal-head"><strong title={label}>{label}</strong><div><a href={url} download={message.mediaFilename ?? undefined} aria-label={`Baixar ${label}`} title="Baixar imagem">⇩</a><button type="button" onClick={() => setExpanded(false)} aria-label="Fechar imagem">×</button></div></div><img src={url} alt={label} /></section></div>}
-  </>;
-};
-const DocumentMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
-  const filename = message.mediaFilename ?? "Documento";
-  const type = documentIcon(message.mediaFilename, message.mediaMimeType);
-  return <a className="message-document-card" href={url} download={message.mediaFilename ?? undefined} aria-label={`Baixar ${filename}`}><span className="message-document-icon">{type}</span><span className="message-document-details"><strong title={filename}>{filename}</strong><span><small>{type}</small><small>{message.mediaSize != null ? fileSizeLabel(message.mediaSize) : "Tamanho não informado"}</small></span></span><span className="message-document-download" aria-hidden="true">⇩</span></a>;
-};
-const VideoMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
-  const [playbackError, setPlaybackError] = useState<string>();
-  return <div className="message-video-card"><video className="message-media video" controls preload="metadata" poster={message.thumbnailUrl ?? undefined} playsInline onLoadedMetadata={() => setPlaybackError(undefined)} onStalled={() => setPlaybackError("O vídeo está demorando para carregar.")} onError={() => setPlaybackError("Formato de vídeo inválido ou não suportado.")}><source src={url} type={message.mediaMimeType ?? undefined} /></video><div className="message-media-footer"><span title={message.mediaFilename ?? undefined}>{message.mediaFilename ?? "Vídeo"}</span><a href={url} download={message.mediaFilename ?? undefined} aria-label="Baixar vídeo" title="Baixar vídeo">⇩</a></div>{playbackError && <span className="media-error" role="status">{playbackError}</span>}</div>;
-};
-const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
-  const [url, setUrl] = useState<string>();
-  const [failed, setFailed] = useState(false);
-  const [playbackError, setPlaybackError] = useState<string>();
-  useEffect(() => { if (!message.mediaUrl) return; let active = true; setUrl(undefined); setFailed(false); setPlaybackError(undefined); void api.mediaUrl(message.id).then(access => { if (active) setUrl(access.url); }).catch(() => { if (active) setFailed(true); }); return () => { active = false; }; }, [api, message.id, message.mediaUrl]);
-  // A location has no media to fetch: the coordinates travel in the stored
-  // payload, which the message reader hands over as metadata.
-  if (message.messageType === "location") {
-    const point = locationOf(message.metadata);
-    if (!point) return <span className="message-received-label">Localização sem coordenadas</span>;
-    const coordinates = coordinatesLabel(point.latitude, point.longitude);
-    // Cartão inteiro clicável, com destino explícito: o operador precisa saber que
-    // sai do ChatPro para o mapa antes de clicar.
-    return (
-      <a className="message-location" href={mapsUrl(point.latitude, point.longitude)} target="_blank" rel="noreferrer noopener" aria-label={`Abrir no mapa: ${point.title || point.address || coordinates}`}>
-        {point.thumbnail && <img className="message-location-thumb" src={point.thumbnail} alt="" />}
-        <span className="message-location-copy">
-          <strong><span className="message-location-pin" aria-hidden="true">◎</span>{point.title || "Localização"}{point.live && <em> · ao vivo</em>}</strong>
-          {point.address && <span>{point.address}</span>}
-          <small>{coordinates}</small>
-        </span>
-        <span className="message-location-open">Abrir no mapa ↗</span>
-      </a>
-    );
-  }
-  if (message.messageType === "contact") {
-    const cards = (message.metadata as { contacts?: Array<{ fullName?: string; phoneNumber?: string; organization?: string }> } | undefined)?.contacts;
-    // Outbound cards are rendered from what this app stored. The shape WAHA
-    // sends for an inbound card is not identified — no sample exists in the
-    // base — so anything else falls back to the body.
-    if (!cards?.length) return <span className="message-received-label">{message.content?.trim() || "Contato"}</span>;
-    return <ul className="message-contact-card">{cards.map((card, index) => <li key={`${card.phoneNumber ?? index}`}><strong>{card.fullName ?? "Contato"}</strong>{card.organization ? <small>{card.organization}</small> : null}{card.phoneNumber ? <a href={`tel:${card.phoneNumber.replace(/[^\d+]/g, "")}`}>{card.phoneNumber}</a> : null}</li>)}</ul>;
-  }
-  if (!message.mediaUrl)
-    return message.direction === "inbound" ? (
-      <span className="message-received-label">Recebida</span>
-    ) : null;
-  if (failed) return <span className="media-error" role="status">NÃ£o foi possÃ­vel carregar a mÃ­dia.</span>;
-  if (!url) return <span className="media-loading" role="status">Carregando mÃ­diaâ€¦</span>;
-  if (message.messageType === "image" || message.messageType === "sticker")
-    return <ImageMessage message={message} url={url} />;
-  if (message.messageType === "video")
-    return <VideoMessage message={message} url={url} />;
-  if (false)
-    return (
-      <>
-      <video
-        className="message-media video"
-        controls
-        preload="metadata"
-        poster={message.thumbnailUrl ?? undefined}
-        playsInline
-        onLoadedMetadata={() => setPlaybackError(undefined)}
-        onStalled={() => setPlaybackError("O vÃ­deo estÃ¡ demorando para carregar.")}
-        onError={() => setPlaybackError("Formato de vÃ­deo invÃ¡lido ou nÃ£o suportado.")}
-      >
-        <source src={url} type={message.mediaMimeType ?? undefined} />
-      </video>
-      {playbackError && <span className="media-error" role="status">{playbackError}</span>}
-      </>
-    );
-  if (
-    message.messageType === "audio" ||
-    message.messageType === "ptt" ||
-    message.mediaMimeType?.startsWith("audio/")
-  )
-    return <AudioMessage url={url} message={message} />;
-  return <DocumentMessage message={message} url={url} />;
-  if (false) return (
-    <a className="message-document" href={url} download={message.mediaFilename ?? undefined}>
-      <span>▧</span>
-      <strong>{message.mediaFilename ?? "Documento"}</strong>
-      <small>{message.mediaMimeType ?? "Abrir arquivo"}</small>
-    </a>
-  );
-};
 const statusIcon = (status: InboxMessage["status"]) =>
   status === "read" || status === "delivered"
     ? "✓✓"
@@ -309,11 +161,11 @@ const statusIcon = (status: InboxMessage["status"]) =>
       : status === "sending"
         ? "◌"
         : "✓";
-const MessageBubble = ({ message, api, showAuthor, highlighted = false }: { message: InboxMessage; api: InboxApi; showAuthor: boolean; highlighted?: boolean }) => (
+const MessageBubble = ({ message, api, domain, onOpenContact, showAuthor, highlighted = false }: { message: InboxMessage; api: InboxApi; domain?: DomainApi; onOpenContact?: (search: string) => void; showAuthor: boolean; highlighted?: boolean }) => (
   <article id={`conversation-search-result-${message.id}`} className={`message-bubble ${message.direction}${highlighted ? " search-highlighted" : ""}`}>
     {showAuthor && <strong className="message-author">{senderName(message.senderWhatsappId)}:</strong>}
-    <Media message={message} api={api} />
-    {message.content && <p>{message.content}</p>}
+    <Media message={message} api={api} domain={domain} onOpenContact={onOpenContact} />
+    {message.content && !bodyRepeatsCard(message) && <p>{message.content}</p>}
     <span className={`message-meta status-${message.status}`}>
       {message.direction === "outbound" && <b aria-label={`Status: ${message.status}`}>{statusIcon(message.status)}{" "}</b>}
       {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -399,6 +251,12 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   /** Ponto único por onde um anexo entra ou sai do composer. Trocar o arquivo tem
    *  de descartar a marcação da imagem anterior junto, senão os traços de uma foto
    *  reapareceriam sobre a próxima. */
+  /** Abre o CRM já filtrado no telefone do cartão. Mesmo idioma de navegação que
+   *  o resto do app usa: `pushState` e um `popstate` para o App reagir. */
+  const openContactInCrm = (search: string) => {
+    history.pushState({}, "", `/contacts?search=${encodeURIComponent(search)}`);
+    dispatchEvent(new PopStateEvent("popstate"));
+  };
   const applyAttachment = (file?: File) => { setAttachment(file); setAttachmentSource(file); setAttachmentStrokes([]); setEditorOpen(false); setIntakeMessage(undefined); };
   /** Só imagem da allowlist entra no editor: vídeo e documento não têm o que
    *  marcar, e um mime fora dela voltaria 415 depois de reexportado. */
@@ -1355,7 +1213,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                           {dateLabel(item.timestamp)}
                         </div>
                       )}
-                      <MessageBubble message={item} api={api} showAuthor={isGroup(selected) && item.direction === "inbound"} highlighted={item.id === activeMatchId} />
+                      <MessageBubble message={item} api={api} domain={domain} onOpenContact={openContactInCrm} showAuthor={isGroup(selected) && item.direction === "inbound"} highlighted={item.id === activeMatchId} />
                     </div>
                   ))
                 )}

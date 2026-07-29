@@ -78,7 +78,7 @@ describe("nota de voz e arquivo de áudio na Inbox", () => {
 
   it("mantém a nota de voz no player, e não no cartão de documento", async () => {
     await abrirConversa([message({ messageType: "ptt" })]);
-    await waitFor(() => expect(document.querySelector(".audio-player")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector(".voice-note")).toBeTruthy());
     expect(document.querySelector(".message-document")).toBeNull();
   });
 
@@ -88,7 +88,7 @@ describe("nota de voz e arquivo de áudio na Inbox", () => {
    *  classificação se perdeu por falta de mime. */
   it("roteia uma nota de voz sem mime pelo tipo, não pelo mime que ela não tem", async () => {
     await abrirConversa([message({ messageType: "ptt", mediaMimeType: null })]);
-    await waitFor(() => expect(document.querySelector(".audio-player")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector(".voice-note")).toBeTruthy());
     expect(await screen.findByLabelText("Mensagem de voz")).toBeTruthy();
   });
 });
