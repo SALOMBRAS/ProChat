@@ -123,9 +123,32 @@ export type InboxOutboxJob = z.infer<typeof inboxOutboxJobSchema>;
 export const internalSendAttachmentCommandSchema = z.object({ type: z.literal('message.sendAttachment'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), chatId: z.string().trim().min(1).max(200), type: attachmentTypeSchema, url: z.string().url().max(4_096), filename: z.string().trim().min(1).max(255), mimeType: z.string().trim().min(1).max(128), caption: z.string().max(4_096).optional() }) });
 const whatsappIdentitySnapshotSchema = z.object({ whatsappId: z.string().min(1).max(200), canonicalWhatsappId: z.string().min(1).max(200), phone: z.string().min(1).max(32).nullable(), name: z.string().min(1).max(240).nullable(), pushName: z.string().min(1).max(240).nullable(), shortName: z.string().min(1).max(240).nullable(), profilePictureUrl: z.string().url().max(2_048).nullable() });
 const whatsappGroupSnapshotSchema = z.object({ chatId: z.string().min(1).max(200), name: z.string().min(1).max(240).nullable(), pictureUrl: z.string().url().max(2_048).nullable(), metadata: z.record(z.unknown()), participants: z.array(z.object({ whatsappId: z.string().min(1).max(200), role: z.string().min(1).max(64).nullable() })).max(2_000) });
+/**
+ * Sends that are neither text nor a file. `message.send` carries a string and
+ * `message.sendAttachment` carries a URL plus filename and mimetype, so a set of
+ * coordinates, a contact card or a poll had nowhere to travel.
+ *
+ * One command with a discriminated content instead of one command per kind: the
+ * envelope is identical for all of them — same session, same chat, same
+ * `sentMessage` answer — and only the content differs. A new kind is a member of
+ * this union plus a branch in the provider; it needs no new command type, no new
+ * response variant and no new call site in the API. Location, vCard and poll are
+ * all declared here already, so adding either of the remaining two later does not
+ * touch the contract at all.
+ */
+export const sendableLocationSchema = z.object({ kind: z.literal('location'), latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), title: z.string().trim().min(1).max(240).optional() });
+export const sendableVcardSchema = z.object({ kind: z.literal('vcard'), contacts: z.array(z.union([
+  z.object({ vcard: z.string().min(1).max(8_192) }),
+  z.object({ fullName: z.string().trim().min(1).max(240), organization: z.string().trim().min(1).max(240).optional(), phoneNumber: z.string().trim().min(1).max(64), whatsappId: z.string().trim().min(1).max(200).optional() }),
+])).min(1).max(20) });
+export const sendablePollSchema = z.object({ kind: z.literal('poll'), name: z.string().trim().min(1).max(240), options: z.array(z.string().trim().min(1).max(100)).min(2).max(12), multipleAnswers: z.boolean() });
+export const sendableContentSchema = z.discriminatedUnion('kind', [sendableLocationSchema, sendableVcardSchema, sendablePollSchema]);
+export type SendableContent = z.infer<typeof sendableContentSchema>;
+export type SendableContentKind = SendableContent['kind'];
+export const internalSendContentCommandSchema = z.object({ type: z.literal('message.sendContent'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), chatId: z.string().trim().min(1).max(200), content: sendableContentSchema }) });
 export const internalIdentitySyncCommandSchema = z.object({ type: z.literal('identity.sync'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), chatId: z.string().trim().min(1).max(200), senderWhatsappId: z.string().trim().min(1).max(200).optional(), refreshIdentity: z.boolean(), refreshGroup: z.boolean() }) });
 export const internalHistoryPageCommandSchema = z.object({ type: z.literal('history.page'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), chatId: z.string().trim().min(1).max(200).optional(), offset: z.number().int().nonnegative(), limit: z.number().int().positive().max(100) }) });
-export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema, internalSendMessageCommandSchema, internalSendAttachmentCommandSchema, internalIdentitySyncCommandSchema, internalHistoryPageCommandSchema]);
+export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema, internalSendMessageCommandSchema, internalSendAttachmentCommandSchema, internalSendContentCommandSchema, internalIdentitySyncCommandSchema, internalHistoryPageCommandSchema]);
 export type InternalTransportCommand = z.infer<typeof internalTransportCommandSchema>;
 export const internalTransportRequestSchema = z.object({ correlationId: z.string().min(1).max(128), workspaceId: safeIdentifierSchema, timeoutMs: internalTransportTimeoutSchema, command: internalTransportCommandSchema });
 export type InternalTransportRequest = z.infer<typeof internalTransportRequestSchema>;
