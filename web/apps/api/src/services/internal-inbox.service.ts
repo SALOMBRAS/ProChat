@@ -11,14 +11,37 @@ const statusFor = (code: string): number => ({ VALIDATION_ERROR: 400, NOT_FOUND:
 
 export class InternalInboxService {
   constructor(private readonly worker: InternalWorkerClient, private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly automation?: KanbanAutomationCoordinator, private readonly sla?: SlaMessageCoordinator) {}
-  async send(context: RequestContext, conversationId: string, text: string): Promise<InboxMessage> {
+  /**
+   * Same delivery, persistence and automation as a text send; only the worker
+   * command and what gets stored differ. The message keeps `messageType`
+   * `location` and the coordinates travel in the stored payload, which the
+   * message reader already surfaces as `metadata` — so no column, no migration
+   * and no change to either repository.
+   */
+  sendLocation(context: RequestContext, conversationId: string, location: { latitude: number; longitude: number; title?: string }): Promise<InboxMessage> {
+    return this.deliver(context, conversationId, {
+      command: session => ({ type: 'message.sendContent' as const, payload: { wahaSession: session.wahaSession, chatId: session.chatId, content: { kind: 'location' as const, latitude: location.latitude, longitude: location.longitude, ...(location.title ? { title: location.title } : {}) } } }),
+      messageType: 'location',
+      body: location.title ?? null,
+      payload: { location: { latitude: location.latitude, longitude: location.longitude, ...(location.title ? { title: location.title } : {}) } },
+    });
+  }
+  send(context: RequestContext, conversationId: string, text: string): Promise<InboxMessage> {
+    return this.deliver(context, conversationId, {
+      command: session => ({ type: 'message.send' as const, payload: { wahaSession: session.wahaSession, chatId: session.chatId, text } }),
+      messageType: 'text',
+      body: text,
+    });
+  }
+  private async deliver(context: RequestContext, conversationId: string, outbound: { command: (session: { wahaSession: string; chatId: string }) => { type: 'message.send' | 'message.sendContent'; payload: Record<string, unknown> }; messageType: string; body: string | null; payload?: Record<string, unknown> }): Promise<InboxMessage> {
+    const text = outbound.body;
     const conversation = await this.conversations.getConversation(context.workspaceId, conversationId);
     if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
     const deliveryChatId = conversation.deliveryChatId ?? conversation.chatId;
     log('info', 'Inbox message send started', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId });
     let response;
     try {
-      response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, timeoutMs: 30_000, command: { type: 'message.send', payload: { wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId, text } } });
+      response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, command: outbound.command({ wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId }) as never });
     } catch (error) {
       log('error', 'Inbox outbound worker transport failed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, stage: 'worker_transport', ...errorDiagnostics(error) });
       throw error;
@@ -30,11 +53,11 @@ export class InternalInboxService {
     const sent = response.data as { sentMessage?: { id?: string; timestamp: string; pending?: boolean } };
     if (!sent.sentMessage) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Internal worker returned an invalid response');
     log('info', 'Inbox message send accepted', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id ?? null, pending: sent.sentMessage.pending === true });
-    if (!sent.sentMessage.id) return { id: `pending:${context.correlationId}`, direction: 'outbound', content: text, timestamp: sent.sentMessage.timestamp, status: 'sent', messageType: 'text', chatId: conversation.chatId, senderWhatsappId: conversation.chatId, metadata: { pending: true } };
+    if (!sent.sentMessage.id) return { id: `pending:${context.correlationId}`, direction: 'outbound', content: text, timestamp: sent.sentMessage.timestamp, status: 'sent', messageType: outbound.messageType, chatId: conversation.chatId, senderWhatsappId: conversation.chatId, metadata: { pending: true, ...(outbound.payload ?? {}) } };
     log('info', 'Inbox outbound persistence started', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id, chatId: conversation.chatId });
     let persisted;
     try {
-      persisted = await this.conversations.recordOutbound({ workspaceId: context.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId, externalMessageId: sent.sentMessage.id, text, occurredAt: sent.sentMessage.timestamp });
+      persisted = await this.conversations.recordOutbound({ workspaceId: context.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId, externalMessageId: sent.sentMessage.id, text, occurredAt: sent.sentMessage.timestamp, type: outbound.messageType, ...(outbound.payload ? { payload: outbound.payload } : {}) });
     } catch (error) {
       log('error', 'Inbox outbound persistence failed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id, chatId: conversation.chatId, ...errorDiagnostics(error) });
       throw error;
