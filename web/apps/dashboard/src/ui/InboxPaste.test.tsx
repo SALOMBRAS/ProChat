@@ -91,7 +91,6 @@ describe("colar no compositor", () => {
     expect(evento.defaultPrevented).toBe(true);
 
     await screen.findByText("image.png");
-    fireEvent.click(screen.getByLabelText("Fechar edição"));
     fireEvent.click(screen.getByLabelText("Enviar"));
     await waitFor(() => expect(client.sendAttachment).toHaveBeenCalled());
     const [enviadaEm, arquivo] = (client.sendAttachment as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -107,14 +106,16 @@ describe("colar no compositor", () => {
     await screen.findByText("do-campo.png");
   });
 
-  it("a imagem colada abre no editor de traço, como a do menu", async () => {
+  it("a imagem colada não abre o editor sozinha; fica a um ✎ de distância", async () => {
+    // Colar e enviar é o caso dominante. Abrir o editor punha um "Concluir" ou um
+    // "×" no meio dele — quem quer marcar clica no ✎, igual ao anexo do menu "+".
     const { composer } = await abrirConversa();
     colar(composer, transfer({ files: [print()] }));
+    await screen.findByText("image.png");
+    expect(screen.queryByRole("dialog", { name: "Editar imagem" })).toBeNull();
+
+    fireEvent.click(screen.getByLabelText("Editar image.png"));
     await screen.findByRole("dialog", { name: "Editar imagem" });
-    // E fechar o editor deixa o anexo pendente igual ao que o menu deixaria.
-    fireEvent.click(screen.getByLabelText("Fechar edição"));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Editar imagem" })).toBeNull());
-    expect(screen.getByLabelText("Editar image.png")).toBeTruthy();
   });
 
   it("colar texto puro continua colando texto", async () => {
@@ -197,7 +198,6 @@ describe("colar no compositor", () => {
     const { composer } = await abrirConversa(client);
     colar(composer, transfer({ files: [print("primeira.png")] }));
     await screen.findByText("primeira.png");
-    fireEvent.click(screen.getByLabelText("Fechar edição"));
     fireEvent.click(screen.getByLabelText("Enviar"));
     await waitFor(() => expect(client.sendAttachment).toHaveBeenCalled());
 
@@ -233,16 +233,17 @@ describe("arrastar sobre a conversa", () => {
     expect(conversa.className).not.toContain("dropping");
   });
 
-  it("soltar imagem anexa e abre o editor, igual a colar", async () => {
+  it("soltar imagem anexa e deixa o ✎ pronto, igual a colar", async () => {
     const { conversa } = await abrirConversa();
     dispatch(conversa, "dragenter", { dataTransfer: transfer({ files: [print("arrastada.png")] }) });
     soltar(conversa, transfer({ files: [print("arrastada.png")] }));
     await screen.findByText("arrastada.png");
-    await screen.findByRole("dialog", { name: "Editar imagem" });
+    expect(screen.queryByRole("dialog", { name: "Editar imagem" })).toBeNull();
+    expect(screen.getByLabelText("Editar arrastada.png")).toBeTruthy();
     await waitFor(() => expect(conversa.className).not.toContain("dropping"));
   });
 
-  it("soltar PDF anexa sem abrir o editor: documento não tem o que marcar", async () => {
+  it("soltar PDF anexa sem oferecer o editor: documento não tem o que marcar", async () => {
     const { client, conversa } = await abrirConversa();
     soltar(conversa, transfer({ files: [file("contrato.pdf", "application/pdf", PDF)] }));
     await screen.findByText("contrato.pdf");
