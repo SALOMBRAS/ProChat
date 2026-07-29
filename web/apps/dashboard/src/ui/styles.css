@@ -336,3 +336,14 @@
 .chat-inbox .composer-pending-edit { display: grid; place-items: center; width: 30px; height: 30px; padding: 0 !important; border: 1px solid #ffffff1b !important; border-radius: 10px !important; background: #ffffff0b !important; color: #d7c3e9 !important; font-size: 14px; line-height: 1; transition: color .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease; }
 .chat-inbox .composer-pending-edit:hover:not(:disabled), .chat-inbox .composer-pending-edit:focus-visible { border-color: #d8b4fe88 !important; background: #a855f744 !important; box-shadow: 0 0 14px #8b5cf644; color: #fff !important; outline: none; }
 @media (max-width: 760px) { .chat-inbox .composer-editor { width: 100%; padding: 9px; } .chat-inbox .composer-editor-canvas { max-height: 210px; } }
+
+/* Colar e arrastar. A moldura do arrasto cobre a conversa inteira porque o alvo é
+   a conversa, não um retângulo que o operador precise mirar. */
+.chat-inbox .inbox-history { position: relative; }
+.chat-inbox .inbox-history.dropping:after { content: ""; position: absolute; inset: 6px; z-index: 2; border: 2px dashed #d8b4fe88; border-radius: 14px; background: #8b5cf61a; pointer-events: none; }
+.chat-inbox .conversation-drop-hint { position: absolute; z-index: 3; inset: 0; display: grid; align-content: center; justify-items: center; gap: 4px; pointer-events: none; }
+.chat-inbox .conversation-drop-hint strong { padding: 9px 14px; border: 1px solid #a855f755; border-radius: 12px; background: linear-gradient(145deg, #201631, #12111e); box-shadow: 0 10px 24px #00000032; color: #f3eff8; font-size: 13px; }
+.chat-inbox .conversation-drop-hint span { color: #a697b4; font-size: 10px; }
+.chat-inbox .composer-intake-message { order: -4; width: min(430px, 100%); margin: 0; padding: 8px 10px; border: 1px solid #a855f755; border-radius: 12px; background: linear-gradient(145deg, #201631, #12111e); color: #e8dcea; font-size: 11px; line-height: 1.4; }
+.chat-inbox .composer-intake-message.failed { border-color: #fb718577; background: #311426; color: #ff9c9c; }
+@media (max-width: 760px) { .chat-inbox .composer-intake-message { width: 100%; } }
