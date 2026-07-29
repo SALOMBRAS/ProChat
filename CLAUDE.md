@@ -65,6 +65,26 @@ por `conversationId`.
 Em evolução: CRM avançado, dados de contato avançados, chamadas de voz/vídeo,
 automações avançadas e IA. Não simule integrações ainda inexistentes.
 
+## Navegador e conferência visual
+
+NÃO use a extensão do Claude no Chrome (ferramenta de navegador conectado).
+Ela está conectada a uma máquina diferente da que hospeda este repositório:
+abrir uma página por ela cria janelas no computador de outra pessoa.
+Diagnosticado na PR #62 — o `127.0.0.1` que a extensão alcança não é o
+desta máquina. Use apenas se o usuário pedir explicitamente, na sessão em
+curso.
+
+Consequências práticas:
+- Não suba o dev server com `--host 0.0.0.0` para ser alcançado de fora.
+- Não peça ao usuário para liberar `127.0.0.1` ou `localhost` na extensão.
+- Quando a mudança precisar de conferência visual, faça o que der por teste
+  e por leitura de CSS, declare explicitamente o que não foi verificado na
+  tela, e deixe a conferência para o usuário.
+
+Permitido: Chrome headless iniciado localmente (CDP, puppeteer) para medição
+e inspeção de DOM e estilo. Isso roda nesta máquina e não abre janela para
+ninguém — foi como a PR #21 mediu performance e como a #47 mediu contraste.
+
 ## Como desenvolver com segurança
 
 1. Audite os arquivos envolvidos e explique impacto antes de editar.
