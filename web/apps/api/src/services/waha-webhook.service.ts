@@ -134,7 +134,30 @@ export function historyRecord(workspaceId: string, wahaSession: string, payload:
  * payload lands in `payloadJson` — no column and no migration for coordinates.
  */
 function outboundRecord(input: { workspaceId: string; wahaSession: string; chatId: string; externalMessageId: string; text: string | null; occurredAt: string; type?: string; payload?: Record<string, unknown> }): StoredWebhook { return { workspaceId: input.workspaceId, wahaSession: input.wahaSession, externalEventId: `outbound:${input.externalMessageId}`, eventType: 'message.any', occurredAt: input.occurredAt, payload: { id: input.externalMessageId, chatId: input.chatId, body: input.text, type: input.type ?? 'text', fromMe: true, ...(input.payload ?? {}) }, receivedAt: new Date().toISOString() }; }
-function messageFrom(event: StoredWebhook, ownWhatsappNumbers: readonly string[] = []): StoredMessage | undefined { if (event.eventType !== 'message' && event.eventType !== 'message.any') return undefined; const value = event.payload; const id = text(value.id) ?? text(nested(value, 'key', 'id')); const direction = value.fromMe === true ? 'outbound' : 'inbound'; const lockedHistoryChatId = value._history === true ? text(value._historyChatId) : undefined; const receivedChatId = lockedHistoryChatId ?? chatIdFromPayload(value, direction); const media = record(value.media); const mime = text(media?.mimetype) ?? text(media?.mimeType); const wahaType = wahaMessageType(value); const messageType = mediaType(text(value.type), mime, value.hasMedia === true, wahaType); const identity = resolveConversationIdentity({ direction, chatId: receivedChatId, messageType: wahaType, ownWhatsappNumbers }); if (!id || !identity) { log('info', 'WAHA message discarded', { eventId: event.externalEventId, messageId: id ?? null, chatIdReceived: receivedChatId ?? null, chatIdNormalized: null, discardReason: !id ? 'missing_message_id' : !receivedChatId ? 'missing_chat_id' : isTechnicalMessageType(wahaType) ? 'technical_message_type' : 'invalid_or_technical_chat_id', wahaMessageType: wahaType ?? null, messageInserted: false, conversationId: null }); return undefined; } log('info', 'WAHA message normalized', { eventId: event.externalEventId, messageId: id, chatIdReceived: receivedChatId, chatIdNormalized: identity.conversationChatId, chatIdSource: chatIdSource(value, direction), discardReason: null }); return { ...event, externalMessageId: id, chatId: identity.conversationChatId, deliveryChatId: identity.deliveryChatId, conversationType: identity.conversationType, senderWhatsappId: identity.conversationType === 'group' ? text(value.participant) ?? text(nested(value, 'key', 'participant')) ?? null : identity.conversationChatId, direction, messageType, body: text(value.body) ?? text(value.text) ?? null, mediaUrl: safeUrl(text(media?.url) ?? text(value.mediaUrl)), mediaMimeType: mime ?? null, mediaFilename: text(media?.filename) ?? text(value.filename) ?? null, mediaSize: integer(media?.filesize) ?? integer(media?.size) ?? integer(value.mediaSize), thumbnailUrl: safeUrl(text(media?.thumbnailUrl) ?? text(value.thumbnailUrl)), duration: integer(media?.duration) ?? integer(value.duration), quotedMessageId: text(value.replyTo) ?? text(nested(value, 'quoted', 'id')) ?? null, historical: value._history === true }; }
+/** Cada coluna de mídia é lida da raiz primeiro e de `_data` depois — a mesma
+ *  ordem de `wahaMessageType`, pelo mesmo motivo: a WAHA/WEBJS deixa a raiz do
+ *  payload vazia no tráfego real, e `payload.media` só existe enquanto o arquivo
+ *  está baixável, trazendo apenas `url`, `filename` e `mimetype`. Tamanho e
+ *  duração nunca estiveram lá. Medido na base de produção (6.833 mensagens):
+ *
+ *  | coluna          | preenchida antes | no payload e perdida |
+ *  |-----------------|------------------|----------------------|
+ *  | `duration`      | 0                | 475 (`_data.duration`) |
+ *  | `mediaSize`     | só via download  | 2.350 (`_data.size`)   |
+ *  | `mediaFilename` | 18 documentos    | 59 (`_data.filename`)  |
+ *  | `mediaMimeType` | 1.080 de 2.350   | 1.256 (`_data.mimetype`) |
+ *
+ *  A extração é campo a campo, nunca em bloco. O `mime` que decide `messageType`
+ *  continua sendo só o da raiz, sem a retaguarda de `_data`: é o precedente da
+ *  #57: adotar o vocabulário cru inteiro reclassificaria a maior parte da base.
+ *  Simulado sobre os mesmos 6.833 payloads, este recorte reclassifica 0.
+ *
+ *  `thumbnailUrl` fica de fora porque não há de onde tirá-la: a WAHA não manda
+ *  URL de miniatura, e o que existe é a miniatura embutida em base64 no corpo —
+ *  `safeUrl` recusa, e uma imagem inteira não cabe numa coluna de URL.
+ *  `quotedMessageId` fica de fora por não ter leitor: o dashboard não usa a
+ *  coluna, e preencher o que ninguém lê só adicionaria risco. */
+function messageFrom(event: StoredWebhook, ownWhatsappNumbers: readonly string[] = []): StoredMessage | undefined { if (event.eventType !== 'message' && event.eventType !== 'message.any') return undefined; const value = event.payload; const id = text(value.id) ?? text(nested(value, 'key', 'id')); const direction = value.fromMe === true ? 'outbound' : 'inbound'; const lockedHistoryChatId = value._history === true ? text(value._historyChatId) : undefined; const receivedChatId = lockedHistoryChatId ?? chatIdFromPayload(value, direction); const media = record(value.media); const data = record(value._data); const mime = text(media?.mimetype) ?? text(media?.mimeType); const wahaType = wahaMessageType(value); const messageType = mediaType(text(value.type), mime, value.hasMedia === true, wahaType); const identity = resolveConversationIdentity({ direction, chatId: receivedChatId, messageType: wahaType, ownWhatsappNumbers }); if (!id || !identity) { log('info', 'WAHA message discarded', { eventId: event.externalEventId, messageId: id ?? null, chatIdReceived: receivedChatId ?? null, chatIdNormalized: null, discardReason: !id ? 'missing_message_id' : !receivedChatId ? 'missing_chat_id' : isTechnicalMessageType(wahaType) ? 'technical_message_type' : 'invalid_or_technical_chat_id', wahaMessageType: wahaType ?? null, messageInserted: false, conversationId: null }); return undefined; } log('info', 'WAHA message normalized', { eventId: event.externalEventId, messageId: id, chatIdReceived: receivedChatId, chatIdNormalized: identity.conversationChatId, chatIdSource: chatIdSource(value, direction), discardReason: null }); return { ...event, externalMessageId: id, chatId: identity.conversationChatId, deliveryChatId: identity.deliveryChatId, conversationType: identity.conversationType, senderWhatsappId: identity.conversationType === 'group' ? text(value.participant) ?? text(nested(value, 'key', 'participant')) ?? null : identity.conversationChatId, direction, messageType, body: text(value.body) ?? text(value.text) ?? null, mediaUrl: safeUrl(text(media?.url) ?? text(value.mediaUrl)), mediaMimeType: mime ?? text(data?.mimetype) ?? null, mediaFilename: text(media?.filename) ?? text(value.filename) ?? text(data?.filename) ?? null, mediaSize: integer(media?.filesize) ?? integer(media?.size) ?? integer(value.mediaSize) ?? integer(data?.size), thumbnailUrl: safeUrl(text(media?.thumbnailUrl) ?? text(value.thumbnailUrl)), duration: integer(media?.duration) ?? integer(value.duration) ?? integer(data?.duration), quotedMessageId: text(value.replyTo) ?? text(nested(value, 'quoted', 'id')) ?? null, historical: value._history === true }; }
 function chatIdFromPayload(value: Record<string, unknown>, direction: 'inbound' | 'outbound'): string | undefined {
   // A participant identifies the author of a group message, never its chat.
   // Prefer explicit chat fields. When WAHA only provides remoteJid alongside a
@@ -165,7 +188,18 @@ function timestampFrom(value: unknown, fallback: string): string { const numeric
 function nested(value: Record<string, unknown>, key: string, child: string): unknown { const parent = value[key]; return parent && typeof parent === 'object' ? (parent as Record<string, unknown>)[child] : undefined; }
 function text(value: unknown): string | undefined { return typeof value === 'string' && value.length > 0 ? value.slice(0, 20_000) : undefined; }
 function record(value: unknown): Record<string, unknown> | undefined { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined; }
-function integer(value: unknown): number | null { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null; }
+/** Aceita o inteiro como número e como texto de dígitos.
+ *
+ *  O `_data` da WAHA/WEBJS manda tamanho e duração já serializados —
+ *  `"size": "98301"`, `"duration": "19"` —, e a versão que só olhava
+ *  `typeof value === 'number'` devolvia `null` para os dois. Medido na base de
+ *  produção: 475 valores de duração e 2.350 de tamanho estavam no payload em
+ *  forma de texto e nenhum chegou às colunas.
+ *
+ *  `/^\d+$/` recusa de propósito sinal, ponto decimal, espaço e notação
+ *  científica: `Number(' ')` é 0 e `Number('1e3')` é 1000, e nenhuma das duas é
+ *  um tamanho de arquivo que a WAHA tenha mandado. */
+function integer(value: unknown): number | null { const numeric = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : Number.NaN; return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : null; }
 function safeUrl(value: string | undefined): string | null { if (!value) return null; try { const url = new URL(value); return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null; } catch { return null; } }
 function encodeCursor(at: string, id: string) { return Buffer.from(JSON.stringify({ at, id })).toString('base64url'); }
 function cursorValue(cursor?: string): { at: string; id: string } | undefined { if (!cursor) return undefined; try { const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')); return typeof value.at === 'string' && typeof value.id === 'string' && !Number.isNaN(Date.parse(value.at)) && value.id ? value : undefined; } catch { return undefined; } }

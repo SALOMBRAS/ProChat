@@ -7,3 +7,8 @@ erros de stream ou Promises em segundo plano encerrarem o processo.
 
 O player de áudio tem controles de play/pausa, seek, duração e 1x/1.5x/2x;
 iniciar outro áudio pausa o anterior.
+
+Tamanho, nome, duração e mime das colunas dedicadas são preenchidos na ingestão,
+não pelo download: quem quiser mexer nisso leia antes
+`docs/midia-colunas-dedicadas.md` — inclusive o backfill proposto e a decisão
+sobre a forma de onda.
