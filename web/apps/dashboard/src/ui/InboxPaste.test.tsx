@@ -106,15 +106,16 @@ describe("colar no compositor", () => {
     await screen.findByText("do-campo.png");
   });
 
-  it("a imagem colada não abre o editor sozinha; fica a um ✎ de distância", async () => {
-    // Colar e enviar é o caso dominante. Abrir o editor punha um "Concluir" ou um
-    // "×" no meio dele — quem quer marcar clica no ✎, igual ao anexo do menu "+".
+  it("a imagem colada abre a tela de composição, e o traço fica na barra dela", async () => {
+    // Colar e enviar é o caso dominante: a tela abre, o editor não. Quem quer
+    // marcar clica em Editar na barra, igual à imagem vinda do menu "+".
     const { composer } = await abrirConversa();
     colar(composer, transfer({ files: [print()] }));
+    await screen.findByRole("region", { name: "Compor anexo" });
     await screen.findByText("image.png");
     expect(screen.queryByRole("dialog", { name: "Editar imagem" })).toBeNull();
 
-    fireEvent.click(screen.getByLabelText("Editar image.png"));
+    fireEvent.click(screen.getByLabelText("Editar com a caneta"));
     await screen.findByRole("dialog", { name: "Editar imagem" });
   });
 
@@ -191,20 +192,19 @@ describe("colar no compositor", () => {
     await screen.findByText("safari.png");
   });
 
-  it("colar durante o envio não troca o anexo debaixo do envio em curso", async () => {
-    let liberar: (value: unknown) => void = () => {};
-    const client = api();
-    (client.sendAttachment as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise((resolve) => { liberar = resolve; }));
-    const { composer } = await abrirConversa(client);
+  it("com a tela aberta, um segundo arquivo não entra por cima do primeiro", async () => {
+    const { conversa, composer } = await abrirConversa();
     colar(composer, transfer({ files: [print("primeira.png")] }));
+    await screen.findByRole("region", { name: "Compor anexo" });
     await screen.findByText("primeira.png");
-    fireEvent.click(screen.getByLabelText("Enviar"));
-    await waitFor(() => expect(client.sendAttachment).toHaveBeenCalled());
 
-    const evento = colar(composer, transfer({ files: [print("segunda.png")] }));
-    expect(evento.defaultPrevented).toBe(false);
-    expect(screen.queryByText("segunda.png")).toBeNull();
-    liberar({ id: "job-1", status: "pending" });
+    // É um anexo por vez: soltar outro sobre a tela não pode trocar a mídia nem a
+    // legenda que já estão ali. O `dragover` nem chega a pedir o drop.
+    const arrastando = dispatch(conversa, "dragover", { dataTransfer: transfer({ files: [print("segunda.png")] }) });
+    expect(arrastando.defaultPrevented).toBe(false);
+    soltar(conversa, transfer({ files: [print("segunda.png")] }));
+    await waitFor(() => expect(screen.queryByText("segunda.png")).toBeNull());
+    expect(screen.getByText("primeira.png")).toBeTruthy();
   });
 });
 
@@ -233,13 +233,14 @@ describe("arrastar sobre a conversa", () => {
     expect(conversa.className).not.toContain("dropping");
   });
 
-  it("soltar imagem anexa e deixa o ✎ pronto, igual a colar", async () => {
+  it("soltar imagem cai na mesma tela de composição que colar", async () => {
     const { conversa } = await abrirConversa();
     dispatch(conversa, "dragenter", { dataTransfer: transfer({ files: [print("arrastada.png")] }) });
     soltar(conversa, transfer({ files: [print("arrastada.png")] }));
+    await screen.findByRole("region", { name: "Compor anexo" });
     await screen.findByText("arrastada.png");
     expect(screen.queryByRole("dialog", { name: "Editar imagem" })).toBeNull();
-    expect(screen.getByLabelText("Editar arrastada.png")).toBeTruthy();
+    expect(screen.getByLabelText("Editar com a caneta")).toBeTruthy();
     await waitFor(() => expect(conversa.className).not.toContain("dropping"));
   });
 
