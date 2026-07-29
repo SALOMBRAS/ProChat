@@ -347,3 +347,109 @@
 .chat-inbox .composer-intake-message { order: -4; width: min(430px, 100%); margin: 0; padding: 8px 10px; border: 1px solid #a855f755; border-radius: 12px; background: linear-gradient(145deg, #201631, #12111e); color: #e8dcea; font-size: 11px; line-height: 1.4; }
 .chat-inbox .composer-intake-message.failed { border-color: #fb718577; background: #311426; color: #ff9c9c; }
 @media (max-width: 760px) { .chat-inbox .composer-intake-message { width: 100%; } }
+
+/* Tela de composição de anexo. Toma o lugar da lista de mensagens quando há
+   imagem ou vídeo pendente: o cabeçalho da conversa fica, para não se perder de
+   vista para quem se está mandando.
+   Escala da #47: nome do arquivo 15/600, tamanho e legenda 13, referência 11. */
+.chat-inbox .attachment-stage { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; background: #0b0b16; }
+.chat-inbox .attachment-stage-bar { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-bottom: 1px solid #ffffff12; background: linear-gradient(180deg, #151426, #0d0d18); }
+.chat-inbox .attachment-stage-file { display: grid; min-width: 0; gap: 2px; }
+.chat-inbox .attachment-stage-file strong { overflow: hidden; color: #f2ecf7; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.chat-inbox .attachment-stage-file span { color: #9b96a6; font-size: 13px; }
+.chat-inbox .attachment-stage-tools { display: flex; align-items: center; gap: 7px; }
+.chat-inbox .attachment-stage-tools button { display: flex; align-items: center; gap: 7px; padding: 8px 12px !important; border: 1px solid #ffffff22 !important; border-radius: 10px !important; background: #ffffff0b !important; color: #e8dcea !important; font-size: 13px !important; font-weight: 700; transition: color .16s ease, border-color .16s ease, background .16s ease; }
+.chat-inbox .attachment-stage-tools button span { font-size: 15px; }
+.chat-inbox .attachment-stage-tools button:hover:not(:disabled) { border-color: #d8b4fe88 !important; background: #a855f744 !important; color: #fff !important; }
+.chat-inbox .attachment-stage-tools button:disabled { opacity: .48; }
+.chat-inbox .attachment-stage-tools .attachment-stage-close:hover:not(:disabled) { border-color: #f0abfc88 !important; background: #ec48992b !important; }
+/* `minmax(0, 1fr)` nas duas direções é o que dá área definida à célula. Sem isso a
+   linha é dimensionada pelo conteúdo, o `max-height: 100%` da mídia não tem contra
+   o que resolver, e uma foto alta estoura a área com barra de rolagem. */
+.chat-inbox .attachment-stage-preview { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); place-items: center; padding: 18px; overflow: hidden; }
+.chat-inbox .attachment-stage-media { max-width: 100%; max-height: 100%; border-radius: 14px; background: #090910; object-fit: contain; }
+.chat-inbox .attachment-stage-empty { margin: 0; color: #9b96a6; font-size: 13px; }
+.chat-inbox .attachment-stage-confirm { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 11px 18px; border-top: 1px solid #a855f755; background: linear-gradient(145deg, #201631, #12111e); }
+.chat-inbox .attachment-stage-confirm p { flex: 1 1 220px; margin: 0; color: #f3eff8; font-size: 13px; }
+.chat-inbox .attachment-stage-confirm button { padding: 7px 11px !important; border: 1px solid #ffffff22 !important; border-radius: 9px !important; background: #ffffff0b !important; color: #e8dcea !important; font-size: 11px !important; font-weight: 700; }
+.chat-inbox .attachment-stage-confirm .attachment-stage-discard { border-color: #fb718577 !important; background: #311426 !important; color: #ffabb5 !important; }
+.chat-inbox .attachment-stage-composer { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; padding: 14px 18px; border-top: 1px solid #ffffff12; background: linear-gradient(180deg, #151426, #0d0d18); }
+.chat-inbox .attachment-stage-composer textarea { flex: 1 1 auto; min-width: 0; height: 48px; padding: 13px 17px; border: 1px solid #c084fc4d; border-radius: 17px; background: linear-gradient(145deg, #0b0b14, #11101c); box-shadow: 0 8px 22px #00000034 inset; color: #f0eaf5; font-size: 13px; line-height: 1.5; resize: none; }
+.chat-inbox .attachment-stage-composer textarea:focus { border-color: #d8b4fe88; box-shadow: 0 8px 22px #00000034 inset, 0 0 0 3px #8b5cf61c; }
+.chat-inbox .attachment-stage-status { color: #cbb3ff; font-size: 11px; white-space: nowrap; }
+/* O editor de traço entra no lugar do preview e já traz a própria moldura. */
+.chat-inbox .attachment-stage-preview .composer-editor { order: 0; width: min(720px, 100%); }
+/* O painel foi desenhado para a faixa estreita do compositor; aqui há a área da
+   conversa inteira, e deixá-lo com 260px de canvas desperdiçaria o espaço que
+   justifica esta tela. */
+.chat-inbox .attachment-stage-preview .composer-editor-canvas { max-height: min(46vh, 430px); }
+@media (max-width: 760px) {
+  .chat-inbox .attachment-stage-bar, .chat-inbox .attachment-stage-composer, .chat-inbox .attachment-stage-confirm { padding-left: 12px; padding-right: 12px; }
+  .chat-inbox .attachment-stage-tools button b { display: none; }
+  .chat-inbox .attachment-stage-tools button { padding: 8px 10px !important; }
+  .chat-inbox .attachment-stage-preview { padding: 12px; }
+}
+/* O recado de colar/arrastar vem do compositor, onde era o primeiro item de um
+   flex; aqui é bloco no fluxo da tela. */
+.chat-inbox .attachment-stage .composer-intake-message { order: 0; width: auto; margin: 12px 18px 0; }
+@media (max-width: 760px) { .chat-inbox .attachment-stage .composer-intake-message { margin: 10px 12px 0; } }
+
+/* Cartões de mídia na conversa. Escala da #47: nome 15/600, contexto 13,
+   referência 11. */
+
+/* Nota de voz: as 64 barras são as amplitudes que o WhatsApp mandou. A parte já
+   ouvida muda de cor, então o desenho é progresso e forma ao mesmo tempo. */
+.chat-inbox .voice-note { display: flex; align-items: center; gap: 11px; width: min(390px, 100%); padding: 10px 12px; border: 1px solid #c084fc66; border-radius: 17px; background: linear-gradient(135deg, #24173a, #100e19 72%); box-shadow: 0 11px 26px #00000042, 0 0 20px #8b5cf61f; }
+.chat-inbox .voice-note-play { display: grid; place-items: center; flex: 0 0 42px; width: 42px; height: 42px; padding: 0 !important; border: 1px solid #f3e8ff99 !important; border-radius: 50% !important; background: radial-gradient(circle at 32% 25%, #f3e8ff, #c084fc 49%, #7c3aed) !important; box-shadow: 0 7px 18px #7c3aed66; color: #1c092c !important; font-size: 17px; }
+.chat-inbox .voice-note-play:hover { transform: scale(1.07); filter: brightness(1.1); }
+.chat-inbox .voice-note-track { position: relative; flex: 1 1 auto; min-width: 0; height: 30px; display: flex; align-items: center; }
+.chat-inbox .voice-note-wave { display: flex; align-items: center; gap: 1px; width: 100%; height: 26px; }
+.chat-inbox .voice-note-wave i { flex: 1 1 0; min-width: 1px; border-radius: 999px; background: #8b5cf655; }
+.chat-inbox .voice-note-wave i.played { background: #d8b4fe; }
+.chat-inbox .voice-note-wave.flat { height: 5px; border-radius: 999px; background: #8b5cf655; }
+.chat-inbox .voice-note-wave.flat i { height: 100%; flex: 0 0 auto; background: #d8b4fe; }
+/* O range fica por cima para arrastar e para o leitor de tela, invisível porque
+   quem desenha o progresso são as barras. */
+.chat-inbox .voice-note-seek { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; background: transparent; opacity: 0; cursor: pointer; }
+.chat-inbox .voice-note-time { color: #e5d9ec; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chat-inbox .voice-note-speed { min-width: 34px; padding: 5px 7px !important; border: 1px solid #c084fc77 !important; border-radius: 9px !important; background: #8b5cf633 !important; color: #f4ebff !important; font-size: 11px !important; font-weight: 700; }
+
+/* Arquivo de áudio: faixa. Nome em destaque, duração e tamanho abaixo, e nenhum
+   controle de velocidade — quem manda música não ouve em 2x. */
+.chat-inbox .audio-track { display: grid; grid-template-columns: 42px 20px minmax(0, 1fr) auto; align-items: center; gap: 11px; width: min(390px, 100%); padding: 10px 12px; border: 1px solid #a855f755; border-radius: 15px; background: linear-gradient(145deg, #1d1530, #100f19); box-shadow: 0 9px 22px #00000033, 0 0 18px #8b5cf61a; }
+.chat-inbox .audio-track-play { display: grid; place-items: center; width: 42px; height: 42px; padding: 0 !important; border: 1px solid #f3e8ff99 !important; border-radius: 50% !important; background: radial-gradient(circle at 32% 25%, #f3e8ff, #c084fc 49%, #7c3aed) !important; box-shadow: 0 7px 18px #7c3aed66; color: #1c092c !important; font-size: 17px; }
+.chat-inbox .audio-track-mark { display: grid; place-items: center; color: #e9d5ff; font-size: 21px; }
+.chat-inbox .audio-track-copy { display: grid; min-width: 0; gap: 4px; }
+.chat-inbox .audio-track-copy strong { overflow: hidden; color: #f6f0fa; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.chat-inbox .audio-track-copy > span { color: #c7bad2; font-size: 13px; font-variant-numeric: tabular-nums; }
+.chat-inbox .audio-track-copy input { width: 100%; min-width: 0; height: 5px; padding: 0; border: 0; border-radius: 999px; background: transparent; accent-color: #d8b4fe; }
+.chat-inbox .audio-track-download { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; color: #d7c3e9; font-size: 15px; }
+.chat-inbox .audio-track-download:hover { background: #ffffff0b; color: #fff; }
+
+/* Cartão de contato: nome e telefone legíveis, e a ação de CRM ao lado. */
+.chat-inbox .message-contact-card { display: grid; gap: 8px; width: min(360px, 100%); margin: 0; padding: 0; list-style: none; }
+.chat-inbox .message-contact-card li { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 10px; border: 1px solid #c084fc55; border-radius: 15px; background: linear-gradient(135deg, #241a35, #11101a); }
+.chat-inbox .message-contact-avatar { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #d8b4fe77; border-radius: 50%; background: linear-gradient(145deg, #a855f755, #7c3aed2b); color: #f1e5ff; font-size: 13px; font-weight: 800; }
+.chat-inbox .message-contact-copy { display: grid; min-width: 0; gap: 2px; }
+.chat-inbox .message-contact-copy strong { overflow: hidden; color: #f6f0fa; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.chat-inbox .message-contact-copy > span { color: #c7bad2; font-size: 13px; font-variant-numeric: tabular-nums; }
+.chat-inbox .message-contact-copy small { color: #9b96a6; font-size: 11px; }
+.chat-inbox .message-contact-actions { display: flex; align-items: center; gap: 6px; }
+.chat-inbox .message-contact-actions a { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #ffffff1b; border-radius: 10px; color: #d7c3e9; font-size: 15px; }
+.chat-inbox .message-contact-actions a:hover { border-color: #d8b4fe88; background: #a855f744; color: #fff; }
+.chat-inbox .message-contact-actions button { padding: 7px 10px !important; border: 1px solid #d8b4fe88 !important; border-radius: 10px !important; background: #a855f744 !important; color: #fff !important; font-size: 11px !important; font-weight: 700; }
+.chat-inbox .message-contact-actions button:disabled { opacity: .58; }
+.chat-inbox .message-contact-hint { grid-column: 1 / -1; color: #a697b4; font-size: 11px; }
+.chat-inbox .message-contact-hint.failed { color: #ff9c9c; }
+
+/* Etiqueta do documento por tipo. A cor não é a informação — o rótulo é —, mas
+   distinguir de relance poupa a leitura. */
+.chat-inbox .message-document-icon.tone-pdf { border-color: #fb718577; background: linear-gradient(145deg, #fb718555, #311426); color: #ffd1d6; }
+.chat-inbox .message-document-icon.tone-xls { border-color: #8be2a6; background: linear-gradient(145deg, #25d36622, #11101a); color: #8be2a6; }
+.chat-inbox .message-document-icon.tone-doc { border-color: #8ac7ff; background: linear-gradient(145deg, #8b5cf622, #11101a); color: #8ac7ff; }
+.chat-inbox .message-document-icon.tone-ppt { border-color: #ffb162; background: linear-gradient(145deg, #fbbf2422, #11101a); color: #f9da82; }
+.chat-inbox .message-document-icon.tone-img, .chat-inbox .message-document-icon.tone-vid, .chat-inbox .message-document-icon.tone-aud { border-color: #c084fc77; color: #e3ccff; }
+@media (max-width: 760px) {
+  .chat-inbox .voice-note, .chat-inbox .audio-track, .chat-inbox .message-contact-card { width: 100%; }
+  .chat-inbox .voice-note-speed { min-width: 30px; }
+}
