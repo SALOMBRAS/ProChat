@@ -36,6 +36,23 @@ describe('session API transport integration', () => {
   afterEach(async () => { await new Promise<void>(resolve => server.close(() => resolve())); });
   const headers = { 'x-workspace-id': 'workspace-a', 'x-user-id': 'user-a' };
 
+  /** The attachment route is multipart, so `voiceNote` arrives as the STRING
+   *  "false", not the boolean. A plain `z.boolean()` would reject it and the
+   *  operator's music file would silently keep leaving as a voice note.
+   *
+   *  The two outcomes below are what separate "parsed" from "rejected" without
+   *  needing storage: a well-formed request gets past the body schema and dies at
+   *  the conversation lookup (404), while a malformed one never gets that far
+   *  (400). Storage is deliberately not involved — on SQLite it is unavailable. */
+  const conversationId = '00000000-0000-4000-8000-0000000000ff';
+  const postAudio = (value: string) => request(app).post(`/api/v1/inbox/conversations/${conversationId}/attachments`).set(headers).field('clientRequestId', '00000000-0000-4000-8000-0000000000aa').field('voiceNote', value).attach('file', Buffer.from('ID3\u0003\u0000\u0000\u0000'), { filename: 'musica.mp3', contentType: 'audio/mpeg' });
+
+  it('accepts the multipart string form of voiceNote and rejects a value that is neither', async () => {
+    await postAudio('false').expect(404);
+    await postAudio('true').expect(404);
+    await postAudio('sim').expect(400).expect(response => expect(response.body.error).toMatchObject({ code: 'VALIDATION_ERROR' }));
+  });
+
   it('activates the session lifecycle through the controlled loopback worker', async () => {
     const created = await request(app).post('/api/v1/sessions').set(headers).send({ name: 'Primary' }).expect(201);
     const id = created.body.id;

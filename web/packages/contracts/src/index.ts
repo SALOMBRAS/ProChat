@@ -120,7 +120,20 @@ export const attachmentTypeSchema = z.enum(['image', 'audio', 'video', 'document
 export const outboxStatusSchema = z.enum(['pending', 'processing', 'sent', 'confirmed', 'failed', 'cancelled']);
 export const inboxOutboxJobSchema = z.object({ id: z.string().uuid(), workspaceId: safeIdentifierSchema, conversationId: z.string().uuid(), wahaSession: z.string().min(1), clientRequestId: z.string().uuid(), type: attachmentTypeSchema, storageObjectPath: z.string().min(1).nullable(), filename: z.string().min(1).nullable(), mimeType: z.string().min(1).nullable(), sizeBytes: z.number().int().nonnegative().nullable(), caption: z.string().max(4_096).nullable(), status: outboxStatusSchema, attemptCount: z.number().int().nonnegative(), externalMessageId: z.string().nullable(), providerAcceptedAt: z.string().datetime().nullable(), lastErrorSafe: z.string().nullable(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
 export type InboxOutboxJob = z.infer<typeof inboxOutboxJobSchema>;
-export const internalSendAttachmentCommandSchema = z.object({ type: z.literal('message.sendAttachment'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), chatId: z.string().trim().min(1).max(200), type: attachmentTypeSchema, url: z.string().url().max(4_096), filename: z.string().trim().min(1).max(255), mimeType: z.string().trim().min(1).max(128), caption: z.string().max(4_096).optional() }) });
+/**
+ * `voiceNote` is the operator's intent, not a property of the file. WhatsApp
+ * shows a recorded note (PTT) with a waveform and a music file as a track, and
+ * the two are different endpoints on the provider — but both carry `audio/mpeg`
+ * just as well, so the mimetype cannot decide it. Until now nothing did: every
+ * `audio` went out as a note.
+ *
+ * It is optional, and absent means a voice note, because that is what the
+ * composer's recorder has always produced. A caller that says nothing keeps the
+ * behaviour it had; only an explicit `false` asks for a file. That is also why
+ * this is a flag and not a fifth `attachmentTypeSchema` member: the kind is
+ * still audio, and the enum is mirrored by a CHECK constraint in both databases.
+ */
+export const internalSendAttachmentCommandSchema = z.object({ type: z.literal('message.sendAttachment'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), chatId: z.string().trim().min(1).max(200), type: attachmentTypeSchema, url: z.string().url().max(4_096), filename: z.string().trim().min(1).max(255), mimeType: z.string().trim().min(1).max(128), caption: z.string().max(4_096).optional(), voiceNote: z.boolean().optional() }) });
 const whatsappIdentitySnapshotSchema = z.object({ whatsappId: z.string().min(1).max(200), canonicalWhatsappId: z.string().min(1).max(200), phone: z.string().min(1).max(32).nullable(), name: z.string().min(1).max(240).nullable(), pushName: z.string().min(1).max(240).nullable(), shortName: z.string().min(1).max(240).nullable(), profilePictureUrl: z.string().url().max(2_048).nullable() });
 const whatsappGroupSnapshotSchema = z.object({ chatId: z.string().min(1).max(200), name: z.string().min(1).max(240).nullable(), pictureUrl: z.string().url().max(2_048).nullable(), metadata: z.record(z.unknown()), participants: z.array(z.object({ whatsappId: z.string().min(1).max(200), role: z.string().min(1).max(64).nullable() })).max(2_000) });
 /**

@@ -3,7 +3,7 @@ import { remainingBudgetMs } from './request-deadline.js';
 
 export type WahaSession = { name: string; status: string };
 export type WahaSentMessage = { id?: string; pending: boolean };
-export type WahaAttachment = { type: 'image' | 'audio' | 'video' | 'document'; url: string; filename: string; mimeType: string; caption?: string };
+export type WahaAttachment = { type: 'image' | 'audio' | 'video' | 'document'; url: string; filename: string; mimeType: string; caption?: string; voiceNote?: boolean };
 export type WahaIdentity = { whatsappId: string; canonicalWhatsappId: string; phone: string | null; name: string | null; pushName: string | null; shortName: string | null; profilePictureUrl: string | null };
 export type WahaGroup = { chatId: string; name: string | null; pictureUrl: string | null; metadata: Record<string, unknown>; participants: Array<{ whatsappId: string; role: string | null }> };
 export type WahaHistoryPage = { items: Record<string, unknown>[]; hasMore: boolean; unsupported: string[] };
@@ -86,10 +86,18 @@ export class WahaHttpClient implements WahaClientPort {
   async sendAttachment(session: string, chatId: string, attachment: WahaAttachment): Promise<WahaSentMessage> {
     // Keep the object private and delegate retrieval to WAHA through its short
     // lived signed URL. Endpoint choice controls the WhatsApp media kind.
-    const path = attachment.type === 'image' ? '/api/sendImage' : attachment.type === 'audio' ? '/api/sendVoice' : attachment.type === 'video' ? '/api/sendVideo' : '/api/sendFile';
-    const response = await this.requestResponse(path, 'POST', { session, chatId, file: { url: attachment.url, mimetype: attachment.mimeType, filename: attachment.filename }, ...(attachment.caption ? { caption: attachment.caption } : {}), ...(attachment.type === 'audio' ? { convert: true } : {}), ...(attachment.type === 'video' ? { convert: attachment.mimeType !== 'video/mp4', asNote: false } : {}) });
+    //
+    // Audio is the one kind where the endpoint is not a function of the kind.
+    // `/api/sendVoice` produces a recorded note (PTT, waveform) and `/api/sendFile`
+    // produces a track; probing the instance found no third route — `sendAudio`
+    // and `sendPtt` answer 404 while both of these answer 422. So a music file
+    // rides the same endpoint a document does, and `convert` — which transcodes
+    // to the OPUS a note requires — must not be sent with it.
+    const voiceNote = attachment.type === 'audio' && attachment.voiceNote !== false;
+    const path = attachment.type === 'image' ? '/api/sendImage' : voiceNote ? '/api/sendVoice' : attachment.type === 'video' ? '/api/sendVideo' : '/api/sendFile';
+    const response = await this.requestResponse(path, 'POST', { session, chatId, file: { url: attachment.url, mimetype: attachment.mimeType, filename: attachment.filename }, ...(attachment.caption ? { caption: attachment.caption } : {}), ...(voiceNote ? { convert: true } : {}), ...(attachment.type === 'video' ? { convert: attachment.mimeType !== 'video/mp4', asNote: false } : {}) });
     const id = messageId(response.data);
-    log('info', 'WAHA attachment accepted', { providerStatus: response.status, endpoint: path, mediaType: attachment.type, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
+    log('info', 'WAHA attachment accepted', { providerStatus: response.status, endpoint: path, mediaType: attachment.type, voiceNote, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
     return id ? { id, pending: false } : { pending: true };
   }
   async sendLocation(session: string, chatId: string, location: { latitude: number; longitude: number; title?: string }): Promise<WahaSentMessage> {

@@ -158,7 +158,12 @@ const Avatar = ({
   </span>
 );
 let activeAudio: HTMLAudioElement | undefined;
+// A recorded note and a music file are the same audio element and differ only
+// in what they are: `ptt` is the note, anything else that reaches here is a file.
+// Minimal on purpose — the label and the filename are what prove the distinction
+// survived the round trip; the waveform-versus-track treatment is not this step.
 const AudioMessage = ({ url, message }: { url: string; message: InboxMessage }) => {
+  const voice = message.messageType === "ptt";
   const audio = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -168,7 +173,7 @@ const AudioMessage = ({ url, message }: { url: string; message: InboxMessage }) 
   const format = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
   const toggle = async () => { const node = audio.current; if (!node) return; if (node.paused) { if (activeAudio && activeAudio !== node) activeAudio.pause(); activeAudio = node; try { await node.play(); } catch { setUnavailable(true); } } else node.pause(); };
   const changeSpeed = () => { const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1; setSpeed(next); if (audio.current) audio.current.playbackRate = next; };
-  return <div className="audio-player" aria-label="Mensagem de áudio"><audio ref={audio} preload="metadata" onLoadedMetadata={() => setDuration(audio.current?.duration || message.duration || 0)} onTimeUpdate={() => setCurrent(audio.current?.currentTime || 0)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCurrent(0); }} onError={() => setUnavailable(true)}><source src={url} type={message.mediaMimeType ?? undefined} /></audio>{unavailable ? <span className="media-error" role="status">Áudio indisponível.</span> : <><button type="button" className="audio-play" onClick={() => void toggle()} aria-label={playing ? "Pausar áudio" : "Reproduzir áudio"}>{playing ? "Ⅱ" : "▶"}</button><span className="audio-mark" aria-hidden="true">♬</span><input aria-label="Progresso do áudio" type="range" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(current, duration || 0)} onChange={event => { const value = Number(event.target.value); if (audio.current) audio.current.currentTime = value; setCurrent(value); }} /><time>{format(current)} / {format(duration)}</time><button type="button" className="audio-speed" onClick={changeSpeed} aria-label={`Velocidade ${speed}x`}>{speed}x</button></>}</div>;
+  return <div className="audio-player" aria-label={voice ? "Mensagem de voz" : "Arquivo de áudio"}><audio ref={audio} preload="metadata" onLoadedMetadata={() => setDuration(audio.current?.duration || message.duration || 0)} onTimeUpdate={() => setCurrent(audio.current?.currentTime || 0)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCurrent(0); }} onError={() => setUnavailable(true)}><source src={url} type={message.mediaMimeType ?? undefined} /></audio>{unavailable ? <span className="media-error" role="status">Áudio indisponível.</span> : <><button type="button" className="audio-play" onClick={() => void toggle()} aria-label={playing ? "Pausar áudio" : "Reproduzir áudio"}>{playing ? "Ⅱ" : "▶"}</button><span className="audio-mark" aria-hidden="true">{voice ? "♬" : "▤"}</span>{!voice && message.mediaFilename ? <small title={message.mediaFilename}>{message.mediaFilename}</small> : null}<input aria-label="Progresso do áudio" type="range" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(current, duration || 0)} onChange={event => { const value = Number(event.target.value); if (audio.current) audio.current.currentTime = value; setCurrent(value); }} /><time>{format(current)} / {format(duration)}</time><button type="button" className="audio-speed" onClick={changeSpeed} aria-label={`Velocidade ${speed}x`}>{speed}x</button></>}</div>;
 };
 const documentIcon = (filename?: string | null, mimeType?: string | null) => {
   const extension = filename?.split(".").pop()?.toLowerCase();
@@ -263,6 +268,7 @@ const Media = ({ message, api }: { message: InboxMessage; api: InboxApi }) => {
     );
   if (
     message.messageType === "audio" ||
+    message.messageType === "ptt" ||
     message.mediaMimeType?.startsWith("audio/")
   )
     return <AudioMessage url={url} message={message} />;

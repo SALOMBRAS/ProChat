@@ -12,6 +12,32 @@ describe('internal worker transport server', () => {
   it('returns the controlled response without starting WhatsApp', async () => { const body = await send(await start(), request); expect(body).toMatchObject({ success: true, correlationId: 'corr-a', workspaceId: 'workspace-a', data: { message: 'hello' } }); });
   it('returns worker errors as typed responses', async () => { const body = await send(await start(), { ...request, command: { type: 'transport.ping', payload: { message: 'hello', fail: true } } }); expect(body).toMatchObject({ success: false, error: { code: 'SERVICE_UNAVAILABLE' } }); });
   it('sends only one response when a handler finishes after the request is closed', async () => { const url = await start(async input => ({ success: true, correlationId: input.correlationId, workspaceId: input.workspaceId, data: { message: 'once' } })); const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request) }); expect(await response.text()).toContain('once'); });
+  /** The operator's intent is worthless if it stops at the transport. These pin
+   *  that `voiceNote` survives the hop into the worker command, and — the half
+   *  that actually breaks silently — that its ABSENCE stays an absence rather
+   *  than becoming `false`, which would turn every recorded note into a file. */
+  const attachmentCommand = (payload: Record<string, unknown>) => ({ correlationId: 'corr-a', workspaceId: 'workspace-a', timeoutMs: 500, command: { type: 'message.sendAttachment', payload: { wahaSession: 'waha-a', chatId: '5511999999999@c.us', type: 'audio', url: 'https://storage.test/signed', filename: 'musica.mp3', mimeType: 'audio/mpeg', ...payload } } });
+  const captureAttachment = () => { const seen: Record<string, unknown>[] = []; return { seen, worker: { execute: async (_context: unknown, command: { attachment: Record<string, unknown> }) => { seen.push(command.attachment); return { id: 'waha-audio-a', timestamp: new Date().toISOString() }; } } }; };
+
+  it('carries the music-file intent into the worker command', async () => {
+    const { seen, worker } = captureAttachment();
+    await send(await start(createWorkerTransportHandler(worker as never)), attachmentCommand({ voiceNote: false }));
+    expect(seen[0]).toMatchObject({ type: 'audio', voiceNote: false });
+  });
+
+  it('leaves the intent absent when the caller states none', async () => {
+    const { seen, worker } = captureAttachment();
+    await send(await start(createWorkerTransportHandler(worker as never)), attachmentCommand({}));
+    expect(seen[0]).not.toHaveProperty('voiceNote');
+  });
+
+  it('rejects an intent that is not a boolean instead of coercing it', async () => {
+    const { seen, worker } = captureAttachment();
+    const body = await send(await start(createWorkerTransportHandler(worker as never)), attachmentCommand({ voiceNote: 'false' }));
+    expect(body).toMatchObject({ success: false, error: { code: 'VALIDATION_ERROR' } });
+    expect(seen).toHaveLength(0);
+  });
+
   it('closes gracefully and stops accepting commands', async () => { const runtime = await listenInternalTransport({ host: '127.0.0.1', port: 0 }); const address = runtime.server.address(); if (!address || typeof address === 'string') throw new Error('missing address'); await runtime.close(); await expect(fetch(`http://127.0.0.1:${address.port}/internal/transport`)).rejects.toThrow(); });
 
   it('keeps an operation that needs several provider calls inside the announced budget, and names the budget as the cause', async () => {
