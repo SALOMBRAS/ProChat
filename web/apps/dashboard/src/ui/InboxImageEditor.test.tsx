@@ -118,7 +118,9 @@ const escolherArquivo = (file: File) => {
 };
 const abrirEditor = async (file: File) => {
   escolherArquivo(file);
-  fireEvent.click(await screen.findByLabelText(`Editar ${file.name}`));
+  // Escolher a imagem abre a tela de composição; o traço sai da barra dela, não
+  // mais de um ✎ no cartão do compositor.
+  fireEvent.click(await screen.findByLabelText("Editar com a caneta"));
   await screen.findByRole("dialog", { name: "Editar imagem" });
   const canvas = screen.getByLabelText("Área de marcação da imagem") as HTMLCanvasElement;
   // A imagem carrega num microtask; sem esperar, o canvas ainda não tem tamanho e
@@ -227,7 +229,7 @@ describe("editor de imagem no composer", () => {
 
     // Reabrir mostra o traço de volta — mas a base ainda é o arquivo escolhido, de
     // modo que confirmar de novo recodifica uma vez só, sem empilhar perda.
-    fireEvent.click(screen.getByLabelText("Editar foto-editada.jpg"));
+    fireEvent.click(screen.getByLabelText("Editar com a caneta"));
     await screen.findByRole("dialog", { name: "Editar imagem" });
     await waitFor(() => expect(tracos()).toHaveLength(1));
     expect(screen.getByLabelText("Desfazer")).not.toBeDisabled();
@@ -304,15 +306,23 @@ describe("editor de imagem no composer", () => {
     expect(curvas()).toHaveLength(2);
   });
 
-  it("vídeo e documento não ganham botão de editar", async () => {
+  it("vídeo abre a tela mas não oferece o traço; documento nem abre a tela", async () => {
     await abrirConversa();
     escolherArquivo(new File([new Uint8Array(8)], "clipe.webm", { type: "video/webm" }));
     await screen.findByText("clipe.webm");
-    expect(screen.queryByLabelText("Editar clipe.webm")).toBeNull();
+    // Vídeo tem o que olhar, então ganha a tela; marcar quadro a quadro é outro
+    // trabalho.
+    expect(screen.getByRole("region", { name: "Compor anexo" })).toBeTruthy();
+    expect(screen.queryByLabelText("Editar com a caneta")).toBeNull();
 
+    fireEvent.click(screen.getByLabelText("Fechar"));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Compor anexo" })).toBeNull());
     escolherArquivo(new File([new Uint8Array(8)], "contrato.pdf", { type: "application/pdf" }));
     await screen.findByText("contrato.pdf");
-    expect(screen.queryByLabelText("Editar contrato.pdf")).toBeNull();
+    // Documento continua no cartão: a prévia possível seria ícone, nome e tamanho,
+    // que é o que o cartão já mostra.
+    expect(screen.queryByRole("region", { name: "Compor anexo" })).toBeNull();
+    expect(screen.queryByLabelText("Editar com a caneta")).toBeNull();
   });
 
   it("trocar o anexo descarta a marcação do anterior", async () => {
@@ -322,8 +332,11 @@ describe("editor de imagem no composer", () => {
     fireEvent.click(screen.getByText("Concluir"));
     await screen.findByText("foto-editada.jpg");
 
+    fireEvent.click(screen.getByLabelText("Remover anexo"));
+    fireEvent.click(await screen.findByText("Descartar tudo"));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Compor anexo" })).toBeNull());
     escolherArquivo(originalImage("outra.jpg"));
-    fireEvent.click(await screen.findByLabelText("Editar outra.jpg"));
+    fireEvent.click(await screen.findByLabelText("Editar com a caneta"));
     await screen.findByRole("dialog", { name: "Editar imagem" });
     // Os traços da foto anterior não podem reaparecer sobre a nova.
     expect(screen.getByLabelText("Desfazer")).toBeDisabled();

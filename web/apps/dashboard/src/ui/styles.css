@@ -347,3 +347,49 @@
 .chat-inbox .composer-intake-message { order: -4; width: min(430px, 100%); margin: 0; padding: 8px 10px; border: 1px solid #a855f755; border-radius: 12px; background: linear-gradient(145deg, #201631, #12111e); color: #e8dcea; font-size: 11px; line-height: 1.4; }
 .chat-inbox .composer-intake-message.failed { border-color: #fb718577; background: #311426; color: #ff9c9c; }
 @media (max-width: 760px) { .chat-inbox .composer-intake-message { width: 100%; } }
+
+/* Tela de composição de anexo. Toma o lugar da lista de mensagens quando há
+   imagem ou vídeo pendente: o cabeçalho da conversa fica, para não se perder de
+   vista para quem se está mandando.
+   Escala da #47: nome do arquivo 15/600, tamanho e legenda 13, referência 11. */
+.chat-inbox .attachment-stage { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; background: #0b0b16; }
+.chat-inbox .attachment-stage-bar { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-bottom: 1px solid #ffffff12; background: linear-gradient(180deg, #151426, #0d0d18); }
+.chat-inbox .attachment-stage-file { display: grid; min-width: 0; gap: 2px; }
+.chat-inbox .attachment-stage-file strong { overflow: hidden; color: #f2ecf7; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.chat-inbox .attachment-stage-file span { color: #9b96a6; font-size: 13px; }
+.chat-inbox .attachment-stage-tools { display: flex; align-items: center; gap: 7px; }
+.chat-inbox .attachment-stage-tools button { display: flex; align-items: center; gap: 7px; padding: 8px 12px !important; border: 1px solid #ffffff22 !important; border-radius: 10px !important; background: #ffffff0b !important; color: #e8dcea !important; font-size: 13px !important; font-weight: 700; transition: color .16s ease, border-color .16s ease, background .16s ease; }
+.chat-inbox .attachment-stage-tools button span { font-size: 15px; }
+.chat-inbox .attachment-stage-tools button:hover:not(:disabled) { border-color: #d8b4fe88 !important; background: #a855f744 !important; color: #fff !important; }
+.chat-inbox .attachment-stage-tools button:disabled { opacity: .48; }
+.chat-inbox .attachment-stage-tools .attachment-stage-close:hover:not(:disabled) { border-color: #f0abfc88 !important; background: #ec48992b !important; }
+/* `minmax(0, 1fr)` nas duas direções é o que dá área definida à célula. Sem isso a
+   linha é dimensionada pelo conteúdo, o `max-height: 100%` da mídia não tem contra
+   o que resolver, e uma foto alta estoura a área com barra de rolagem. */
+.chat-inbox .attachment-stage-preview { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); place-items: center; padding: 18px; overflow: hidden; }
+.chat-inbox .attachment-stage-media { max-width: 100%; max-height: 100%; border-radius: 14px; background: #090910; object-fit: contain; }
+.chat-inbox .attachment-stage-empty { margin: 0; color: #9b96a6; font-size: 13px; }
+.chat-inbox .attachment-stage-confirm { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 11px 18px; border-top: 1px solid #a855f755; background: linear-gradient(145deg, #201631, #12111e); }
+.chat-inbox .attachment-stage-confirm p { flex: 1 1 220px; margin: 0; color: #f3eff8; font-size: 13px; }
+.chat-inbox .attachment-stage-confirm button { padding: 7px 11px !important; border: 1px solid #ffffff22 !important; border-radius: 9px !important; background: #ffffff0b !important; color: #e8dcea !important; font-size: 11px !important; font-weight: 700; }
+.chat-inbox .attachment-stage-confirm .attachment-stage-discard { border-color: #fb718577 !important; background: #311426 !important; color: #ffabb5 !important; }
+.chat-inbox .attachment-stage-composer { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; padding: 14px 18px; border-top: 1px solid #ffffff12; background: linear-gradient(180deg, #151426, #0d0d18); }
+.chat-inbox .attachment-stage-composer textarea { flex: 1 1 auto; min-width: 0; height: 48px; padding: 13px 17px; border: 1px solid #c084fc4d; border-radius: 17px; background: linear-gradient(145deg, #0b0b14, #11101c); box-shadow: 0 8px 22px #00000034 inset; color: #f0eaf5; font-size: 13px; line-height: 1.5; resize: none; }
+.chat-inbox .attachment-stage-composer textarea:focus { border-color: #d8b4fe88; box-shadow: 0 8px 22px #00000034 inset, 0 0 0 3px #8b5cf61c; }
+.chat-inbox .attachment-stage-status { color: #cbb3ff; font-size: 11px; white-space: nowrap; }
+/* O editor de traço entra no lugar do preview e já traz a própria moldura. */
+.chat-inbox .attachment-stage-preview .composer-editor { order: 0; width: min(720px, 100%); }
+/* O painel foi desenhado para a faixa estreita do compositor; aqui há a área da
+   conversa inteira, e deixá-lo com 260px de canvas desperdiçaria o espaço que
+   justifica esta tela. */
+.chat-inbox .attachment-stage-preview .composer-editor-canvas { max-height: min(46vh, 430px); }
+@media (max-width: 760px) {
+  .chat-inbox .attachment-stage-bar, .chat-inbox .attachment-stage-composer, .chat-inbox .attachment-stage-confirm { padding-left: 12px; padding-right: 12px; }
+  .chat-inbox .attachment-stage-tools button b { display: none; }
+  .chat-inbox .attachment-stage-tools button { padding: 8px 10px !important; }
+  .chat-inbox .attachment-stage-preview { padding: 12px; }
+}
+/* O recado de colar/arrastar vem do compositor, onde era o primeiro item de um
+   flex; aqui é bloco no fluxo da tela. */
+.chat-inbox .attachment-stage .composer-intake-message { order: 0; width: auto; margin: 12px 18px 0; }
+@media (max-width: 760px) { .chat-inbox .attachment-stage .composer-intake-message { margin: 10px 12px 0; } }

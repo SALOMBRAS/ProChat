@@ -21,10 +21,12 @@ import { conversationIdFromLocation, inboxUrlForConversation } from "./conversat
 import { contactLabel, conversationPhone, participantLabel } from "./contactIdentity.js";
 import { ImageAnnotator } from "./ImageAnnotator.js";
 import { isEditableImage, type Stroke } from "./imageAnnotation.js";
+import { AttachmentComposer } from "./AttachmentComposer.js";
 import {
   ATTACHMENT_POLICY,
   HTML_IMAGE_ONLY_MESSAGE,
   acceptAttachment,
+  attachmentKind,
   extraFilesMessage,
   fileSizeLabel,
   readTransfer,
@@ -80,6 +82,18 @@ const ATTACHMENT_LIMITS = { image: ATTACHMENT_POLICY.image.max, video: ATTACHMEN
  *  Android seriam recusados com 415. Pedir só o que é aceito evita que o seletor
  *  ofereça um arquivo que vai falhar depois do upload. */
 const CAMERA_ACCEPT = "image/jpeg,image/png,image/webp,video/mp4,video/webm";
+/** Quem abre a tela de composição.
+ *
+ *  Imagem e vídeo abrem porque têm o que olhar: a tela existe para o operador ver
+ *  a mídia grande antes de mandar, e para a legenda ficar encostada nela.
+ *
+ *  Documento e áudio continuam no cartão. Documento porque a prévia que daria para
+ *  desenhar aqui é ícone, nome e tamanho — exatamente o que o cartão já mostra, em
+ *  dez vezes a área e sem nada a mais para ver; renderizar a primeira página de um
+ *  PDF exigiria biblioteca nova. Áudio porque o próprio WhatsApp não abre tela para
+ *  nota de voz: ela é gravada no compositor e sai dali, e tomar a conversa para
+ *  mostrar uma barra de reprodução acrescentaria um passo sem nada em troca. */
+const STAGE_KINDS: readonly string[] = ["image", "video"];
 /** Os três motivos que a API de geolocalização distingue. O `code` é o contrato —
  *  `message` é texto do navegador, varia por fabricante e não é para o operador. */
 const geolocationErrorMessage = (error: unknown) => {
@@ -379,7 +393,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const slaCache = useRef(new Map<string, SlaMetrics>());
   const slaRequest = useRef(0);
   const slaAbort = useRef<AbortController>();
-  useEffect(() => { if (!attachment?.type.startsWith('image/')) { setAttachmentPreview(undefined); return; } const url = URL.createObjectURL(attachment); setAttachmentPreview(url); return () => URL.revokeObjectURL(url); }, [attachment]);
+  // Vídeo também ganha URL agora: a tela de composição mostra o clipe, não só o
+  // nome do arquivo.
+  useEffect(() => { if (!attachment || !STAGE_KINDS.includes(attachmentKind(attachment.type) ?? "")) { setAttachmentPreview(undefined); return; } const url = URL.createObjectURL(attachment); setAttachmentPreview(url); return () => URL.revokeObjectURL(url); }, [attachment]);
   /** Ponto único por onde um anexo entra ou sai do composer. Trocar o arquivo tem
    *  de descartar a marcação da imagem anterior junto, senão os traços de uma foto
    *  reapareceriam sobre a próxima. */
@@ -387,6 +403,14 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   /** Só imagem da allowlist entra no editor: vídeo e documento não têm o que
    *  marcar, e um mime fora dela voltaria 415 depois de reexportado. */
   const editableAttachment = isEditableImage(attachmentSource?.type) ? attachmentSource : undefined;
+  /** A tela de composição está no ar: a conversa deu lugar ao preview. */
+  const stageOpen = Boolean(attachment) && STAGE_KINDS.includes(attachmentKind(attachment?.type) ?? "");
+  /** Há legenda ou traço a perder ao descartar. */
+  const stageDirty = Boolean(composerText.trim()) || attachmentStrokes.length > 0;
+  /** Fechar devolve a legenda ao compositor: quem escreveu a frase ainda pode
+   *  mandá-la como texto. Remover joga fora as duas coisas. */
+  const closeStage = () => clearAttachment();
+  const removeStage = () => { clearAttachment(); setComposerText(""); };
   /** Anexa o que veio de colar ou arrastar. É a mesma função para os dois porque
    *  `clipboardData` e `dataTransfer` são o mesmo `DataTransfer`; o que muda é só
    *  quem chamou. Termina no mesmo `applyAttachment` do menu "+". */
@@ -403,9 +427,8 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     setAttachmentStatus("");
     const extra = intake.accepted.length + intake.rejected.length;
     setIntakeMessage(extra > 1 ? { text: extraFilesMessage(extra), failed: false } : undefined);
-    // O editor de traço não abre sozinho. Colar e enviar é o caso dominante, e
-    // abrir o painel punha um clique de "Concluir" ou "×" no meio dele. Quem quer
-    // marcar tem o ✎ no cartão do anexo, igual ao que veio pelo menu "+".
+    // O editor de traço não abre sozinho: colar e enviar é o caso dominante. Imagem
+    // e vídeo caem na tela de composição, e o traço fica no botão Editar da barra.
   };
   const pasteIntoComposer = (event: ClipboardEvent<HTMLFormElement>) => {
     if (sending) return;
@@ -417,15 +440,16 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     void takeTransfer(event.clipboardData);
   };
   const carriesFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes("Files");
-  const dragEnter = (event: DragEvent<HTMLElement>) => { if (!carriesFiles(event) || sending) return; dropDepth.current += 1; setDropping(true); };
+  const dragEnter = (event: DragEvent<HTMLElement>) => { if (!carriesFiles(event) || sending || stageOpen) return; dropDepth.current += 1; setDropping(true); };
   // Sem `preventDefault` no dragover o navegador recusa o drop e abre o arquivo
   // numa aba, jogando fora a conversa aberta.
-  const dragOver = (event: DragEvent<HTMLElement>) => { if (!carriesFiles(event) || sending) return; event.preventDefault(); };
+  const dragOver = (event: DragEvent<HTMLElement>) => { if (!carriesFiles(event) || sending || stageOpen) return; event.preventDefault(); };
   // `dragleave` dispara também ao passar de um filho para outro; o contador evita
   // que a moldura pisque no meio do arrasto.
   const dragLeave = (event: DragEvent<HTMLElement>) => { if (!carriesFiles(event)) return; dropDepth.current = Math.max(0, dropDepth.current - 1); if (!dropDepth.current) setDropping(false); };
   const drop = (event: DragEvent<HTMLElement>) => {
-    if (!carriesFiles(event) || sending) return;
+    // Com a tela de composição aberta o alvo já tem anexo: um por vez.
+    if (!carriesFiles(event) || sending || stageOpen) return;
     event.preventDefault();
     dropDepth.current = 0;
     setDropping(false);
@@ -1298,6 +1322,28 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 <button type="button" className="conversation-search-trigger" onClick={() => setConversationSearchOpen((open) => !open)} aria-expanded={conversationSearchOpen}>⌕ Buscar nesta conversa</button>
                 {conversationSearchOpen && <div className="conversation-search-panel"><div className="conversation-search-field"><span>⌕</span><input value={conversationSearchInput} onChange={(event) => setConversationSearchInput(event.target.value)} placeholder="Buscar nas mensagens carregadas" aria-label="Buscar nesta conversa" autoFocus /><button type="button" onClick={() => { setConversationSearchInput(""); setConversationSearchOpen(false); }} aria-label="Fechar busca">×</button></div>{conversationSearchTerm ? <div className="conversation-search-results"><div><span>{conversationMatches.length} resultado{conversationMatches.length === 1 ? "" : "s"} nesta página</span><span className="conversation-search-nav"><button type="button" onClick={() => selectConversationMatch(activeConversationMatch - 1)} disabled={!conversationMatches.length} aria-label="Resultado anterior">↑</button><button type="button" onClick={() => selectConversationMatch(activeConversationMatch + 1)} disabled={!conversationMatches.length} aria-label="Próximo resultado">↓</button></span></div>{conversationMatches.length ? <p>{conversationMatches[activeConversationMatch]?.content}</p> : <p>Nenhum resultado nas mensagens já carregadas.</p>}<small>A busca completa será paginada pela API, com até 100 resultados por consulta.</small></div> : <p className="conversation-search-hint">Digite para pesquisar somente a página atual; o termo é refinado após uma breve pausa.</p>}</div>}
               </div>
+              {stageOpen && attachment ? <AttachmentComposer
+                file={attachment}
+                previewUrl={attachmentPreview}
+                caption={composerText}
+                onCaption={setComposerText}
+                sending={sending}
+                status={attachmentStatus}
+                notice={intakeMessage}
+                canEdit={Boolean(editableAttachment)}
+                onEdit={() => setEditorOpen(true)}
+                editor={editorOpen && editableAttachment ? <ImageAnnotator
+                  file={editableAttachment}
+                  initialStrokes={attachmentStrokes}
+                  onCancel={() => setEditorOpen(false)}
+                  onConfirm={(edited, strokes) => { setAttachment(edited); setAttachmentStrokes(strokes); setEditorOpen(false); }}
+                /> : undefined}
+                onEditorClose={() => setEditorOpen(false)}
+                dirty={stageDirty}
+                onClose={closeStage}
+                onRemove={removeStage}
+                onSubmit={(event) => void submitMessage(event)}
+              /> : <>
               <div className="message-list" ref={listRef} onScroll={onScroll}>
                 {loadingMessages ? (
                   <p className="inbox-loading">Carregando mensagens…</p>
@@ -1340,17 +1386,12 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                   </div>
                 </div>}
                 {isRecording && <div className="composer-recording" role="status" aria-live="polite"><span className="composer-recording-indicator" aria-hidden="true" /><strong>Gravando áudio</strong><time>{`${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`}</time><button type="button" onClick={() => finishRecording(true)} aria-label="Cancelar gravação">Cancelar</button><button type="button" className="composer-recording-send" onClick={() => finishRecording()} aria-label="Concluir gravação">Enviar</button></div>}
-                {editorOpen && editableAttachment && <ImageAnnotator
-                  file={editableAttachment}
-                  initialStrokes={attachmentStrokes}
-                  onCancel={() => setEditorOpen(false)}
-                  onConfirm={(edited, strokes) => { setAttachment(edited); setAttachmentStrokes(strokes); setEditorOpen(false); setAttachmentStatus(strokes.length ? "Imagem editada, pronta para envio" : ""); }}
-                />}
+                {/* Só documento e áudio chegam aqui: imagem e vídeo abrem a tela de
+                    composição, onde o editor de traço passou a ser acionado. */}
                 {attachment && <div className="composer-pending-attachment" aria-label={`Anexo pendente: ${attachment.name}`}>
-                  {attachmentPreview ? <img className="composer-pending-thumbnail" src={attachmentPreview} alt={`Prévia de ${attachment.name}`} /> : <span className="composer-pending-file-icon" aria-hidden="true">{attachment.type.startsWith("video/") ? "▣" : "▤"}</span>}
+                  <span className="composer-pending-file-icon" aria-hidden="true">{attachmentKind(attachment.type) === "audio" ? "◖" : "▤"}</span>
                   <div className="composer-pending-details"><strong title={attachment.name}>{attachment.name}</strong><span>{fileSizeLabel(attachment.size)}</span></div>
                   <span className="composer-pending-tools">
-                    {editableAttachment && <button type="button" className="composer-pending-edit" onClick={() => setEditorOpen(true)} disabled={sending} aria-label={`Editar ${attachment.name}`} title="Editar imagem">✎</button>}
                     <button type="button" className="composer-pending-remove" onClick={clearAttachment} disabled={sending} aria-label={`Remover ${attachment.name}`} title="Remover anexo">×</button>
                   </span>
                 </div>}
@@ -1372,6 +1413,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 </div>
                 {isRecording ? <button type="button" className="send-button composer-send-action" onClick={() => finishRecording()} aria-label="Concluir gravação">■</button> : composerText.trim() || attachment ? <button className="send-button composer-send-action" disabled={sending} aria-label={sending ? "Enviando mensagem" : "Enviar"}>{sending ? "…" : "➤"}</button> : <button type="button" className="composer-action composer-mic-action" onClick={() => void startRecording()} title="Gravar áudio" aria-label="Gravar áudio" disabled={sending}><span aria-hidden="true">♩</span></button>}
               </form>
+              </>}
             </>
           ) : (
             <div className="inbox-welcome">
