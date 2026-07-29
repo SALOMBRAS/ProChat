@@ -57,7 +57,21 @@ export class SupabaseAttachmentOutboxStore implements AttachmentOutboxStore {
 export class AttachmentOutboxService {
   private readonly startupCutoff = new Date().toISOString();
   constructor(private readonly conversations: { getConversation(workspaceId: string, conversationId: string): Promise<Conversation | undefined> }, private readonly store: AttachmentOutboxStore, private readonly storage: TemporaryAttachmentStorage, private readonly worker: InternalWorkerClient) {}
-  async create(context: RequestContext, conversationId: string, file: UploadFile, clientRequestId: string, caption?: string): Promise<OutboxJob> {
+  /** `voiceNote` is the operator's intent and it is deliberately NOT a column.
+   *
+   *  It would have to be one if a row could ever be dispatched twice, because
+   *  the second dispatch would read the row and not the request. It cannot:
+   *  `dispatch` is private and `create` is its only caller, it runs once on the
+   *  row it has just written, and nothing replays a stored row afterwards —
+   *  `reconcileStartup` resolves what it finds to `cancelled`/`failed` instead of
+   *  sending it. So the intent travels in memory, over the same call, and the
+   *  schema stays untouched: `inbox_outbox_jobs.type` is guarded by a
+   *  `CHECK (type IN ('image','audio','video','document'))` in both databases,
+   *  and a fifth kind — or a new column — would need a migration in each.
+   *
+   *  If a retry that re-dispatches a persisted row is ever added, this has to
+   *  become a column first; see web/docs/inbox-audio-arquivo.md. */
+  async create(context: RequestContext, conversationId: string, file: UploadFile, clientRequestId: string, caption?: string, voiceNote?: boolean): Promise<OutboxJob> {
     const conversation = await this.conversations.getConversation(context.workspaceId, conversationId); if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
     const existing = await this.store.findByClientRequest(context.workspaceId, clientRequestId); if (existing) return existing;
     const type = validateFile(file); const id = randomUUID(); const filename = sanitizeFilename(file.originalname); const now = new Date().toISOString(); const path = `${context.workspaceId}/${conversationId}/${id}/${filename}`;
@@ -67,7 +81,7 @@ export class AttachmentOutboxService {
     // This process dispatches only the job it has just persisted. It never
     // replays prior rows after a restart; startup reconciliation handles them
     // without calling the provider.
-    setImmediate(() => { void this.dispatch(context, job.id); });
+    setImmediate(() => { void this.dispatch(context, job.id, voiceNote); });
     return job;
   }
   async get(context: RequestContext, id: string) { const job = await this.store.get(context.workspaceId, id); if (!job) throw new AppError(404, 'NOT_FOUND', 'Outbox job not found'); return job; }
@@ -75,7 +89,7 @@ export class AttachmentOutboxService {
   async confirm(workspaceId: string, externalMessageId: string) { const job = await this.store.confirm(workspaceId, externalMessageId); if (job?.storageObjectPath) await this.safeRemove(job.storageObjectPath); return job; }
   async reconcileStartup(): Promise<number> { const stale = await this.store.staleUnreconciled(this.startupCutoff); for (const job of stale) { const status: OutboxStatus = job.status === 'pending' ? 'cancelled' : 'failed'; const reason = job.status === 'pending' ? 'stale_unverified_job' : 'provider_acceptance_uncertain'; await this.store.update(job.workspaceId, job.id, { status, lastErrorSafe: reason }); } return stale.length; }
   async cleanupExpired(now = new Date()) { const jobs = await this.store.expired(new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()); for (const job of jobs) { if (job.storageObjectPath) await this.safeRemove(job.storageObjectPath); await this.store.update(job.workspaceId, job.id, { storageObjectPath: null, lastErrorSafe: job.lastErrorSafe ?? 'Temporary upload expired' }); } return jobs.length; }
-  private async dispatch(context: RequestContext, id: string): Promise<void> { const candidate = await this.store.get(context.workspaceId, id); if (!candidate || candidate.createdAt < this.startupCutoff) return; const processing = await this.store.claim(context.workspaceId, id); if (!processing || !processing.storageObjectPath || !processing.filename || !processing.mimeType) return; try { const conversation = await this.conversations.getConversation(context.workspaceId, processing.conversationId); if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found'); const url = await this.storage.signedUrl(processing.storageObjectPath, 300); const response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, command: { type: 'message.sendAttachment', payload: { wahaSession: processing.wahaSession, chatId: conversation.deliveryChatId ?? conversation.chatId, type: processing.type, url, filename: processing.filename, mimeType: processing.mimeType, ...(processing.caption ? { caption: processing.caption } : {}) } } }); if (!response.success) throw new AppError(workerStatus(response.error.code), response.error.code, response.error.message); const sent = response.data as { sentMessage?: { id?: string } }; await this.store.update(context.workspaceId, id, { status: 'sent', externalMessageId: sent.sentMessage?.id ?? null, providerAcceptedAt: new Date().toISOString(), lastErrorSafe: null }); } catch (error) { await this.store.update(context.workspaceId, id, { status: 'failed', lastErrorSafe: safeError(error) }); } }
+  private async dispatch(context: RequestContext, id: string, voiceNote?: boolean): Promise<void> { const candidate = await this.store.get(context.workspaceId, id); if (!candidate || candidate.createdAt < this.startupCutoff) return; const processing = await this.store.claim(context.workspaceId, id); if (!processing || !processing.storageObjectPath || !processing.filename || !processing.mimeType) return; try { const conversation = await this.conversations.getConversation(context.workspaceId, processing.conversationId); if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found'); const url = await this.storage.signedUrl(processing.storageObjectPath, 300); const response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, command: { type: 'message.sendAttachment', payload: { wahaSession: processing.wahaSession, chatId: conversation.deliveryChatId ?? conversation.chatId, type: processing.type, url, filename: processing.filename, mimeType: processing.mimeType, ...(processing.caption ? { caption: processing.caption } : {}), ...(voiceNote === undefined ? {} : { voiceNote }) } } }); if (!response.success) throw new AppError(workerStatus(response.error.code), response.error.code, response.error.message); const sent = response.data as { sentMessage?: { id?: string } }; await this.store.update(context.workspaceId, id, { status: 'sent', externalMessageId: sent.sentMessage?.id ?? null, providerAcceptedAt: new Date().toISOString(), lastErrorSafe: null }); } catch (error) { await this.store.update(context.workspaceId, id, { status: 'failed', lastErrorSafe: safeError(error) }); } }
   private async safeRemove(path: string) { try { await this.storage.remove(path); } catch { /* cleanup is retried by the scheduled sweep; never expose storage diagnostics */ } }
 }
 function validateFile(file: UploadFile): AttachmentKind { const type = (Object.keys(policy) as AttachmentKind[]).find(kind => policy[kind].mimes.includes(file.mimetype)); if (!type) throw new AppError(415, 'VALIDATION_ERROR', 'Tipo de arquivo não permitido'); if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > policy[type].max) throw new AppError(413, 'VALIDATION_ERROR', 'Arquivo excede o limite permitido'); if (!magicMatches(file.buffer, file.mimetype)) throw new AppError(400, 'VALIDATION_ERROR', 'Arquivo inválido'); return type; }

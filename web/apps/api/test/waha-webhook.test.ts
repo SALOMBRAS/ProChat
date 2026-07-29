@@ -335,6 +335,44 @@ describe('WAHA system events are not conversation', () => {
     expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT chatId, direction, messageType FROM whatsapp_messages').get()).toMatchObject({ chatId, direction: 'outbound', messageType: 'text' });
   });
 
+  /** A recorded note and a music file both arrive as `audio/ogg` with an empty
+   *  payload root; the only thing that tells them apart is `_data.type`, and it
+   *  was never read. Measured on the live base before this change: 116 audio rows,
+   *  114 of them `_data.type = 'ptt'`, 2 `audio`, and every one stored as `audio`.
+   *
+   *  The promotion is deliberately narrow — it fires only where the normalised
+   *  type is already `audio`. Adopting the raw vocabulary wholesale would have
+   *  rewritten 5.846 of 6.825 rows, which is what the `chat` case below guards. */
+  const audioMessage = (id: string, dataType: string, mimetype = 'audio/ogg; codecs=opus') => ({
+    id, to: '5511777770000@c.us', body: '', from: chatId, fromMe: false, source: 'app', vCards: [], ackName: 'DEVICE',
+    hasMedia: true, media: { mimetype }, timestamp: Math.floor(Date.now() / 1000), _data: { type: dataType },
+  });
+  const storedType = (app: any) => (app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType FROM whatsapp_messages').get() as { messageType: string }).messageType;
+
+  it('stores a recorded voice note as ptt, not as audio', async () => {
+    const app = await appFor();
+    await send(app, event('evt-ptt', audioMessage('ptt-message', 'ptt'))).expect(202);
+    expect(storedType(app)).toBe('ptt');
+  });
+
+  it('keeps a music file as audio, so the two are distinguishable downstream', async () => {
+    const app = await appFor();
+    await send(app, event('evt-audio-file', audioMessage('audio-file-message', 'audio', 'audio/mpeg'))).expect(202);
+    expect(storedType(app)).toBe('audio');
+  });
+
+  it('leaves audio alone when the raw type says nothing', async () => {
+    const app = await appFor();
+    await send(app, event('evt-audio-bare', { ...audioMessage('audio-bare-message', 'audio'), _data: {} })).expect(202);
+    expect(storedType(app)).toBe('audio');
+  });
+
+  it('promotes nothing outside audio: a ptt raw type on a non-audio mime stays what it was', async () => {
+    const app = await appFor();
+    await send(app, event('evt-ptt-image', audioMessage('ptt-image-message', 'ptt', 'image/jpeg'))).expect(202);
+    expect(storedType(app)).toBe('image');
+  });
+
   // Decidido: a chamada perdida continua visível na Inbox, como hoje. É informação
   // operacional que o atendente precisa ver, e é por isso que `call_log` está
   // deliberadamente fora de technicalMessageTypes em conversation-identity.ts:42.

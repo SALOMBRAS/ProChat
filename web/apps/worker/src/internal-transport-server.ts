@@ -42,7 +42,7 @@ export function createWorkerTransportHandler(worker: WhatsAppWorkerPort): Intern
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { identitySync: identitySync as never } };
       }
       if (command.type === 'message.sendAttachment') {
-        const sentMessage = await worker.execute(context, { type: 'sendAttachment', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, attachment: { type: command.payload.type, url: command.payload.url, filename: command.payload.filename, mimeType: command.payload.mimeType, ...(command.payload.caption ? { caption: command.payload.caption } : {}) } });
+        const sentMessage = await worker.execute(context, { type: 'sendAttachment', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, attachment: { type: command.payload.type, url: command.payload.url, filename: command.payload.filename, mimeType: command.payload.mimeType, ...(command.payload.caption ? { caption: command.payload.caption } : {}), ...(command.payload.voiceNote === undefined ? {} : { voiceNote: command.payload.voiceNote }) } });
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { sentMessage: sentMessage as { id: string; timestamp: string } } };
       }
       if (command.type === 'history.page') {

@@ -7,6 +7,7 @@ const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0x00]);
 const pdf = Buffer.from('%PDF-1.7');
 const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 const mp4 = Buffer.from([0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70]);
+const mp3 = Buffer.from('ID3\u0003\u0000\u0000\u0000');
 class MemoryStore implements AttachmentOutboxStore {
   jobs = new Map<string, OutboxJob>();
   async create(job: OutboxJob) { if ([...this.jobs.values()].some(item => item.workspaceId === job.workspaceId && item.clientRequestId === job.clientRequestId)) throw new Error('unique constraint'); this.jobs.set(`${job.workspaceId}:${job.id}`, job); return job; }
@@ -32,4 +33,43 @@ describe('AttachmentOutboxService', () => {
   it('claims one job once even when dispatch is triggered concurrently', async () => { const store = new MemoryStore(), storage = new MemoryStorage(); let calls = 0; const service = new AttachmentOutboxService(conversation, store, storage, { send: async () => { calls += 1; return { success: true, correlationId: context.correlationId, workspaceId: context.workspaceId, data: { sentMessage: {} } }; } } as never); const requestId = '00000000-0000-4000-8000-000000000014'; const [first, second] = await Promise.all([service.create(context, '00000000-0000-4000-8000-000000000001', { buffer: jpeg, originalname: 'photo.jpg', mimetype: 'image/jpeg', size: jpeg.length }, requestId), service.create(context, '00000000-0000-4000-8000-000000000001', { buffer: jpeg, originalname: 'photo.jpg', mimetype: 'image/jpeg', size: jpeg.length }, requestId)]); expect(first.id).toBe(second.id); await flush(); expect(calls).toBe(1); expect((await service.get(context, first.id)).providerAcceptedAt).not.toBeNull(); });
   it('does not retry an attachment after an uncertain worker failure', async () => { const store = new MemoryStore(), storage = new MemoryStorage(); let calls = 0; const service = new AttachmentOutboxService(conversation, store, storage, { send: async () => { calls += 1; return { success: false, correlationId: context.correlationId, workspaceId: context.workspaceId, error: { code: 'TIMEOUT', message: 'timeout', details: {} } }; } } as never); const job = await service.create(context, '00000000-0000-4000-8000-000000000001', { buffer: jpeg, originalname: 'photo.jpg', mimetype: 'image/jpeg', size: jpeg.length }, '00000000-0000-4000-8000-000000000015'); await flush(); expect(calls).toBe(1); await new Promise(resolve => setTimeout(resolve, 20)); expect(calls).toBe(1); expect((await service.get(context, job.id)).status).toBe('failed'); });
   it('reconciles old pending and processing rows without calling the worker', async () => { const store = new MemoryStore(), storage = new MemoryStorage(); const createdAt = '2020-01-01T00:00:00.000Z'; const base: OutboxJob = { id: 'old-pending', workspaceId: context.workspaceId, conversationId: '00000000-0000-4000-8000-000000000001', wahaSession: 'waha-a', clientRequestId: 'old-pending', type: 'image', storageObjectPath: 'old/pending.jpg', filename: 'pending.jpg', mimeType: 'image/jpeg', sizeBytes: 1, caption: null, status: 'pending', attemptCount: 0, externalMessageId: null, providerAcceptedAt: null, lastErrorSafe: null, createdAt, updatedAt: createdAt }; await store.create(base); await store.create({ ...base, id: 'old-processing', clientRequestId: 'old-processing', status: 'processing' }); await store.create({ ...base, id: 'already-sent', clientRequestId: 'already-sent', status: 'sent', externalMessageId: 'provider-id', providerAcceptedAt: createdAt }); let calls = 0; const service = new AttachmentOutboxService(conversation, store, storage, { send: async () => { calls += 1; return { success: true, correlationId: context.correlationId, workspaceId: context.workspaceId, data: {} }; } } as never); await expect(service.reconcileStartup()).resolves.toBe(2); expect(calls).toBe(0); await expect(service.get(context, 'old-pending')).resolves.toMatchObject({ status: 'cancelled', lastErrorSafe: 'stale_unverified_job' }); await expect(service.get(context, 'old-processing')).resolves.toMatchObject({ status: 'failed', lastErrorSafe: 'provider_acceptance_uncertain' }); await expect(service.get(context, 'already-sent')).resolves.toMatchObject({ status: 'sent' }); });
+});
+
+/** The operator's intent is the only thing that separates a voice note from a
+ *  music file: both are `audio`, both may be `audio/mpeg`, and the file is what
+ *  the outbox stores either way. These pin that the intent reaches the worker
+ *  command and that it does NOT become part of the row — the row's `type` is
+ *  mirrored by a CHECK constraint in both databases, so keeping it at `audio` is
+ *  what lets this ship without a migration. */
+describe('AttachmentOutboxService audio intent', () => {
+  const conversationId = '00000000-0000-4000-8000-000000000001';
+  const audio = { buffer: mp3, originalname: 'musica.mp3', mimetype: 'audio/mpeg', size: mp3.length };
+  const capture = () => { const sent: Record<string, unknown>[] = []; return { sent, worker: { send: async (request: { command: { payload: Record<string, unknown> } }) => { sent.push(request.command.payload); return { success: true as const, correlationId: context.correlationId, workspaceId: context.workspaceId, data: { sentMessage: { id: 'waha-audio-a', timestamp: new Date().toISOString() } } }; } } }; };
+
+  it('carries an explicit music-file intent to the worker while the stored kind stays audio', async () => {
+    const { sent, worker: spy } = capture(); const store = new MemoryStore();
+    const service = new AttachmentOutboxService(conversation, store, new MemoryStorage(), spy as never);
+    const job = await service.create(context, conversationId, audio, '00000000-0000-4000-8000-000000000020', undefined, false);
+    await flush();
+    expect(sent[0]).toMatchObject({ type: 'audio', voiceNote: false });
+    expect(job.type).toBe('audio');
+    expect(Object.keys(store.jobs.get(`${context.workspaceId}:${job.id}`)!)).not.toContain('voiceNote');
+  });
+
+  it('says nothing when the caller states no intent, so the recorder keeps the behaviour it had', async () => {
+    const { sent, worker: spy } = capture();
+    const service = new AttachmentOutboxService(conversation, new MemoryStore(), new MemoryStorage(), spy as never);
+    await service.create(context, conversationId, audio, '00000000-0000-4000-8000-000000000021');
+    await flush();
+    expect(sent[0]).toMatchObject({ type: 'audio' });
+    expect(sent[0]).not.toHaveProperty('voiceNote');
+  });
+
+  it('carries an explicit voice-note intent as well, so the default is never the only way to get one', async () => {
+    const { sent, worker: spy } = capture();
+    const service = new AttachmentOutboxService(conversation, new MemoryStore(), new MemoryStorage(), spy as never);
+    await service.create(context, conversationId, audio, '00000000-0000-4000-8000-000000000022', undefined, true);
+    await flush();
+    expect(sent[0]).toMatchObject({ voiceNote: true });
+  });
 });

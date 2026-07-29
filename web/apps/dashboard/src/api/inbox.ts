@@ -24,7 +24,9 @@ export class InboxApi {
   sendMessage=(id:string,text:string)=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages`, { text });
   sendLocation=(conversationId:string,body:{latitude:number;longitude:number;title?:string})=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${conversationId}/location`,body);
   sendVcard=(conversationId:string,contactIds:string[])=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${conversationId}/vcard`,{ contactIds });
-  sendAttachment=(id:string,file:File,clientRequestId:string,caption?:string)=>{ const body = new FormData(); body.set('file', file); body.set('clientRequestId', clientRequestId); if (caption?.trim()) body.set('caption', caption.trim()); return this.http.postForm<InboxOutboxJob>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/attachments`, body); };
+  /** `voiceNote: false` sends an audio as a music file instead of a recorded
+   *  note. Omitted, the send keeps the behaviour the recorder has always had. */
+  sendAttachment=(id:string,file:File,clientRequestId:string,caption?:string,voiceNote?:boolean)=>{ const body = new FormData(); body.set('file', file); body.set('clientRequestId', clientRequestId); if (caption?.trim()) body.set('caption', caption.trim()); if (voiceNote !== undefined) body.set('voiceNote', String(voiceNote)); return this.http.postForm<InboxOutboxJob>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/attachments`, body); };
   outbox=(jobId:string)=>this.http.get<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}`);
   cancelOutbox=(jobId:string)=>this.http.post<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}/cancel`);
   markRead=(id:string)=>this.http.post<void>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/read`);
