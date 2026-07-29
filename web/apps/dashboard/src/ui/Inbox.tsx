@@ -403,9 +403,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     setAttachmentStatus("");
     const extra = intake.accepted.length + intake.rejected.length;
     setIntakeMessage(extra > 1 ? { text: extraFilesMessage(extra), failed: false } : undefined);
-    // Imagem cai direto no editor de traço, que é o que o WhatsApp Web faz ao
-    // colar. Fechar o painel no × deixa o anexo pendente igual ao do menu "+".
-    if (isEditableImage(verdict.file.type)) setEditorOpen(true);
+    // O editor de traço não abre sozinho. Colar e enviar é o caso dominante, e
+    // abrir o painel punha um clique de "Concluir" ou "×" no meio dele. Quem quer
+    // marcar tem o ✎ no cartão do anexo, igual ao que veio pelo menu "+".
   };
   const pasteIntoComposer = (event: ClipboardEvent<HTMLFormElement>) => {
     if (sending) return;
