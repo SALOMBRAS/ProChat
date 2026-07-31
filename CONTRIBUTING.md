@@ -124,7 +124,10 @@ de não-escrita.
 
 No **corpo do commit**, não no arquivo de teste. Os testes não carregam
 comentário de reversão hoje, e a convenção é essa. O que o teste carrega é um
-título que afirma comportamento observável, no padrão *"X em vez de Y"*:
+título que **afirma comportamento observável e o contrasta com o errado**.
+
+Esse contraste aparece de duas formas, e **as duas são aceitas**. A explícita,
+com a conjunção:
 
 ```
 propagates a database error that is not the phone constraint instead of
@@ -132,6 +135,27 @@ calling it a conflict
 
 refuses to produce a hash without a pepper instead of falling back to a weak one
 ```
+
+E a implícita, que em português usa vírgula-negativa ou
+dois-pontos-justificativa:
+
+```
+colar formato não suportado explica o motivo, não falha calado
+
+o dragover pede o drop: sem isso o navegador abre o arquivo numa aba
+
+separa as conversas por divisória, não por card
+```
+
+> **Contado em 31/07/2026, sobre os 681 títulos dos três workspaces:** a forma
+> explícita cobre **47**; a implícita, **187**. Ou seja, a conjunção é minoria
+> dura — cerca de 7%. Quem tratar só a primeira como norma transforma ~93% dos
+> títulos existentes em violação silenciosa, o que não é a prática deste
+> repositório.
+>
+> **O que vale é o contraste, não a conjunção.** A forma é estilo, e segue o
+> idioma do arquivo — que é decidido por arquivo, não por workspace. Ver
+> `web/docs/testing.md` §7.3.
 
 > **Estado:** a prática nasceu em 28/07/2026 e o bloco literal aparece em duas
 > mudanças (PRs #32 e #36); a forma em prosa, na #34. Ainda não é universal em
@@ -227,11 +251,16 @@ cherry-pick conflitar com ele mesmo.
 squash.** O merge commit preserva os commits da branch, então a base das filhas
 continua válida. PR isolada pode squash normalmente.
 
-Depois de mergear uma pilha, a conferência de que o conteúdo chegou é de
-ancestralidade — não do rótulo do GitHub:
+Depois de mergear uma pilha, confira que o conteúdo chegou — o rótulo do GitHub
+não serve, e **a ancestralidade também não** (próxima subseção). O que serve é
+comparar o conteúdo, arquivo por arquivo:
 
 ```bash
-git fetch origin && git merge-base --is-ancestor <sha-da-filha> origin/main
+git fetch origin
+git show --pretty='' --name-only <sha-da-filha> | while read -r f; do
+  [ "$(git rev-parse "<sha-da-filha>:$f")" = "$(git rev-parse "origin/main:$f")" ] \
+    && echo "ok       $f" || echo "NÃO veio $f"
+done
 ```
 
 ### Commit em branch de PR já mergeada
@@ -245,7 +274,7 @@ O `git push` funcionou e não avisou nada, porque a branch continua existindo:
 `refs/heads/docs/navegador-conferencia-visual` ainda aponta para `2d77edb` no
 origin. O commit não é dangling nem está perdido — é a ponta de uma ref viva, e
 é por isso mesmo que passa despercebido: ele fica **fora de main** com tudo o
-mais parecendo normal. Quem revela é a checagem de ancestralidade, devolvendo 1.
+mais parecendo normal.
 
 **Regra:** antes de commitar numa branch já enviada, confira o estado da PR
 dela.
@@ -256,6 +285,67 @@ gh pr view <N> --json state
 
 A reaplicação virou PR própria, a #69, com o mesmo `patch-id` (`6c286ed`)
 aplicado sobre o topo de main.
+
+### Como caçar um commit órfão — e o que não funciona
+
+**`git merge-base --is-ancestor` não serve neste repositório.** Foi o que este
+documento recomendava, e está errado: com squash-merge **nenhum** commit de
+branch vira ancestral de main, então a checagem acusa quase tudo. Medido em
+31/07/2026:
+
+| | |
+| --- | --- |
+| branches remotas | 78 |
+| acusadas de órfãs por `--is-ancestor` | **74** |
+| órfãs reais | **2** |
+
+Setenta e dois falsos positivos. Uma checagem que acusa 95% das branches não
+informa nada.
+
+O que discrimina são **duas** condições, nesta ordem — data primeiro, porque é
+barata, conteúdo depois, porque é a que decide:
+
+```bash
+# PASSO 1 — commits empurrados DEPOIS do merge da própria PR
+gh pr list --state merged --limit 100 --json number,headRefName,mergedAt \
+  --jq '.[] | select(.mergedAt != null) | "\(.number)\t\(.headRefName)\t\(.mergedAt)"' |
+while IFS=$'\t' read -r pr branch merged; do
+  git rev-parse --verify -q "origin/$branch" >/dev/null 2>&1 || continue
+  TZ=UTC git log "origin/$branch" --not origin/main \
+      --date=format-local:'%Y-%m-%dT%H:%M:%SZ' --format='%H|%cd|%s' |
+  while IFS='|' read -r sha when subject; do
+    [[ "$when" > "$merged" ]] && echo "PR #$pr $branch ${sha:0:7} $when > $merged  $subject"
+  done
+done
+
+# PASSO 2 — para cada candidato, o conteúdo chegou a main?
+git show --pretty='' --name-only <sha> | while read -r f; do
+  [ "$(git rev-parse "<sha>:$f")" = "$(git rev-parse "origin/main:$f")" ] \
+    && echo "ok       $f" || echo "NÃO veio $f"
+done
+```
+
+O passo 2 é obrigatório: o passo 1 sozinho ainda produz falso positivo quando o
+conteúdo chegou por **outra** PR. Foi o caso do `2d77edb` — empurrado 166 s
+depois do merge da #63, portanto candidato, mas re-landado pela #69, portanto
+não órfão.
+
+> **A armadilha de fuso, que custou duas varreduras vazias.**
+> `git log --date=format:` formata no fuso **do commit**, não no `TZ` do
+> ambiente. O mesmo commit, impresso das duas formas:
+>
+> ```text
+> --date=format:%Y-%m-%dT%H:%M:%SZ        2026-07-29T13:17:19Z   ← hora local, carimbada como UTC
+> --date=format-local:%Y-%m-%dT%H:%M:%SZ  2026-07-29T16:17:19Z   ← correto, com TZ=UTC
+> ```
+>
+> Contra um `mergedAt` de `2026-07-29T16:14:33Z`, a primeira forma faz o commit
+> parecer **anterior** ao merge. O sinal da comparação inverte e a varredura
+> volta vazia — sem erro, sem aviso. Use `--date=format-local:` **com `TZ=UTC`**,
+> ou compare por `%ct`, que é timestamp Unix e não tem fuso.
+
+<sub>— varredura verificada na PR #85, e reproduzida aqui: 3 candidatos por data,
+2 órfãos reais confirmados por conteúdo</sub>
 
 ### Trabalho paralelo por worktree
 
@@ -332,20 +422,21 @@ Também funciona `npx vitest run` **de dentro do diretório do workspace**.
 ### A armadilha
 
 `npx vitest run` a partir de `web/` **não** é equivalente. Ele encontra todos os
-arquivos e roda com o root errado, quebrando 26 deles. O sintoma parece bug de
+arquivos e roda com o root errado, quebrando 31 deles. O sintoma parece bug de
 código; é bug de CWD.
 
 | Onde | O que acontece |
 | --- | --- |
 | `npm test` na raiz do **repo** | `npm error Missing script: "test"` |
 | `npm run test -w @chatpro/api` na raiz do **repo** | `npm error No workspaces found` |
-| `npx vitest run` em `web/` ou na raiz | roda tudo, **26 arquivos falham** |
-| `npx vitest run --root apps/api` em `web/` | **10 arquivos falham** — `--root` não muda o CWD |
+| `npx vitest run` em `web/` ou na raiz | roda tudo, **31 arquivos falham** |
+| `npx vitest run --root apps/api` em `web/` | **12 arquivos falham** — o CWD segue `web/` |
+| `npx vitest run --root apps/dashboard` em `web/` | **passa** — 26 arquivos, 396 testes |
 | `npx vitest` na raiz do **repo** | baixa `vitest@latest` da rede — outra major que a 3.2.7 fixada em `web/` |
 
-As duas causas:
+As duas causas do run puro:
 
-- **api (10 arquivos):** os testes montam o banco com
+- **api (12 arquivos):** os testes montam o banco com
   `join(process.cwd(), 'migrations')`. Fora do CWD certo isso vira
   `web/migrations`, que não existe →
   `ENOENT: no such file or directory, scandir`. Pior,
@@ -353,23 +444,31 @@ As duas causas:
   'docs', ...)` e o caminho **escapa do repositório** inteiro.
   O código de produção é imune — ele resolve por `import.meta.url`; são os
   testes que reintroduzem a dependência de CWD ao passar o caminho explícito.
-- **dashboard (16 arquivos):** sem o `vite.config.ts` do workspace, o
+- **dashboard (19 arquivos):** sem o `vite.config.ts` do workspace, o
   environment cai para `node` e o `setupFiles` não carrega →
   `ReferenceError: document is not defined`.
 
-A variante que engana mais é `--root`, porque parece endereçar exatamente o
-problema e não endereça. `npx vitest run --root apps/api` a partir de `web/` faz
-o vitest anunciar `RUN v3.2.7 .../apps/api`, mas **não muda o `process.cwd()` do
-processo** — ele continua sendo `web/`. Falham 10 arquivos e 57 testes, todos
-com a mesma mensagem, `ENOENT ... scandir '<...>/web/migrations'`; nenhuma
-asserção de negócio quebra. São exatamente os mesmos 10 arquivos da api da linha
-acima — o dashboard só não aparece porque ficou fora da descoberta. Use
-`npm run test -w @chatpro/api`, que dá 27 arquivos e 242 testes verdes.
+**Sobre o `--root`: ele não é a armadilha, e a versão anterior deste documento
+errava aqui.** A bandeira faz o vitest anunciar `RUN v3.2.7 .../apps/api` e
+**achar o config daquele workspace**, mas não muda o `process.cwd()` do
+processo — ele continua sendo `web/`. Quem quebra é quem depende do CWD:
 
-Um detalhe da contagem, para não assustar: com `--root` aparecem 58 linhas
-`FAIL` para 57 testes falhando. A 58ª é `eventos-sistema-cleanup-sql.test.ts`,
-que estoura o `ENOENT` no topo do módulo e falha como *suite*, sem chegar a
-coletar seus 10 testes — daí o total cair de 242 para 232.
+- `--root apps/api` falha em **12 arquivos e 69 testes**, todos com a mesma
+  mensagem, `ENOENT ... scandir '<...>/web/migrations'`; nenhuma asserção de
+  negócio quebra. São os mesmos 12 arquivos da api da lista acima.
+- `--root apps/dashboard` **passa** — 26 arquivos, 396 testes, exit 0. Achar o
+  `vite.config.ts` resolve o environment e o `setupFiles`, e **nenhum teste do
+  dashboard lê caminho relativo ao CWD**.
+
+Ou seja: a regra continua a mesma — rode do diretório do workspace, ou por
+`npm run test -w @chatpro/api`, que dá 32 arquivos e 282 testes verdes. Muda só o
+motivo. Não é a bandeira que é perigosa; é o teste que lê `process.cwd()`.
+
+Um detalhe da contagem, para não assustar: com `--root apps/api` aparece uma
+linha `FAIL` a mais do que os testes falhando. A sobra é
+`eventos-sistema-cleanup-sql.test.ts`, que estoura o `ENOENT` no topo do módulo e
+falha como *suite*, sem chegar a coletar seus 10 testes — daí o total cair de 282
+para 272.
 
 ### Lendo a saída
 
