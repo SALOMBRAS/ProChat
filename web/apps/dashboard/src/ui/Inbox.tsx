@@ -26,6 +26,7 @@ import { bodyRepeatsCard, mapsUrl } from "./messageMedia.js";
 export { coordinatesLabel, locationOf, mapsUrl } from "./messageMedia.js";
 import { ImageAnnotator } from "./ImageAnnotator.js";
 import { PRISTINE_EDIT, isEditableImage, isPristineEdit, type ImageEdit } from "./imageAnnotation.js";
+import { isActiveSync, resumeAttribution, syncView, type SyncResume, type SyncStatus } from "./syncProgress.js";
 import { AttachmentComposer } from "./AttachmentComposer.js";
 import { ContactPicker } from "./ContactPicker.js";
 import {
@@ -345,6 +346,12 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [noteSaveState, setNoteSaveState] = useState<"editing" | "saving" | "saved" | "error">("saved");
   const [syncJob, setSyncJob] = useState<HistorySyncJob>();
   const [startingSync, setStartingSync] = useState(false);
+  /** A quem creditar a retomada. Não vem do servidor — o job não guarda quem o
+   *  disparou —, então é o que esta tela observou: um clique daqui, ou o job
+   *  voltando a andar sozinho. */
+  const [syncResume, setSyncResume] = useState<SyncResume>("unknown");
+  const operatorAskedSync = useRef(false);
+  const previousSyncStatus = useRef<SyncStatus>();
   const [activity, setActivity] = useState<ConversationEvent[]>([]);
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [view, setView] = useState<"list" | "kanban">("list");
@@ -517,10 +524,26 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     let disposed = false;
     const load = () => void api.syncStatus!(session).then((job) => { if (!disposed) setSyncJob(job); }).catch(() => { if (!disposed) setSyncJob(undefined); });
     load();
-    const polling = syncJob?.status === "running" || syncJob?.status === "pending";
+    const polling = isActiveSync(syncJob?.status);
     const timer = polling ? window.setInterval(load, 2_000) : undefined;
     return () => { disposed = true; if (timer) window.clearInterval(timer); };
   }, [conversationPage.items, api, syncJob?.status, syncJob?.wahaSession]);
+  // Quem retomou o job só se descobre olhando a transição: de parado para ativo
+  // com um clique daqui é do operador; sem clique, foi o servidor sozinho.
+  useEffect(() => {
+    const next = syncJob?.status;
+    // O status anterior e o pedido são lidos AGORA, não dentro do atualizador: o
+    // atualizador funcional do React só corre na renderização seguinte, e a essa
+    // altura as duas referências já teriam sido sobrescritas aqui embaixo — a
+    // transição pareceria "mesmo status" e nunca creditaria ninguém.
+    const previous = previousSyncStatus.current;
+    const asked = operatorAskedSync.current;
+    previousSyncStatus.current = next;
+    // O pedido vale por uma transição: consumido, o próximo reinício sem clique
+    // volta a contar como automático.
+    if (isActiveSync(next)) operatorAskedSync.current = false;
+    setSyncResume((current) => resumeAttribution(previous, next, asked, current));
+  }, [syncJob?.status]);
   useEffect(() => {
     document
       .querySelectorAll<HTMLButtonElement>(".chat-inbox .conversation-item")
@@ -951,6 +974,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const startSync = async () => {
     const session = conversationPage.items[0]?.whatsappSessionId;
     if (!api.startSync) return;
+    // Marcado antes da chamada: o job pode voltar já ativo, e a atribuição é lida
+    // na transição de status que vem logo atrás.
+    operatorAskedSync.current = true;
     setStartingSync(true);
     try {
       setSyncJob(await api.startSync(session));
@@ -1065,6 +1091,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     if (filter === "high_priority") return conversation.priority === "high" || conversation.priority === "urgent";
     return true;
   });
+  const sync = syncView(syncJob, syncResume, startingSync);
   if (view === "kanban") return <section className="page inbox"><button className="secondary" onClick={() => setView("list")}>Lista</button><InboxKanban /></section>;
   return (
     <section className="page inbox chat-inbox">
@@ -1076,9 +1103,6 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
               <h2>
                 Conversas <span>{conversationPage.total}</span>
               </h2>
-              <small>
-          Histórico: {syncJob ? `${syncJob.progressLabel}${syncJob.status === 'running' ? ` (${syncJob.chatsProcessed} conversas, ${syncJob.messagesProcessed} mensagens)` : ''}` : "não sincronizado"}
-              </small>
             </div>
             <button
               className="secondary refresh-button"
@@ -1090,18 +1114,32 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
             </button>
             <button className="secondary" onClick={() => setView("kanban")} aria-label="Abrir Kanban">Kanban</button>
           </div>
-          <button
-            className="secondary"
-            disabled={startingSync || syncJob?.status === "running" || syncJob?.status === "pending"}
-            onClick={() => void startSync()}
-          >
-            {startingSync ? "Iniciando…" : syncJob?.status === "failed" || syncJob?.status === "cancelled" ? "Retomar sincronização" : "Sincronizar histórico"}
-          </button>
-          {(syncJob?.status === "running" || syncJob?.status === "pending") && (
-            <button className="secondary" onClick={() => void cancelSync()}>
-              Cancelar sincronização
-            </button>
-          )}
+          {/* O estado da sincronização em uma faixa só: o que está acontecendo
+              agora, quanto já veio, e a ação que cabe neste estado. Antes daqui a
+              tela repetia o último `progressLabel` gravado, então um job que
+              falhou e voltou a rodar continuava anunciando "Falhou". */}
+          {/* Região viva sem `role="status"`: o papel já existe no compositor, e
+              dois `status` na mesma tela deixam qualquer busca por papel ambígua —
+              para a leitura em voz alta o `aria-live` sozinho basta. */}
+          <div className={`inbox-sync is-${sync.tone}`} aria-live="polite">
+            <div className="inbox-sync-copy">
+              <strong>{sync.headline}</strong>
+              {sync.detail && <span>{sync.detail}</span>}
+              {sync.note && <small>{sync.note}</small>}
+            </div>
+            <div className="inbox-sync-actions">
+              {sync.canStart && (
+                <button className="secondary" disabled={sync.busy} onClick={() => void startSync()}>
+                  {sync.startLabel}
+                </button>
+              )}
+              {sync.canCancel && (
+                <button className="secondary" onClick={() => void cancelSync()}>
+                  Cancelar sincronização
+                </button>
+              )}
+            </div>
+          </div>
           <label className="inbox-management-filter">
             <span>Filtro</span>
             <select aria-label="Filtrar conversas" value={filter} onChange={(event) => setFilter(event.target.value as InboxFilter)}>
