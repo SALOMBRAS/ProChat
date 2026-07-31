@@ -537,3 +537,9 @@
 .chat-inbox .inbox-sync.is-error { border-color: #ef6d823d; background: #4b17231f; }
 .chat-inbox .inbox-sync.is-error .inbox-sync-copy strong { color: #ffabb9; }
 @media (max-width: 760px) { .chat-inbox .inbox-sync { flex-wrap: wrap; } .chat-inbox .inbox-sync-actions { margin-left: 0; } }
+/* O aviso de falha ao carregar as mensagens. Fica dentro da lista de mensagens,
+   na conversa que falhou — o `.alert` da coluna da lista é de outro assunto. */
+.chat-inbox .message-load-error { display: grid; gap: 6px; justify-items: start; margin: auto; padding: 14px 16px; max-width: 420px; border: 1px solid #ef6d823d; border-radius: 11px; background: #4b17231f; }
+.chat-inbox .message-load-error strong { color: #ffabb9; font-size: 12px; line-height: 1.45; }
+.chat-inbox .message-load-error span { color: #c9a3ab; font-size: 11px; line-height: 1.45; }
+.chat-inbox .message-load-error button { margin-top: 2px; padding: 7px 10px !important; font-size: 11px !important; }

@@ -27,6 +27,7 @@ export { coordinatesLabel, locationOf, mapsUrl } from "./messageMedia.js";
 import { ImageAnnotator } from "./ImageAnnotator.js";
 import { PRISTINE_EDIT, isEditableImage, isPristineEdit, type ImageEdit } from "./imageAnnotation.js";
 import { isActiveSync, resumeAttribution, syncView, type SyncResume, type SyncStatus } from "./syncProgress.js";
+import { messageLoadFailure, type LoadFailure } from "./messageLoadError.js";
 import { AttachmentComposer } from "./AttachmentComposer.js";
 import { ContactPicker } from "./ContactPicker.js";
 import {
@@ -352,6 +353,12 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [syncResume, setSyncResume] = useState<SyncResume>("unknown");
   const operatorAskedSync = useRef(false);
   const previousSyncStatus = useRef<SyncStatus>();
+  /** A falha de carregamento das mensagens desta conversa. Limpa no começo de todo
+   *  carregamento, e só gravada quando a conversa que falhou ainda é a aberta. */
+  const [messagesError, setMessagesError] = useState<LoadFailure>();
+  /** Lido de dentro do `catch`, que corre depois de a requisição ter ido e voltado
+   *  — a essa altura o `syncJob` daquela renderização já pode estar velho. */
+  const syncingRef = useRef(false);
   const [activity, setActivity] = useState<ConversationEvent[]>([]);
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [view, setView] = useState<"list" | "kanban">("list");
@@ -469,6 +476,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   };
   const loadLatest = async (conversationId: string, stickToEnd: boolean) => {
     setLoadingMessages(true);
+    setMessagesError(undefined);
     try {
       // The API returns the most recent reverse-cursor page first. Do not
       // request the whole history merely to find its final offset page.
@@ -477,7 +485,13 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       setMessagePage(latest.page);
       scrollAfterRender.current = stickToEnd;
     } catch (nextError) {
-      setError(errorMessage(nextError));
+      // Esta falha é *desta* conversa e vai para o painel dela, não para o alerta
+      // do topo da lista — que fica na outra coluna e sobrevive à troca de
+      // conversa, deixando um erro velho pendurado sobre uma conversa que abriu
+      // bem. A conversa fica registrada junto para o aviso não vazar para a
+      // próxima que o operador abrir.
+      if (activeConversationId.current === conversationId)
+        setMessagesError(messageLoadFailure(nextError, syncingRef.current));
     } finally {
       setLoadingMessages(false);
     }
@@ -525,6 +539,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     const load = () => void api.syncStatus!(session).then((job) => { if (!disposed) setSyncJob(job); }).catch(() => { if (!disposed) setSyncJob(undefined); });
     load();
     const polling = isActiveSync(syncJob?.status);
+    syncingRef.current = polling;
     const timer = polling ? window.setInterval(load, 2_000) : undefined;
     return () => { disposed = true; if (timer) window.clearInterval(timer); };
   }, [conversationPage.items, api, syncJob?.status, syncJob?.wahaSession]);
@@ -1260,6 +1275,18 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 onSubmit={(event) => void submitMessage(event)}
               /> : <>
               <div className="message-list" ref={listRef} onScroll={onScroll}>
+                {/* O aviso mora aqui, dentro da conversa que falhou, e só enquanto
+                    ela é a conversa aberta — não na coluna da lista, onde ficava
+                    longe do problema e sobrevivia à troca de conversa. */}
+                {messagesError && !loadingMessages && (
+                  <div className="message-load-error" role="alert">
+                    <strong>{messagesError.text}</strong>
+                    {messagesError.hint && <span>{messagesError.hint}</span>}
+                    <button type="button" className="secondary" onClick={() => void loadLatest(selected.id, true)}>
+                      Tentar novamente
+                    </button>
+                  </div>
+                )}
                 {loadingMessages ? (
                   <p className="inbox-loading">Carregando mensagens…</p>
                 ) : (
