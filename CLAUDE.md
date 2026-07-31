@@ -83,7 +83,7 @@ Consequências práticas:
 
 Permitido: Chrome headless iniciado localmente (CDP, puppeteer) para medição
 e inspeção de DOM e estilo. Isso roda nesta máquina e não abre janela para
-ninguém — foi como a PR #21 mediu performance e como a #47 mediu contraste.
+ninguém — foi como a PR #29 mediu performance em sete viewports.
 
 ## Como desenvolver com segurança
 
