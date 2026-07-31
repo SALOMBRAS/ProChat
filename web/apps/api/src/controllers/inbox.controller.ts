@@ -34,8 +34,26 @@ const slaConfigRequest = z.object({ firstResponseThresholdMs: z.number().int().p
 const kanbanMove = z.object({ boardId:z.string().uuid(),stageId:z.string().uuid(),beforeConversationId:z.string().uuid().optional(),afterConversationId:z.string().uuid().optional(),source:z.enum(['manual','automation','inbound','outbound','system']).default('manual'),expectedUpdatedAt:z.string().datetime().optional() });
 const kanbanStage = z.object({ key:z.string().trim().regex(/^[a-z0-9_]+$/).max(64),name:z.string().trim().min(1).max(80),isTerminal:z.boolean().optional(),isArchivedStage:z.boolean().optional() });
 const kanbanFilters = z.object({ page:z.coerce.number().int().positive().default(1),pageSize:z.coerce.number().int().positive().max(100).default(30),stageId:z.string().uuid(),assignedUserId:z.string().uuid().optional(),assignedTeamId:z.string().uuid().optional(),queueId:z.string().uuid().optional(),tag:z.string().max(64).optional(),sla:z.string().max(32).optional(),unread:z.coerce.boolean().optional(),type:z.enum(['direct','group']).optional(),search:z.string().max(100).optional(),from:z.string().datetime().optional(),to:z.string().datetime().optional() });
+/**
+ * `@types/multer` is pinned to 1.x while the installed runtime is 2.x, so the
+ * published type does not know `defParamCharset`. Declaring it here keeps the
+ * option type-checked instead of hidden behind a cast.
+ */
+type MulterOptions = multer.Options & { defParamCharset?: 'utf8' | 'latin1' };
+
+/**
+ * `defParamCharset` decides how the `filename` of a multipart part is decoded,
+ * and multer defaults it to `latin1`. A browser writes that filename in UTF-8,
+ * so without this option every accented name arrives corrupted byte by byte —
+ * `Relatório Anual.pdf` reaches `originalname` as `RelatÃ³rio Anual.pdf` and
+ * comes out of sanitization as `RelatA-3rio-Anual.pdf`, because NFKD turns the
+ * `³` into a `3`. Nothing fails; the contact simply receives a broken name.
+ */
+const attachmentUploadOptions: MulterOptions = { storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 1 }, defParamCharset: 'utf8' };
+export const attachmentUploadMiddleware: RequestHandler = multer(attachmentUploadOptions).single('file');
+
 export class InboxController {
-  readonly attachmentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024, files: 1 } }).single('file');
+  readonly attachmentUpload = attachmentUploadMiddleware;
   constructor(private readonly conversations: ConversationStore, private readonly inbox: InternalInboxService, private readonly context: ConversationContextService, private readonly management: ConversationManagementService, private readonly sync?: WhatsAppHistorySyncService, private readonly sessions?: { list(context: NonNullable<import('express').Request['context']>): Promise<Array<{ id: string; status: string }>> }, private readonly outbox?: AttachmentOutboxService, private readonly media?: WahaMediaProxyService, private readonly permanentMedia?: SupabaseWhatsAppMediaStorage, private readonly sla?: SlaService, private readonly kanban?: KanbanService | SupabaseKanbanService, private readonly contacts?: InboxContactService) {}
   private requireKanban() { if (!this.kanban) throw new AppError(503,'SERVICE_UNAVAILABLE','Kanban storage is unavailable for this provider'); return this.kanban; }
   kanbanBoards: RequestHandler = async (req,res)=>res.json(await this.requireKanban().boards(req.context!.workspaceId));
