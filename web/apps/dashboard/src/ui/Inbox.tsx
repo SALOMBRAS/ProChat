@@ -336,7 +336,6 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [conversationSearchInput]);
-  useEffect(() => { setVisualQueue(""); }, [selected?.id]);
   const [context, setContext] = useState<ConversationContext>();
   const [notes, setNotes] = useState("");
   const [tag, setTag] = useState("");
@@ -641,17 +640,19 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     setNotes(draft ?? "");
     setNoteSaveState(draft === undefined ? "saved" : "editing");
     setTag("");
-    // Trocar de conversa fecha o formulário de contato meio preenchido, e isso
-    // acontece *aqui*, na mesma atualização que troca `selected` — não num
-    // efeito com dependência `[selected?.id]`.
+    // O que a conversa anterior deixou para trás é descartado *aqui*, na mesma
+    // atualização que troca `selected` — não num efeito com dependência
+    // `[selected?.id]`.
     //
     // O efeito parecia equivalente e não era: ele corre depois da pintura, e a
     // primeira conversa a abrir faz a dependência ir de `undefined` para um id.
-    // Nessa transição não há nada a limpar, mas o `setCreatingContact(false)`
-    // chegava depois de o painel já estar na tela — tempo suficiente para o
-    // operador clicar em "Criar contato" e ver o formulário fechar sozinho.
+    // Nessa transição não há nada a limpar, mas o reset chegava depois de o
+    // painel já estar na tela — tempo suficiente para o operador agir sobre ele
+    // e ver o próprio gesto ser desfeito: o formulário de contato fechando
+    // sozinho, a fila voltando para "Sem fila definida".
     setCreatingContact(false);
     setContactError("");
+    setVisualQueue("");
     setSelected(conversation);
     setMessages([]);
     setMessagePage(1);

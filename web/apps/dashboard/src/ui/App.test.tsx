@@ -328,6 +328,44 @@ describe('Inbox contact creation', () => {
   });
 });
 
+describe('Inbox visual queue', () => {
+  const conversation = (id: string, chatId: string) => ({
+    id, whatsappSessionId: 'session-a', chatId, contactId: null, conversationType: 'direct' as const,
+    status: 'open' as const, lastMessage: null, lastMessageAt: '2026-07-16T18:00:00.000Z', unreadCount: 0,
+    createdAt: '2026-07-16T18:00:00.000Z', updatedAt: '2026-07-16T18:00:00.000Z',
+  });
+  const items = [conversation('conversation-a', '5511999990001@c.us'), conversation('conversation-b', '5511999990002@c.us')];
+  const apiFor = () => ({
+    conversations: vi.fn().mockResolvedValue({ items, page: 1, pageSize: 50, total: 2 }),
+    messages: vi.fn().mockResolvedValue({ items: [], page: 1, pageSize: 50, total: 0 }),
+    sendMessage: vi.fn(), markRead: vi.fn(),
+  }) as unknown as InboxApi;
+  beforeEach(() => history.replaceState({}, '', '/inbox?conversationId=conversation-a'));
+  afterEach(() => history.replaceState({}, '', '/inbox'));
+
+  it('keeps the queue the operator picked', async () => {
+    render(<Inbox api={apiFor()} />);
+    const queue = await screen.findByLabelText('Fila visual da conversa');
+    fireEvent.change(queue, { target: { value: 'Suporte' } });
+    expect(queue).toHaveValue('Suporte');
+    // The pick has to survive whatever settles after the panel first painted.
+    // It used to be wiped by an effect keyed on the conversation id, which runs
+    // once on the undefined -> id transition that opens the first conversation.
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByLabelText('Fila visual da conversa')).toHaveValue('Suporte');
+  });
+
+  it('drops the queue when the operator moves to another conversation', async () => {
+    render(<Inbox api={apiFor()} />);
+    fireEvent.change(await screen.findByLabelText('Fila visual da conversa'), { target: { value: 'Suporte' } });
+
+    fireEvent.click(screen.getByLabelText('Abrir conversa 5511999990002@c.us'));
+    // The queue is a note about the conversation left behind, not a preference:
+    // carrying it over would label the next conversation with the wrong team.
+    await waitFor(() => expect(screen.getByLabelText('Fila visual da conversa')).toHaveValue(''));
+  });
+});
+
 describe('Contacts', () => {
   const tag = (id: string, name: string) => ({ id, name, color: null });
   const contact = { id: 'contact-1', displayName: 'Ada Lovelace', phoneNumber: '5511999990001', email: 'ada@example.com', company: null };
