@@ -157,6 +157,68 @@ Sobre um reprocessamento, três coisas medidas e uma não:
 - **Reprocessar escreve em produção** e depende de autorização explícita, que
   esta PR não tem e não pediu.
 
+> **Estado em 2026-07-31:** o item acima deixou de ser não identificado. As URLs
+> **não resolvem mais, nenhuma delas**, e a causa não é uma janela de retenção em
+> dias: é de 180 segundos.
+>
+> Dez URLs amostradas contra o container `chatpro-waha`, uma por dia, da mais
+> antiga que existe à mais recente — de 21/07 00:00:35 UTC (10,6 dias) a 31/07
+> 12:32:23 UTC (2 h 48 min). **As dez responderam 404**, todas com o mesmo corpo:
+> `ENOENT: no such file or directory, stat '/tmp/whatsapp-files/index.html'`.
+> Antes de 21/07 não há descarte com `media.url` — varredura por amostra, páginas
+> de 250 por janela, não exaustiva.
+>
+> O 404 significa arquivo ausente, e não requisição errada: `/api/sessions`
+> responde 200 com a chave e 401 sem ela, um caminho inventado devolve o mesmo
+> ENOENT, e um arquivo que ainda existia respondeu 200 pela mesma forma de
+> requisição.
+>
+> **A janela foi medida, não estimada.** Um arquivo vivo, com `mtime` 14:52:30Z:
+> 200 até +174 s, 404 em +180 s. Bate com o padrão lido de
+> `/app/dist/core/media/local/MediaLocalStorageConfig.js` na própria imagem
+> (WAHA 2026.7.1, engine WEBJS):
+>
+> ```js
+> get filesLifetime() { return parseInt(this.config.get('WHATSAPP_FILES_LIFETIME', '180')); }
+> get filesFolder()  { /* ... */ return '/tmp/whatsapp-files'; }
+> ```
+>
+> `MediaLocalStorage` agenda `fs.unlink` em `lifetimeSeconds * SECOND`; só
+> `lifetime = 0` desliga a remoção. O container não define nenhuma das duas
+> variáveis — só `WHATSAPP_DOWNLOAD_MEDIA=true` —, então valem os padrões.
+> Confirmação independente nos logs da WAHA: imagem de grupo gravada às
+> 14:46:38Z, pasta já vazia na verificação seguinte, depois das 14:49:38Z.
+>
+> **Por que o arquivo se perdeu, exatamente.** `waha-webhook.controller.ts:20`
+> copia a mídia para o Storage permanente durante o próprio webhook — dentro dos
+> 180 s, com folga. Mas a chamada é guardada por `if (messageId && url)`, e
+> `messageId` vem de `result.messageId`, que é `undefined` quando a mensagem é
+> descartada. O descarte pulava o único passo que salvaria o arquivo, e três
+> minutos depois a WAHA o apagava. As duas pontas desta investigação são o mesmo
+> defeito: o evento não virava mensagem, e por não virar mensagem também não
+> virava arquivo.
+>
+> Isso também diz que o caminho vivo está a salvo: mensagem aceita hoje tem a
+> mídia copiada em segundos, muito antes do prazo.
+>
+> **Consequência para o reprocessamento.** Ele continua valendo a pena, com a
+> expectativa correta: recupera as ~4.888 mensagens de texto integralmente e,
+> para as de mídia, o registro, a conversa certa, a autoria, o horário e os
+> metadados que já estão no payload (`mimetype`, `filename`, tamanho, duração) —
+> o histórico do grupo deixa de ter buracos. Não recupera arquivo nenhum. A Inbox
+> precisa de um estado para mídia sem conteúdo baixável; `markMediaUnavailable`,
+> já presente em `WhatsAppMediaPersistenceStore`, é o gancho natural.
+>
+> **Duas recomendações operacionais**, ambas fora do escopo desta PR:
+>
+> - Subir `WHATSAPP_FILES_LIFETIME` no container. Com o padrão de 180 s,
+>   qualquer indisponibilidade de mais de três minutos entre a WAHA e o Storage
+>   perde o arquivo em definitivo, sem segunda chance.
+> - `/tmp/whatsapp-files` é local do container. O único bind mount é
+>   `.waha-sessions -> /app/.sessions`, então todo restart zera a pasta inteira,
+>   independentemente do prazo configurado. Um volume para a pasta de arquivos é
+>   o que tornaria o prazo a única variável em jogo.
+
 ## 7. Fora do escopo
 
 A ordem de resolução para eventos sem grupo não mudou, e o `@lid` do campo 2 do
