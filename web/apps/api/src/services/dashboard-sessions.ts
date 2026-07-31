@@ -33,6 +33,10 @@ export const activeSessionNames = (sessions: unknown): ReadonlySet<string> | und
     if (!session || typeof session !== 'object') continue;
     const name = (session as { wahaName?: unknown }).wahaName;
     if (typeof name === 'string' && name) names.add(name);
+    // Pareamento anterior que o worker ainda roteia para a sessão viva: a
+    // conversa gravada com esse nome continua alcançável e continua contando.
+    const aliases = (session as { aliases?: unknown }).aliases;
+    if (Array.isArray(aliases)) for (const alias of aliases) if (typeof alias === 'string' && alias) names.add(alias);
   }
   return names.size ? names : undefined;
 };
