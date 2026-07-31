@@ -255,7 +255,7 @@ describe("mensagens em texto corrompido", () => {
     render(<Inbox api={client} domain={domain()} />);
     await waitFor(() => expect(document.querySelectorAll(".chat-inbox .conversation-item")).toHaveLength(1));
     fireEvent.click(document.querySelector(".chat-inbox .conversation-item")!);
-    // Estava gravado como "NÃ£o foi possÃ­vel carregar a mÃ­dia." — bytes UTF-8
+    // mojibake-esperado: estava gravado como "NÃ£o foi possÃ­vel carregar a mÃ­dia." — bytes UTF-8
     // lidos como Latin-1, visíveis ao operador.
     const aviso = await screen.findByText("Não foi possível carregar a mídia.");
     expect(aviso.textContent).not.toContain("Ã");
