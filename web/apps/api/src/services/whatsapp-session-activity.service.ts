@@ -4,8 +4,13 @@ import { log } from '../logging.js';
 
 /** O bastante de `SessionSummary` para responder "esta sessão ainda existe?".
  *  `wahaName` é o nome que o banco grava em `conversations.wahaSession`; `id` é
- *  o identificador interno do ChatPro e não serve para comparar. */
-export type ListedSession = { status: string; wahaName?: string };
+ *  o identificador interno do ChatPro e não serve para comparar.
+ *
+ *  `aliases` são nomes de pareamentos anteriores que o worker ainda roteia para
+ *  esta mesma sessão. Uma conversa gravada com um deles **continua alcançável**,
+ *  e por isso conta como viva: ignorá-los recusaria envio em conversa que
+ *  funciona, que é exatamente o erro que este serviço existe para não cometer. */
+export type ListedSession = { status: string; wahaName?: string; aliases?: readonly string[] };
 export interface SessionLister { list(context: RequestContext): Promise<ListedSession[]>; }
 
 /** Vai em `details` do 409 para o dashboard distinguir esta recusa de qualquer
@@ -66,7 +71,7 @@ export class WhatsAppSessionActivityService {
       log('error', 'WhatsApp session activity lookup failed', { workspaceId: context.workspaceId, errorMessage: error instanceof Error ? error.message : String(error) });
       return undefined;
     }
-    const names = listed.flatMap(session => session.wahaName ? [session.wahaName] : []);
+    const names = listed.flatMap(session => [...(session.wahaName ? [session.wahaName] : []), ...(session.aliases ?? [])]);
     // Nenhum nome resolvível é indistinguível de "não perguntei": um provider
     // que não preenche `wahaName` responderia lista vazia e condenaria todas as
     // conversas do workspace de uma vez.

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InboxController } from '../src/controllers/inbox.controller.js';
 import { SqlitePersistenceDatabase } from '../src/persistence/database.js';
+import { activeSessionNames } from '../src/services/dashboard-sessions.js';
 import { RealtimeHub } from '../src/realtime.js';
 import { AttachmentOutboxService, SqliteAttachmentOutboxStore } from '../src/services/attachment-outbox.service.js';
 import { InternalInboxService } from '../src/services/internal-inbox.service.js';
@@ -203,5 +204,29 @@ describe('o painel de SLA e as conversas de sessão anterior', () => {
       await store.ingest(webhookRecord({ id: 'evt-viva', timestamp: Date.now(), event: 'message', session: live, payload: { id: 'msg-viva', chatId: '5511999990002@c.us', body: 'Oi', timestamp: Math.floor(Date.now() / 1000), fromMe: false } }, workspaceId));
       expect((await sla.summary(workspaceId)).totals).toMatchObject({ active: 1, waitingOperator: 1 });
     } finally { database.close(); }
+  });
+
+  // O worker roteia o nome de um pareamento anterior para a sessão que está no
+  // ar: `{ wahaName, aliases: [...] }`. Conversa gravada com um alias continua
+  // alcançável, então tratá-la como morta recusaria envio que funciona — o
+  // único erro que este serviço existe para não cometer. Medido em 31/07: 499
+  // das 504 conversas ditas inativas eram de um alias da sessão viva.
+  it('conta os aliases da sessão como vivos, não só o wahaName', async () => {
+    const service = new WhatsAppSessionActivityService({ list: async () => [{ status: 'connected', wahaName: live, aliases: [dead] }] });
+    const context = { workspaceId: 'workspace-a', correlationId: 'c-1' } as never;
+    expect([...(await service.activeSessions(context))!].sort()).toEqual([dead, live].sort());
+    expect(await service.isActive(context, dead)).toBe(true);
+    await expect(service.assertActive(context, dead)).resolves.toBeUndefined();
+  });
+
+  it('continua recusando a sessão que não é wahaName nem alias de ninguém', async () => {
+    const service = new WhatsAppSessionActivityService({ list: async () => [{ status: 'connected', wahaName: live, aliases: [dead] }] });
+    const context = { workspaceId: 'workspace-a', correlationId: 'c-2' } as never;
+    expect(await service.isActive(context, 'chatpro-orfa')).toBe(false);
+    await expect(service.assertActive(context, 'chatpro-orfa')).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('activeSessionNames junta wahaName e aliases', () => {
+    expect([...activeSessionNames([{ status: 'connected', wahaName: live, aliases: [dead] }])!].sort()).toEqual([dead, live].sort());
   });
 });
