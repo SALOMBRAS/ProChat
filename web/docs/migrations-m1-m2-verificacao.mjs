@@ -2,7 +2,7 @@
 // =====================================================================
 // Verificação de M1 e M2 — SQLite
 // =====================================================================
-// Rode DEPOIS de aplicar 021_contact_block.sql e 022_contact_soft_delete.sql.
+// Rode DEPOIS de aplicar 022_contact_block.sql e 023_contact_soft_delete.sql.
 //
 //   cd web && node docs/migrations-m1-m2-verificacao.mjs
 //   cd web && node docs/migrations-m1-m2-verificacao.mjs --fresh
@@ -67,7 +67,7 @@ if (FRESH) {
   console.log(`Banco novo em ${tmp} — ${arquivos.length} migrations de apps/api/migrations`);
 
   // Se M1/M2 ainda não viraram migration, aplica direto da proposta.
-  for (const [mig, arquivo] of [['M1', '021_contact_block.sql'], ['M2', '022_contact_soft_delete.sql']]) {
+  for (const [mig, arquivo] of [['M1', '022_contact_block.sql'], ['M2', '023_contact_soft_delete.sql']]) {
     if (arquivos.includes(arquivo)) continue;
     db.transaction(() => { db.exec(secaoDaProposta(mig)); marcar.run(arquivo, new Date().toISOString()); })();
     console.log(`  + ${mig} aplicada a partir de migrations-propostas-contatos.sql (ainda não é migration)`);
@@ -106,7 +106,7 @@ if (fail) { console.log('\n\x1b[31mEstrutura incompleta — as migrations não f
 
 // -------------------------------------------------- 3. migrations registradas
 sec('3. Migrations registradas no runner');
-for (const id of ['021_contact_block.sql', '022_contact_soft_delete.sql']) {
+for (const id of ['022_contact_block.sql', '023_contact_soft_delete.sql']) {
   const n = db.prepare('SELECT count(*) c FROM schema_migrations WHERE id=?').get(id).c;
   n === 1 ? ok(`${id} registrada`) : no(`${id} não registrada — o runner vai tentar reaplicar`);
 }

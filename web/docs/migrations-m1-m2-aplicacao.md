@@ -57,13 +57,62 @@ Corrigido neste commit. O `.mjs` do SQLite não pegava o defeito porque lá
 — uma assimetria SQLite × Supabase preexistente, registrada aqui e **não**
 corrigida, porque é assunto próprio e fora deste procedimento.
 
-### 2. A numeração `021` foi reivindicada por outra PR
+### 2. `ON_ERROR_STOP` estava desligado — e é por isso que a falha passou
 
-O arquivo de proposta manda M1 para `apps/api/migrations/021_contact_block.sql`.
+A suíte rodava com `\set ON_ERROR_STOP off` e era conferida **a olho**, contra
+uma lista de "ERRO ESPERADO" no rodapé. Foi isso que deixou `(0 rows)` no passo
+10 passar por um mês: sem `ON_ERROR_STOP`, **nenhuma falha tem consequência**.
+
+Agora fica **ligado**. O que impedia ligá-lo eram os nove comandos que *devem*
+falhar — com `ON_ERROR_STOP on`, cada um abortaria a suíte. Eles passaram por
+`pg_temp.espera_erro()`, que afirma **os dois lados**:
+
+```sql
+SELECT pg_temp.espera_erro(
+  $q$UPDATE public.contacts SET block_state='invalido' WHERE ...$q$,
+  'contacts_block_state_check', 'CHECK de block_state');
+```
+
+- se o comando **passa** quando devia falhar → `VERIFICACAO_FALHOU`, aborta;
+- se falha com **outro** erro → `VERIFICACAO_FALHOU`, aborta;
+- se falha pelo motivo certo → `NOTICE ok`.
+
+Antes, o rodapé pedia para o operador conferir a olho que os erros dos passos
+5, 6, 8, 12 e 14-18 eram os esperados. **Isso agora é asserção, não leitura.** A
+função vive em `pg_temp` e some com a sessão: a suíte roda contra produção e não
+deixa objeto para trás.
+
+Medido em PostgreSQL 16.14, com M1 e M2 aplicadas:
+
+```text
+suíte corrigida   -> exit 0, 9 NOTICE ok, passo 10 devolve v1
+suíte sem a coluna do passo 4 -> ERROR ... violates not-null constraint, exit 3
+```
+
+O `exit 3` é a diferença que importa: a falha virou **dura e scriptável**, em vez
+de uma linha a mais no meio da saída.
+
+### 3. As outras suítes de verificação do repositório
+
+Varridas todas. **Nenhuma outra tem o mesmo defeito**, e a razão é diferente em
+cada caso:
+
+| arquivo | executável? | veredito |
+| --- | --- | --- |
+| `migrations-m1-m2-verificacao.sql` | sim, `psql -f` | **era o problema** — corrigido aqui |
+| `migrations-m1-m2-verificacao.mjs` | sim, `node` | **ok** — tem `throws()`, reporta `no()` e sai com `process.exit(1)`; falha alto por construção |
+| `migrations-propostas-contatos.sql` | por seção | **ok** — o procedimento já manda `ON_ERROR_STOP=1` ao aplicar |
+| `migrations-propostas-eventos-sistema.sql` | por consulta | **não se aplica** — quase tudo comentado, para rodar consulta a consulta |
+| `migrations-propostas-sla.sql` | por consulta | **não se aplica** — idem, 14 linhas ativas |
+| `migrations-propostas-nome-de-arquivo.sql` | por passo | **registrar** — tem 44 linhas ativas e passos numerados; se alguém rodar com `psql -f`, um passo que falhe não interrompe os seguintes. Não corrigido aqui: é assunto da PR que o criou |
+
+### 4. A numeração `021` foi reivindicada por outra PR
+
+O arquivo de proposta manda M1 para `apps/api/migrations/022_contact_block.sql`.
 A **PR #91**, aberta, reivindica `apps/api/migrations/021_whatsapp_sync_chats_total.sql`.
 
 Não é falha — medido em banco descartável, os dois coexistem e ambos aplicam,
-porque `021_contact_block.sql` ordena antes de `021_whatsapp…` (`c` < `w`). Mas
+porque `022_contact_block.sql` ordena antes de `021_whatsapp…` (`c` < `w`). Mas
 duas migrations com o mesmo número é dívida imediata. **Antes de aplicar,
 renumere M1 e M2 para os próximos livres**, conferindo o diretório na hora:
 
@@ -72,7 +121,7 @@ ls web/apps/api/migrations/ | tail -3
 ls web/supabase/migrations/ | tail -3
 ```
 
-### 3. A armadilha do `.rollback.sql` **não** alcança M1/M2
+### 5. A armadilha do `.rollback.sql` **não** alcança M1/M2
 
 O runner do SQLite varria `*.sql` e trataria um `.rollback.sql` como migration.
 A #91 corrige com `!file.endsWith('.rollback.sql')`, e **o filtro é geral** —
@@ -147,7 +196,7 @@ SELECT column_name FROM information_schema.columns
 
 ### Passo 1 — M1 no Supabase
 
-Copie a seção `M1 / Supabase` para `web/supabase/migrations/20260727000100_contact_block.sql` e aplique.
+Copie a seção `M1 / Supabase` para `web/supabase/migrations/20260731000200_contact_block.sql` e aplique.
 
 **Verificação:**
 
@@ -176,7 +225,7 @@ SELECT block_state, block_propagation, count(*) FROM public.contacts GROUP BY 1,
 
 ### Passo 2 — M1 no SQLite
 
-Copie a seção `M1 / SQLite` para `apps/api/migrations/021_contact_block.sql`.
+Copie a seção `M1 / SQLite` para `apps/api/migrations/022_contact_block.sql`.
 O runner aplica sozinho no próximo boot da API.
 
 **Verificação** (`node` a partir de `web/`):
@@ -187,13 +236,13 @@ const D=require("better-sqlite3"); const db=new D(process.env.CHATPRO_DATABASE_P
 console.log("contacts:", db.prepare("PRAGMA table_info(contacts)").all().map(c=>c.name).filter(n=>n.startsWith("block")));
 console.log("conversations.blockedAt:", db.prepare("PRAGMA table_info(conversations)").all().some(c=>c.name==="blockedAt"));
 console.log("contact_block_events:", db.prepare("SELECT count(*) c FROM sqlite_master WHERE type=\"table\" AND name=\"contact_block_events\"").get().c===1);
-console.log("migration registrada:", db.prepare("SELECT count(*) c FROM schema_migrations WHERE id=\"021_contact_block.sql\"").get().c===1);
+console.log("migration registrada:", db.prepare("SELECT count(*) c FROM schema_migrations WHERE id=\"022_contact_block.sql\"").get().c===1);
 '
 ```
 
 ### Passo 3 — M2 no Supabase
 
-Copie a seção `M2 / Supabase` para `web/supabase/migrations/20260727000200_contact_soft_delete.sql`.
+Copie a seção `M2 / Supabase` para `web/supabase/migrations/20260731000300_contact_soft_delete.sql`.
 
 **Verificação:**
 
@@ -212,7 +261,7 @@ SELECT p.proname, p.prosecdef AS security_definer, p.proacl
 
 ### Passo 4 — M2 no SQLite
 
-Copie a seção `M2 / SQLite` para `apps/api/migrations/022_contact_soft_delete.sql`.
+Copie a seção `M2 / SQLite` para `apps/api/migrations/023_contact_soft_delete.sql`.
 
 > **Atenção:** o SQLite não tem RPC. O equivalente de `chatpro_delete_contact` é
 > uma transação em `sqlite-domain.repository.ts`, com a mesma ordem de passos e o
@@ -294,7 +343,7 @@ ALTER TABLE contacts DROP COLUMN blockRequestedAt;
 ALTER TABLE contacts DROP COLUMN blockPropagation;
 ALTER TABLE contacts DROP COLUMN blockState;
 
-DELETE FROM schema_migrations WHERE id IN ('021_contact_block.sql','022_contact_soft_delete.sql');
+DELETE FROM schema_migrations WHERE id IN ('022_contact_block.sql','023_contact_soft_delete.sql');
 ```
 
 **Depois de qualquer rollback no Supabase, reinicie a API de novo** — pelo mesmo
