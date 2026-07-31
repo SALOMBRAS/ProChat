@@ -57,6 +57,10 @@ export class InboxController {
   constructor(private readonly conversations: ConversationStore, private readonly inbox: InternalInboxService, private readonly context: ConversationContextService, private readonly management: ConversationManagementService, private readonly sync?: WhatsAppHistorySyncService, private readonly sessions?: { list(context: NonNullable<import('express').Request['context']>): Promise<Array<{ id: string; status: string }>> }, private readonly outbox?: AttachmentOutboxService, private readonly media?: WahaMediaProxyService, private readonly permanentMedia?: SupabaseWhatsAppMediaStorage, private readonly sla?: SlaService, private readonly kanban?: KanbanService | SupabaseKanbanService, private readonly contacts?: InboxContactService) {}
   private requireKanban() { if (!this.kanban) throw new AppError(503,'SERVICE_UNAVAILABLE','Kanban storage is unavailable for this provider'); return this.kanban; }
   kanbanBoards: RequestHandler = async (req,res)=>res.json(await this.requireKanban().boards(req.context!.workspaceId));
+  /** Reparo explícito: dá linha de estado às conversas visíveis que ainda não
+   *  têm. É O(conversas) e por isso é rota própria, sob comando — antes ele
+   *  rodava a cada leitura do quadro E a cada mensagem recebida. */
+  kanbanBackfill: RequestHandler = async (req,res)=>res.json(await this.requireKanban().backfillStates(req.context!.workspaceId));
   kanbanBoard: RequestHandler = async (req,res)=>res.json(await this.requireKanban().detail(req.context!.workspaceId,z.string().uuid().parse(req.params.boardId)));
   kanbanConversations: RequestHandler = async (req,res)=>{const input=kanbanFilters.parse(req.query);res.json(await this.requireKanban().conversations(req.context!.workspaceId,z.string().uuid().parse(req.params.boardId),input.stageId,input.page,input.pageSize,input));};
   kanbanMove: RequestHandler = async (req,res)=>res.json(await this.requireKanban().move(req.context!.workspaceId,z.string().uuid().parse(req.context!.userId),z.string().uuid().parse(req.params.conversationId),kanbanMove.parse(req.body)));

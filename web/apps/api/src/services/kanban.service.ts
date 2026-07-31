@@ -13,7 +13,7 @@ const statusStage: Record<string,string> = { resolved:'resolved', archived:'arch
 
 export class KanbanService {
   constructor(private readonly db: SqliteDatabase, private readonly realtime: RealtimeHub, private readonly sla: SlaService, private readonly retry: KanbanRetry = kanbanRetry()) {}
-  async boards(workspaceId:string) { const board = this.ensure(workspaceId); return [this.board(board.id)]; }
+  async boards(workspaceId:string) { const board = this.ensureBoard(workspaceId); return [this.board(board.id)]; }
   async detail(workspaceId:string, id:string) { const board=this.requireBoard(workspaceId,id); return this.board(board.id); }
   async createBoard(workspaceId:string,name:string) { const now=new Date().toISOString(), id=randomUUID(); this.db.prepare('INSERT INTO kanban_boards (id,workspaceId,name,isDefault,createdAt,updatedAt) VALUES (?,?,?,0,?,?)').run(id,workspaceId,name,now,now); return this.board(id); }
   async createStage(workspaceId:string,boardId:string,input:{key:string;name:string;isTerminal?:boolean;isArchivedStage?:boolean}) { this.requireBoard(workspaceId,boardId); const now=new Date().toISOString(), id=randomUUID(), pos=Number((this.db.prepare('SELECT MAX(position) max FROM kanban_stages WHERE boardId=?').get(boardId) as any).max ?? 0)+1; this.db.prepare('INSERT INTO kanban_stages (id,boardId,key,name,position,isTerminal,isArchivedStage,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?)').run(id,boardId,input.key,input.name,pos,input.isTerminal?1:0,input.isArchivedStage?1:0,now,now); const stage=this.stage(id); this.realtime.publish(workspaceId,'kanban.stage.created',{boardId,stage}); return stage; }
@@ -24,13 +24,15 @@ export class KanbanService {
   async history(workspaceId:string,conversationId:string) { return this.db.prepare('SELECT * FROM conversation_kanban_events WHERE workspaceId=? AND conversationId=? ORDER BY createdAt DESC').all(workspaceId,conversationId); }
   async automated(request: KanbanAutomationRequest): Promise<KanbanAutomationResult> {
     if (request.historical || request.imported || request.replay || request.technical || request.quarantined || !request.visible) return { status:'skipped', reason:'ineligible_origin' };
-    const board=this.ensure(request.workspaceId);
+    const board=this.ensureBoard(request.workspaceId);
     let claimTaken=false;
+    let stateEnsured=false;
     // Same shape as the Supabase service on purpose: the automated move carries
     // the version it read and re-reads on conflict, so both providers answer a
     // concurrent manual move the same way instead of one of them overwriting it.
     for (let attempt=1; attempt<=this.retry.attempts; attempt+=1) {
       const current=this.db.prepare('SELECT s.*, k.key stageKey FROM conversation_kanban_state s JOIN kanban_stages k ON k.id=s.stageId WHERE s.workspaceId=? AND s.conversationId=? AND s.boardId=?').get(request.workspaceId,request.conversationId,board.id) as any;
+      if(!current && !stateEnsured) { stateEnsured=true; if(this.ensureState(request.workspaceId,request.conversationId,board.id)) continue; }
       if(!current || current.manualOverride) return { status:'skipped', reason:current?.manualOverride?'manual_override':'missing_state' };
       const target=request.direction==='inbound'&&current.stageKey==='waiting_customer'?'waiting_operator':request.direction==='outbound'&&['new','waiting_operator','in_progress'].includes(current.stageKey)?'waiting_customer':undefined;
       if(!target) return { status:'skipped', reason:'stage_rule' };
@@ -41,7 +43,31 @@ export class KanbanService {
     }
     return { status:'failed', reason:'conflict_exhausted' };
   }
-  private ensure(workspaceId:string) {
+  /**
+   *  O reparo em massa: dá linha de estado a toda conversa visível que ainda não
+   *  tem. É O(conversas) e por isso saiu do caminho de leitura e do de ingestão —
+   *  agora só roda por comando explícito. Idempotente: rodar duas vezes não muda
+   *  nada na segunda.
+   */
+  async backfillStates(workspaceId:string) {
+    const board=this.ensureBoard(workspaceId);
+    const now=new Date().toISOString();
+    return this.db.transaction(()=>{
+      const stages=this.db.prepare('SELECT id,key FROM kanban_stages WHERE boardId=?').all(board.id) as Array<{id:string;key:string}>;
+      const byKey=Object.fromEntries(stages.map(stage=>[stage.key,stage.id]));
+      const conversations=this.db.prepare("SELECT id,status FROM conversations WHERE workspaceId=? AND visibilityState='visible'").all(workspaceId) as Array<{id:string;status:string}>;
+      let cardPosition=Number((this.db.prepare('SELECT MAX(position) max FROM conversation_kanban_state WHERE workspaceId=? AND boardId=?').get(workspaceId,board.id) as any).max??0);
+      const insert=this.db.prepare('INSERT OR IGNORE INTO conversation_kanban_state (workspaceId,conversationId,boardId,stageId,position,manualOverride,lastTransitionSource,lastTransitionBy,lastTransitionAt,createdAt,updatedAt) VALUES (?,?,?,?,?,0,\'system\',NULL,?,?,?)');
+      let created=0;
+      for(const conversation of conversations) { cardPosition+=1; created+=insert.run(workspaceId,conversation.id,board.id,byKey[statusStage[conversation.status]??'new'],cardPosition,now,now,now).changes; }
+      return { boardId:board.id, examined:conversations.length, created };
+    })();
+  }
+  /**
+   *  O quadro e as etapas padrão, sem tocar em conversa nenhuma. É O(1) — um
+   *  quadro, seis etapas — e é o que sobrou de `ensure()` nos caminhos quentes.
+   */
+  private ensureBoard(workspaceId:string) {
     const now=new Date().toISOString();
     return this.db.transaction(()=>{
       let board=this.db.prepare('SELECT * FROM kanban_boards WHERE workspaceId=? AND isDefault=1').get(workspaceId) as any;
@@ -57,14 +83,27 @@ export class KanbanService {
         position+=1;
         this.db.prepare('INSERT INTO kanban_stages (id,boardId,key,name,position,isTerminal,isArchivedStage,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?)').run(randomUUID(),board.id,key,name,position,key==='resolved'||key==='archived'?1:0,key==='archived'?1:0,now,now);
       }
-      const stages=this.db.prepare('SELECT id,key FROM kanban_stages WHERE boardId=?').all(board.id) as Array<{id:string;key:string}>;
-      const byKey=Object.fromEntries(stages.map(stage=>[stage.key,stage.id]));
-      const conversations=this.db.prepare("SELECT id,status FROM conversations WHERE workspaceId=? AND visibilityState='visible'").all(workspaceId) as Array<{id:string;status:string}>;
-      let cardPosition=Number((this.db.prepare('SELECT MAX(position) max FROM conversation_kanban_state WHERE workspaceId=? AND boardId=?').get(workspaceId,board.id) as any).max??0);
-      const insert=this.db.prepare('INSERT OR IGNORE INTO conversation_kanban_state (workspaceId,conversationId,boardId,stageId,position,manualOverride,lastTransitionSource,lastTransitionBy,lastTransitionAt,createdAt,updatedAt) VALUES (?,?,?,?,?,0,\'system\',NULL,?,?,?)');
-      for(const conversation of conversations) { cardPosition+=1; insert.run(workspaceId,conversation.id,board.id,byKey[statusStage[conversation.status]??'new'],cardPosition,now,now,now); }
       return board;
     })();
+  }
+  /**
+   *  A linha de estado da conversa que ESTA mensagem toca, e só dela. É o que
+   *  substitui, no caminho de ingestão, a varredura de todas as conversas: uma
+   *  conversa nova ganha card na primeira mensagem ao vivo, ao custo de uma
+   *  escrita idempotente em vez de C.
+   *
+   *  Não cobre origem que `automated()` recusa antes de chegar aqui — histórico,
+   *  importado, quarentena, invisível. Essas continuam dependendo do reparo, e é
+   *  por isso que ele virou rota e não sumiu.
+   */
+  private ensureState(workspaceId:string, conversationId:string, boardId:string) {
+    const conversation=this.db.prepare("SELECT status FROM conversations WHERE workspaceId=? AND id=? AND visibilityState='visible'").get(workspaceId,conversationId) as {status:string}|undefined;
+    if(!conversation) return false;
+    const stage=this.db.prepare('SELECT id FROM kanban_stages WHERE boardId=? AND key=?').get(boardId,statusStage[conversation.status]??'new') as {id:string}|undefined;
+    if(!stage) return false;
+    const now=new Date().toISOString();
+    const position=Number((this.db.prepare('SELECT MAX(position) max FROM conversation_kanban_state WHERE workspaceId=? AND boardId=?').get(workspaceId,boardId) as any).max??0)+1;
+    return this.db.prepare('INSERT OR IGNORE INTO conversation_kanban_state (workspaceId,conversationId,boardId,stageId,position,manualOverride,lastTransitionSource,lastTransitionBy,lastTransitionAt,createdAt,updatedAt) VALUES (?,?,?,?,?,0,\'system\',NULL,?,?,?)').run(workspaceId,conversationId,boardId,stage.id,position,now,now,now).changes>0;
   }
   private board(id:string) { const board=this.db.prepare('SELECT * FROM kanban_boards WHERE id=?').get(id) as any; const stages=this.db.prepare('SELECT * FROM kanban_stages WHERE boardId=? ORDER BY position').all(id) as any[]; return {...this.mapBoard(board),stages:stages.map(s=>({...this.mapStage(s),count:Number((this.db.prepare("SELECT count(*) total FROM conversation_kanban_state ks JOIN conversations c ON c.id=ks.conversationId AND c.workspaceId=ks.workspaceId WHERE ks.boardId=? AND ks.stageId=? AND c.visibilityState='visible'").get(id,s.id) as any).total)}))}; }
   private requireBoard(workspaceId:string,id:string) { const row=this.db.prepare('SELECT * FROM kanban_boards WHERE id=? AND workspaceId=?').get(id,workspaceId) as any; if(!row) throw new AppError(404,'NOT_FOUND','Board not found'); return row; }
