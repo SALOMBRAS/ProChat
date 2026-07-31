@@ -13,6 +13,7 @@ import { DomainController } from './controllers/domain.controller.js';
 import { SqlitePersistenceDatabase } from './persistence/database.js';
 import { createDomainRepositoryForProvider } from './persistence/provider.js';
 import { createSupabasePersistenceClient } from './persistence/supabase.js';
+import { resetSupabaseCallTally, supabaseCallStatsEnabled, supabaseCallTally } from './persistence/supabase-call-stats.js';
 import { WahaWebhookController } from './controllers/waha-webhook.controller.js';
 import { InboxController } from './controllers/inbox.controller.js';
 import { SqliteWahaWebhookStore, SupabaseWahaWebhookStore } from './services/waha-webhook.service.js';
@@ -92,6 +93,10 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     app.locals.wahaWebhookStore = webhookStore;
     const mediaPersistence = new WhatsAppMediaPersistenceService(webhookStore, permanentMedia, { baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey });
     if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void sla.tick().catch(error => log('error', 'SLA tick failed', { error: error instanceof Error ? error.stack ?? error.message : String(error) })); }, 60_000); timer.unref(); }
+    // Janela fixa de 60 s: o que se quer saber é taxa por minuto, e zerar a cada
+    // dump é o que separa um minuto do seguinte em vez de acumular desde o boot
+    // — foi confundir acumulado com taxa que apontou o Kanban como suspeito.
+    if (supabaseCallStatsEnabled()) { const timer = setInterval(() => { log('info', 'Supabase call tally', { windowSeconds: 60, calls: supabaseCallTally() }); resetSupabaseCallTally(); }, 60_000); timer.unref(); }
     const routing = new RoutingService(routingStore, webhookStore, directory, realtimeHub, database ? new SqliteRoutingJobStore(database.sqlite) : undefined);
     const attachments = new AttachmentOutboxService(webhookStore, outboxStore, attachmentStorage, workerClient);
     // A restart must never turn stored work into provider calls. Old rows
