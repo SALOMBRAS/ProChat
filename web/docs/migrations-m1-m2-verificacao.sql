@@ -71,8 +71,12 @@ DELETE FROM public.contacts WHERE workspace_id='__verify_m1m2__';
 
 INSERT INTO public.contacts (id,workspace_id,display_name,phone_number,created_at,updated_at)
 VALUES ('v1','__verify_m1m2__','Verificacao','+000000000001',now(),now());
-INSERT INTO public.conversations (id,workspace_id,waha_session,chat_id,contact_id,status,last_message_at,unread_count,created_at,updated_at)
-VALUES (gen_random_uuid(),'__verify_m1m2__','verify','+000000000001@c.us','v1','open',now(),0,now(),now());
+-- `last_status_change` e NOT NULL desde 20260719000200_multioperator_conversation_management.sql:11.
+-- Sem ela o INSERT falha, a conversa nunca nasce, e o passo 10 -- que e a
+-- asseracao central de M2 -- devolve (0 rows) em vez de v1. Como esta suite roda
+-- com ON_ERROR_STOP off e e conferida a olho, isso lia como sucesso.
+INSERT INTO public.conversations (id,workspace_id,waha_session,chat_id,contact_id,status,last_status_change,last_message_at,unread_count,created_at,updated_at)
+VALUES (gen_random_uuid(),'__verify_m1m2__','verify','+000000000001@c.us','v1','open',now(),now(),0,now(),now());
 
 -- ------------------------------------------------------------------- CHECKs
 \echo ''

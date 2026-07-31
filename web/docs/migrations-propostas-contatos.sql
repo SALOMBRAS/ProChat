@@ -777,6 +777,15 @@ ALTER TABLE contacts DROP COLUMN deletedAt;
 -- #  PRÉ-REQUISITO DE CÓDIGO DE M3 — SEM ELE, A PURGA REVOGA O OPT-OUT #
 -- #####################################################################
 --
+-- ESTADO EM 2026-07-31: ESTE PARÁGRAFO FICOU FALSO, E ISSO É BOA NOTÍCIA.
+-- A PR #36 criou os leitores nos dois provedores, então o pré-requisito de
+-- código abaixo JÁ ESTÁ SATISFEITO:
+--   apps/api/src/persistence/supabase-domain.repository.ts:91  orphanOptOut
+--   apps/api/src/persistence/sqlite-domain.repository.ts:78    optOutStatus
+--   apps/api/src/services/opt-out-identity.ts:64               sondagem de coluna
+-- O texto original segue abaixo, preservado, porque descreve por que o
+-- pré-requisito existe.
+--
 -- identifier_hash, hoje, seria uma coluna WRITE-ONLY. Um grep por
 -- "identifier_hash|identifierHash" em todo o repositório (.ts/.tsx/.sql), fora
 -- este arquivo de proposta, retorna ZERO ocorrências. Não existe leitor.
