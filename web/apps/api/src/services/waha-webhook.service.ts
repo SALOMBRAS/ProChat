@@ -83,7 +83,13 @@ export class SqliteWahaWebhookStore implements WahaWebhookStore, ConversationSto
         await this.sla?.run({ workspaceId: event.workspaceId, conversationId: persisted.conversationId, messageId: persisted.messageId!, direction: persisted.direction!, occurredAt: event.occurredAt, historical: Boolean(persisted.historical) });
       }
       return persisted;
-    } catch (error) { if (isUniqueError(error)) return { duplicate: true, messageInserted: false }; throw error; }
+    // `duplicate` é resposta do caminho de ingestão, onde a colisão esperada é a
+    // do evento bruto reentregue pela WAHA. No reprocessamento esse INSERT nem
+    // acontece, e `isUniqueError` casa com qualquer "constraint" — inclusive a
+    // de chave estrangeira. Sem esta guarda, uma falha real de gravação seria
+    // reportada como duplicata e sairia do relatório como `skipped`, que é o
+    // jeito mais silencioso possível de perder trabalho num reparo de dez mil.
+    } catch (error) { if (options.storeEvent && isUniqueError(error)) return { duplicate: true, messageInserted: false }; throw error; }
   }
   async listConversations(workspaceId: string, page: number, pageSize: number, cursor?: string, search?: string): Promise<CursorPage<ConversationSummary>> { const limit = Math.min(pageSize, 100); const parsed = cursorValue(cursor); const terms = search?.trim() ? `%${search.trim().replace(/[%_]/g, '\\$&')}%` : undefined; const where = ["c.workspaceId = ?", "c.visibilityState = 'visible'", ...(terms ? ["(c.chatId LIKE ? ESCAPE '\\' OR COALESCE(i.name, i.pushName, c.lastMessage, '') LIKE ? ESCAPE '\\')"] : []), ...(parsed ? ["(c.lastMessageAt < ? OR (c.lastMessageAt = ? AND c.id > ?))"] : [])]; const values = [workspaceId, ...(terms ? [terms, terms] : []), ...(parsed ? [parsed.at, parsed.at, parsed.id] : [])]; const total = (this.database.prepare(`SELECT count(*) AS total FROM conversations c LEFT JOIN whatsapp_identities i ON i.workspaceId=c.workspaceId AND i.wahaSession=c.wahaSession AND i.whatsappId=c.chatId WHERE ${where.slice(0, terms ? 3 : 2).join(' AND ')}`).get(...values.slice(0, terms ? 3 : 1)) as { total: number }).total; const rows = this.rows(`WHERE ${where.join(' AND ')} ORDER BY c.lastMessageAt DESC, c.id ASC LIMIT ?`, ...values, limit + 1); const more = rows.length > limit; const items = rows.slice(0, limit).map(toConversationSummary); const last = items.at(-1); return { items, page, pageSize: limit, total, hasMore: more, nextCursor: more && last ? encodeCursor(last.lastMessageAt, last.id) : null }; }
   async listQuarantined(workspaceId: string, page: number, pageSize: number) { const total = (this.database.prepare("SELECT count(*) AS total FROM conversations WHERE workspaceId = ? AND visibilityState IN ('quarantined', 'technical')").get(workspaceId) as { total: number }).total; const rows = this.rows("WHERE c.workspaceId = ? AND c.visibilityState IN ('quarantined', 'technical') ORDER BY c.lastMessageAt DESC, c.id ASC LIMIT ? OFFSET ?", workspaceId, pageSize, (page - 1) * pageSize); return { items: rows.map(toConversationSummary), page, pageSize, total }; }
@@ -126,17 +132,20 @@ export class SupabaseWahaWebhookStore implements WahaWebhookStore, ConversationS
   async listDiscardedEvents(input: { workspaceId?: string; after?: string; limit: number }): Promise<DiscardedEventPage> {
     const events: StoredWebhook[] = [];
     let after = input.after ?? null;
-    let esgotado = false;
-    while (events.length < input.limit && !esgotado) {
+    // Só uma página vazia prova o fim. O PostgREST pode devolver menos linhas do
+    // que o `limit` pedido — por teto de linhas do projeto ou por tamanho da
+    // resposta, e estes eventos carregam o payload inteiro. Tratar página curta
+    // como fim faz a varredura parar no meio e relatar `done: true`, que num
+    // reparo de dez mil é a forma mais silenciosa de deixar trabalho para trás.
+    let vazio = false;
+    while (events.length < input.limit && !vazio) {
       const janela = input.limit * 2;
       let consulta = this.client.from('waha_webhook_events').select('workspace_id,waha_session,external_event_id,event_type,occurred_at,payload_json,received_at').in('event_type', ['message', 'message.any']).order('external_event_id', { ascending: true }).limit(janela);
       if (input.workspaceId) consulta = consulta.eq('workspace_id', input.workspaceId);
       if (after) consulta = consulta.gt('external_event_id', after);
       const { data, error } = await consulta; if (error) throw error;
       const pagina = (data ?? []) as Array<Record<string, any>>;
-      if (!pagina.length) { esgotado = true; break; }
-      after = pagina[pagina.length - 1].external_event_id;
-      esgotado = pagina.length < janela;
+      if (!pagina.length) { vazio = true; break; }
       // O `in` vira filtro serializado na URL, e o PostgREST corta em ~16 KB de
       // header: 600 ids destes deram 19.916 caracteres e a chamada morreu. O
       // lote de 100 é o mesmo teto já justificado em `criticalSampleLimit`.
@@ -146,12 +155,18 @@ export class SupabaseWahaWebhookStore implements WahaWebhookStore, ConversationS
         const { data: existentes, error: erroMensagem } = await this.client.from('whatsapp_messages').select('external_event_id').in('external_event_id', ids); if (erroMensagem) throw erroMensagem;
         for (const row of (existentes ?? []) as Array<{ external_event_id: string }>) persistidos.add(row.external_event_id);
       }
+      // O cursor anda até a última linha *examinada*, nunca até o fim da página:
+      // quando o laço para no limite pedido, as linhas seguintes não foram
+      // olhadas, e avançar por cima delas as descartaria em silêncio. Foi assim
+      // que uma varredura desta base achou 6.500 pendentes onde havia 10.481.
       for (const row of pagina) {
-        if (persistidos.has(row.external_event_id) || events.length >= input.limit) continue;
+        if (events.length >= input.limit) break;
+        after = row.external_event_id;
+        if (persistidos.has(row.external_event_id)) continue;
         events.push({ workspaceId: row.workspace_id, wahaSession: row.waha_session, externalEventId: row.external_event_id, eventType: row.event_type as StoredWebhook['eventType'], occurredAt: row.occurred_at, payload: (row.payload_json ?? {}) as Record<string, unknown>, receivedAt: row.received_at });
       }
     }
-    return { events, nextAfter: esgotado ? null : after };
+    return { events, nextAfter: vazio ? null : after };
   }
   private async persistEvent(event: StoredWebhook, options: PersistOptions): Promise<IngestResult> {
     if (options.storeEvent) {

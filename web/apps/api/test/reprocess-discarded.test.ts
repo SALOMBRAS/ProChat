@@ -181,3 +181,70 @@ describe('anti-junção do provedor Supabase', () => {
     expect(pagina.events.map(evento => evento.externalEventId)).not.toContain('evt-0000');
   });
 });
+
+describe('falha de gravação no reprocessamento', () => {
+  // `whatsapp_messages` tem chave estrangeira para `waha_webhook_events`. Em
+  // produção o evento bruto está lá e a chave se apoia nele; se por algum motivo
+  // não estiver, a gravação falha — e a falha tem de aparecer como falha.
+  // `isUniqueError` casa com qualquer "constraint", então sem a guarda de
+  // `storeEvent` este caso voltaria como `duplicate: true` e a rotina o contaria
+  // como `skipped`, indistinguível de um evento legitimamente recusado.
+  it('propaga a falha de restrição em vez de reportá-la como duplicata', async () => {
+    const { store } = montar();
+    await expect(store.reprocess({
+      workspaceId: 'workspace-a', wahaSession: 'waha-a', externalEventId: 'evento-bruto-ausente',
+      eventType: 'message', occurredAt: ocorridoEm, payload: eventoDeGrupo(9, 'chat', { body: 'x' }), receivedAt: ocorridoEm,
+    })).rejects.toThrow(/constraint/i);
+  });
+});
+
+describe('fim da varredura no provedor Supabase', () => {
+  // O PostgREST pode devolver menos linhas do que o `limit` pedido, e estes
+  // eventos carregam o payload inteiro. Só página vazia prova o fim: tratar
+  // página curta como fim faria a varredura parar no meio e relatar `done`.
+  it('não confunde página curta com fim da varredura', async () => {
+    const paginas = [
+      Array.from({ length: 3 }, (_, i) => ({ workspace_id: 'workspace-a', waha_session: 'waha-a', external_event_id: `evt-a${i}`, event_type: 'message', occurred_at: ocorridoEm, payload_json: eventoDeGrupo(i, 'chat', { body: 'x' }), received_at: ocorridoEm })),
+      Array.from({ length: 2 }, (_, i) => ({ workspace_id: 'workspace-a', waha_session: 'waha-a', external_event_id: `evt-b${i}`, event_type: 'message', occurred_at: ocorridoEm, payload_json: eventoDeGrupo(10 + i, 'chat', { body: 'x' }), received_at: ocorridoEm })),
+      [],
+    ];
+    let chamada = 0;
+    const construtor = (tabela: string) => {
+      const alvo: any = {
+        select: () => alvo, order: () => alvo, limit: () => alvo, eq: () => alvo, gt: () => alvo, in: () => alvo,
+        then: (resolver: (valor: unknown) => unknown) => resolver(tabela === 'waha_webhook_events'
+          ? { data: paginas[Math.min(chamada++, paginas.length - 1)], error: null }
+          : { data: [], error: null }),
+      };
+      return alvo;
+    };
+    const store = new SupabaseWahaWebhookStore({ from: construtor } as never);
+    const pagina = await store.listDiscardedEvents({ workspaceId: 'workspace-a', limit: 100 });
+    // As duas páginas curtas foram consumidas antes da vazia encerrar a varredura.
+    expect(pagina.events.map(evento => evento.externalEventId)).toEqual(['evt-a0', 'evt-a1', 'evt-a2', 'evt-b0', 'evt-b1']);
+    expect(pagina.nextAfter).toBeNull();
+  });
+});
+
+describe('cursor da varredura no provedor Supabase', () => {
+  // Quando a página traz mais linhas do que o limite pedido, o laço para na
+  // cota — e as linhas restantes não foram examinadas. Se o cursor avançasse
+  // até o fim da página, elas nunca mais seriam vistas: a varredura relataria
+  // fim tendo pulado trabalho. Medido na base real: 6.500 encontrados onde
+  // havia 10.481.
+  it('avança o cursor só até a última linha examinada', async () => {
+    const pagina = Array.from({ length: 10 }, (_, i) => ({ workspace_id: 'workspace-a', waha_session: 'waha-a', external_event_id: `evt-${String(i).padStart(2, '0')}`, event_type: 'message', occurred_at: ocorridoEm, payload_json: eventoDeGrupo(i, 'chat', { body: 'x' }), received_at: ocorridoEm }));
+    const construtor = (tabela: string) => {
+      const alvo: any = {
+        select: () => alvo, order: () => alvo, limit: () => alvo, eq: () => alvo, gt: () => alvo, in: () => alvo,
+        then: (r: (v: unknown) => unknown) => r(tabela === 'waha_webhook_events' ? { data: pagina, error: null } : { data: [], error: null }),
+      };
+      return alvo;
+    };
+    const store = new SupabaseWahaWebhookStore({ from: construtor } as never);
+    const resultado = await store.listDiscardedEvents({ workspaceId: 'workspace-a', limit: 4 });
+    expect(resultado.events.map(e => e.externalEventId)).toEqual(['evt-00', 'evt-01', 'evt-02', 'evt-03']);
+    // O cursor tem de parar em evt-03, e não em evt-09: da 4 à 9 ninguém olhou.
+    expect(resultado.nextAfter).toBe('evt-03');
+  });
+});
