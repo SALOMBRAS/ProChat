@@ -315,7 +315,38 @@
 .chat-inbox .composer-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-inbox .composer-editor-head strong { font-size: 13px; }
 .chat-inbox .composer-editor-head button { padding: 2px 7px !important; border: 0 !important; background: transparent !important; color: #c6b9d0 !important; font-size: 19px !important; }
-.chat-inbox .composer-editor-canvas { width: 100%; max-height: 260px; border-radius: 10px; background: #090910; object-fit: contain; touch-action: none; cursor: crosshair; }
+/* A moldura tem a proporção da imagem editada (`--editor-ratio`, posto no elemento
+   pelo componente) e cabe no espaço disponível pelos dois lados: `width` limita
+   pela largura e por `--editor-max * proporção`, que é o mesmo que limitar pela
+   altura. Com a caixa medindo exatamente a área desenhada, a alça do recorte
+   posicionada em porcentagem pousa sobre o pixel certo — e o ponteiro da caneta
+   também, o que `object-fit: contain` estragava numa foto alta. */
+.chat-inbox .composer-editor-frame { --editor-max: 260px; position: relative; width: min(100%, calc(var(--editor-max) * var(--editor-ratio, 1))); margin: 0 auto; aspect-ratio: var(--editor-ratio, 1); }
+.chat-inbox .composer-editor-canvas { display: block; width: 100%; height: 100%; border-radius: 10px; background: #090910; touch-action: none; cursor: crosshair; }
+/* A camada do recorte só recorta o que sai da moldura: o escurecimento de fora da
+   seleção é a sombra de 9999px da própria caixa, e sem este `overflow` ela vazaria
+   por cima das ferramentas. */
+.chat-inbox .composer-editor-crop { position: absolute; inset: 0; overflow: hidden; border-radius: 10px; pointer-events: none; }
+.chat-inbox .composer-editor-crop-box { position: absolute; border: 1px solid #ffffff88; box-shadow: 0 0 0 9999px #000000b8; cursor: move; pointer-events: auto; touch-action: none; }
+/* As alças ficam por dentro da seleção de propósito: metade para fora seria cortada
+   pelo `overflow` da camada justamente nos cantos da imagem, que é onde mais se
+   recorta. */
+.chat-inbox .composer-editor-crop-handle { position: absolute; width: 15px; height: 15px; padding: 0 !important; border: 2px solid #fff !important; border-radius: 5px !important; background: #a855f7 !important; box-shadow: 0 1px 4px #00000088; cursor: pointer; touch-action: none; }
+.chat-inbox .composer-editor-crop-handle:focus-visible { outline: 2px solid #c084fc; outline-offset: 2px; }
+.chat-inbox .composer-editor-crop-handle.is-nw { top: 0; left: 0; }
+.chat-inbox .composer-editor-crop-handle.is-ne { top: 0; right: 0; }
+.chat-inbox .composer-editor-crop-handle.is-se { right: 0; bottom: 0; }
+.chat-inbox .composer-editor-crop-handle.is-sw { bottom: 0; left: 0; }
+.chat-inbox .composer-editor-crop-handle.is-n { top: 0; left: 50%; transform: translateX(-50%); }
+.chat-inbox .composer-editor-crop-handle.is-s { bottom: 0; left: 50%; transform: translateX(-50%); }
+.chat-inbox .composer-editor-crop-handle.is-w { top: 50%; left: 0; transform: translateY(-50%); }
+.chat-inbox .composer-editor-crop-handle.is-e { top: 50%; right: 0; transform: translateY(-50%); }
+.chat-inbox .composer-editor-modes, .chat-inbox .composer-editor-turns, .chat-inbox .composer-editor-aspects { display: flex; align-items: center; gap: 6px; }
+.chat-inbox .composer-editor-turns { margin-left: auto; }
+.chat-inbox .composer-editor-modes button, .chat-inbox .composer-editor-turns button, .chat-inbox .composer-editor-aspects button { padding: 6px 9px !important; border: 1px solid #ffffff22 !important; border-radius: 9px !important; background: #ffffff0b !important; color: #e8dcea !important; font-size: 11px !important; font-weight: 700; }
+.chat-inbox .composer-editor-modes button[aria-checked="true"], .chat-inbox .composer-editor-aspects button[aria-checked="true"] { border-color: #d8b4fe88 !important; background: #a855f744 !important; color: #fff !important; }
+.chat-inbox .composer-editor-modes button:disabled, .chat-inbox .composer-editor-turns button:disabled, .chat-inbox .composer-editor-aspects button:disabled { opacity: .48; }
+.chat-inbox .composer-editor-crop-size { margin-left: auto; color: #a697b4; font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .chat-inbox .composer-editor-notice { margin: 0; color: #a697b4; font-size: 10px; line-height: 1.4; }
 .chat-inbox .composer-editor-error { margin: 0; color: #ff9c9c; font-size: 11px; line-height: 1.4; }
 .chat-inbox .composer-editor-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
@@ -335,7 +366,7 @@
 .chat-inbox .composer-pending-tools { display: flex; align-items: center; gap: 6px; }
 .chat-inbox .composer-pending-edit { display: grid; place-items: center; width: 30px; height: 30px; padding: 0 !important; border: 1px solid #ffffff1b !important; border-radius: 10px !important; background: #ffffff0b !important; color: #d7c3e9 !important; font-size: 14px; line-height: 1; transition: color .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease; }
 .chat-inbox .composer-pending-edit:hover:not(:disabled), .chat-inbox .composer-pending-edit:focus-visible { border-color: #d8b4fe88 !important; background: #a855f744 !important; box-shadow: 0 0 14px #8b5cf644; color: #fff !important; outline: none; }
-@media (max-width: 760px) { .chat-inbox .composer-editor { width: 100%; padding: 9px; } .chat-inbox .composer-editor-canvas { max-height: 210px; } }
+@media (max-width: 760px) { .chat-inbox .composer-editor { width: 100%; padding: 9px; } .chat-inbox .composer-editor-frame { --editor-max: 210px; } }
 
 /* Colar e arrastar. A moldura do arrasto cobre a conversa inteira porque o alvo é
    a conversa, não um retângulo que o operador precise mirar. */
@@ -382,7 +413,7 @@
 /* O painel foi desenhado para a faixa estreita do compositor; aqui há a área da
    conversa inteira, e deixá-lo com 260px de canvas desperdiçaria o espaço que
    justifica esta tela. */
-.chat-inbox .attachment-stage-preview .composer-editor-canvas { max-height: min(46vh, 430px); }
+.chat-inbox .attachment-stage-preview .composer-editor-frame { --editor-max: min(46vh, 430px); }
 @media (max-width: 760px) {
   .chat-inbox .attachment-stage-bar, .chat-inbox .attachment-stage-composer, .chat-inbox .attachment-stage-confirm { padding-left: 12px; padding-right: 12px; }
   .chat-inbox .attachment-stage-tools button b { display: none; }

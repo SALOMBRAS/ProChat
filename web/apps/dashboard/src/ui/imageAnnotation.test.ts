@@ -2,22 +2,38 @@ import { describe, expect, it, vi } from "vitest";
 import stylesheet from "./styles.css?raw";
 import {
   ANNOTATION_BACKDROP,
+  CROP_ASPECTS,
   EDITABLE_IMAGE_TYPES,
   EDITOR_MAX_DIMENSION,
   IMAGE_UPLOAD_LIMIT,
+  MIN_CROP_SIDE,
   PEN_COLORS,
   PEN_LEVELS,
   annotatedName,
+  applyMatrix,
   canvasPoint,
+  cropHandlePoint,
+  dragCrop,
   exportAnnotated,
   exportPlan,
+  fitAspect,
   fitWithin,
+  frameSize,
+  geometryMatrix,
   isEditableImage,
+  isPristineEdit,
+  normalizeCrop,
+  outputSize,
   penWidth,
   pointerSamples,
   renderAnnotation,
+  toBasePoint,
   tracePath,
+  turnRect,
+  turnRotation,
   type AnnotationContext,
+  type Rect,
+  type Rotation,
   type Stroke,
 } from "./imageAnnotation.js";
 
@@ -35,6 +51,7 @@ const spyContext = () => {
     save: record("save"), restore: record("restore"),
     beginPath: record("beginPath"), moveTo: record("moveTo"), lineTo: record("lineTo"),
     quadraticCurveTo: record("quadraticCurveTo"), stroke: record("stroke"),
+    setTransform: record("setTransform"),
     fillRect: record("fillRect"), drawImage: record("drawImage"),
     fillStyle: "", strokeStyle: "", lineWidth: 0, lineCap: "butt" as CanvasLineCap, lineJoin: "miter" as CanvasLineJoin,
   };
@@ -74,6 +91,211 @@ describe("teto de resolução", () => {
   it("nunca devolve dimensão zero", () => {
     expect(fitWithin(0, 0)).toEqual({ width: 1, height: 1, reduced: false });
     expect(fitWithin(20_000, 1).height).toBe(1);
+  });
+});
+
+describe("quadro, giro e tamanho de saída", () => {
+  const base = { width: 1200, height: 900 };
+
+  it("um quarto de volta troca os lados do quadro; meia volta, não", () => {
+    expect(frameSize(base, 90)).toEqual({ width: 900, height: 1200 });
+    expect(frameSize(base, 270)).toEqual({ width: 900, height: 1200 });
+    expect(frameSize(base, 180)).toEqual({ width: 1200, height: 900 });
+    expect(frameSize(base, 0)).toEqual(base);
+  });
+
+  it("sem recorte a saída é o quadro; com recorte, é o recorte", () => {
+    expect(outputSize(base, { rotation: 0 })).toEqual(base);
+    expect(outputSize(base, { rotation: 90 })).toEqual({ width: 900, height: 1200 });
+    expect(outputSize(base, { rotation: 0, crop: { x: 10, y: 20, width: 400, height: 300 } })).toEqual({ width: 400, height: 300 });
+  });
+
+  it("recortar o quadro inteiro é não recortar", () => {
+    // Sem isto, arrastar a alça até a borda e soltar guardaria um recorte que
+    // obriga a reexportar uma imagem idêntica à original.
+    expect(normalizeCrop({ x: 0, y: 0, width: 1200, height: 900 }, base)).toBeUndefined();
+    expect(normalizeCrop({ x: 0, y: 0, width: 1199, height: 900 }, base)).toEqual({ x: 0, y: 0, width: 1199, height: 900 });
+  });
+
+  it("prende o recorte dentro do quadro e em pixel inteiro", () => {
+    // `canvas.width` trunca: recorte fracionário faria a reabertura reconstruir
+    // uma imagem de outro tamanho e o traço cair meio pixel ao lado.
+    expect(normalizeCrop({ x: -80, y: -50, width: 400.6, height: 300.4 }, base)).toEqual({ x: 0, y: 0, width: 401, height: 300 });
+    expect(normalizeCrop({ x: 5_000, y: 5_000, width: 400, height: 300 }, base)).toEqual({ x: 800, y: 600, width: 400, height: 300 });
+    expect(normalizeCrop({ x: 0, y: 0, width: 9_999, height: 9_999 }, base)).toBeUndefined();
+  });
+
+  it("recorte e giro não conseguem furar o teto de resolução", () => {
+    // O teto de §3.3 é aplicado uma vez, na base. Recorte só encolhe e giro só
+    // troca os lados: nenhum dos dois cria pixel, então o cálculo dos 26 MB de
+    // backing store continua valendo depois dos dois.
+    const fitted = fitWithin(12_000, 9_000);
+    expect(fitted).toEqual({ width: 2560, height: 1920, reduced: true });
+    for (const rotation of [0, 90, 180, 270] as Rotation[]) {
+      const frame = frameSize(fitted, rotation);
+      const crops = [undefined, { x: 0, y: 0, ...frame }, { x: 7, y: 3, width: frame.width - 7, height: frame.height - 3 }, { x: 0, y: 0, width: 24, height: 24 }];
+      for (const crop of crops) {
+        const output = outputSize(fitted, { rotation, crop });
+        expect(Math.max(output.width, output.height)).toBeLessThanOrEqual(EDITOR_MAX_DIMENSION);
+        expect(output.width * output.height).toBeLessThanOrEqual(fitted.width * fitted.height);
+      }
+    }
+  });
+});
+
+describe("matriz da geometria", () => {
+  const base = { width: 1200, height: 900 };
+  const corners = (rotation: Rotation, crop?: Rect) => {
+    const matrix = geometryMatrix(base, { rotation, crop });
+    return [[0, 0], [base.width, 0], [base.width, base.height], [0, base.height]].map(([x, y]) => applyMatrix(matrix, { x, y }));
+  };
+
+  it("sem giro nem recorte não transforma nada", () => {
+    expect(geometryMatrix(base, { rotation: 0 })).toEqual([1, 0, 0, 1, 0, 0]);
+  });
+
+  it("um quarto de volta à direita leva o canto de cima à esquerda para o de cima à direita", () => {
+    // Canvas de 900×1200 depois do giro: o canto (0,0) da base vai parar em (900,0).
+    expect(corners(90)).toEqual([{ x: 900, y: 0 }, { x: 900, y: 1200 }, { x: 0, y: 1200 }, { x: 0, y: 0 }]);
+    expect(corners(180)).toEqual([{ x: 1200, y: 900 }, { x: 0, y: 900 }, { x: 0, y: 0 }, { x: 1200, y: 0 }]);
+    expect(corners(270)).toEqual([{ x: 0, y: 1200 }, { x: 0, y: 0 }, { x: 900, y: 0 }, { x: 900, y: 1200 }]);
+  });
+
+  it("o recorte entra como translação, no quadro que o operador vê", () => {
+    // Recorte de {100,200} no quadro girado: o ponto do quadro (100,200) tem de
+    // cair na origem do canvas.
+    const matrix = geometryMatrix(base, { rotation: 90, crop: { x: 100, y: 200, width: 400, height: 600 } });
+    expect(applyMatrix(matrix, { x: 200, y: 800 })).toEqual({ x: 0, y: 0 });
+    expect(applyMatrix(geometryMatrix(base, { rotation: 0, crop: { x: 100, y: 200, width: 400, height: 300 } }), { x: 100, y: 200 })).toEqual({ x: 0, y: 0 });
+  });
+
+  it("é rígida: gira e desloca, mas nunca escala", () => {
+    // Determinante 1 é o que garante que recortar não engrossa o traço e que girar
+    // não reamostra um pixel sequer.
+    for (const rotation of [0, 90, 180, 270] as Rotation[]) {
+      const [a, b, c, d] = geometryMatrix(base, { rotation, crop: { x: 30, y: 40, width: 200, height: 150 } });
+      expect(Math.abs(a * d - b * c)).toBeCloseTo(1, 10);
+    }
+  });
+
+  it("o ponteiro volta à base pela inversa, em qualquer giro e recorte", () => {
+    // É isto que faz o traço cair no lugar certo depois de girar: o operador
+    // desenha no canvas girado, e o ponto é gravado em coordenadas da base.
+    for (const rotation of [0, 90, 180, 270] as Rotation[]) {
+      const frame = frameSize(base, rotation);
+      const geometry = { rotation, crop: { x: 20, y: 30, width: frame.width - 40, height: frame.height - 60 } };
+      for (const point of [{ x: 0, y: 0 }, { x: 17, y: 41 }, { x: 200, y: 300 }]) {
+        const backToBase = toBasePoint(point, base, geometry);
+        expect(applyMatrix(geometryMatrix(base, geometry), backToBase).x).toBeCloseTo(point.x, 10);
+        expect(applyMatrix(geometryMatrix(base, geometry), backToBase).y).toBeCloseTo(point.y, 10);
+      }
+    }
+  });
+
+  it("girado 90°, o ponto do canto do canvas é o outro canto da imagem", () => {
+    expect(toBasePoint({ x: 10, y: 20 }, base, { rotation: 90 })).toEqual({ x: 20, y: 890 });
+  });
+});
+
+describe("o recorte acompanha o giro", () => {
+  it("gira em quartos de volta para os dois lados, e dá a volta", () => {
+    expect(turnRotation(0, 1)).toBe(90);
+    expect(turnRotation(270, 1)).toBe(0);
+    expect(turnRotation(0, -1)).toBe(270);
+    expect(turnRotation(90, -1)).toBe(0);
+  });
+
+  it("um recorte no canto de cima à esquerda vai para o de cima à direita", () => {
+    // Sem isto o operador enquadra um rosto, gira, e o enquadramento cai no ombro.
+    const frame = { width: 1200, height: 900 };
+    expect(turnRect({ x: 0, y: 0, width: 300, height: 200 }, frame, 1)).toEqual({ x: 700, y: 0, width: 200, height: 300 });
+  });
+
+  it("girar e desgirar devolve o mesmo pedaço da foto", () => {
+    const frame = { width: 1200, height: 900 };
+    const rect = { x: 120, y: 60, width: 300, height: 200 };
+    const turned = turnRect(rect, frame, 1);
+    expect(turnRect(turned, { width: frame.height, height: frame.width }, -1)).toEqual(rect);
+  });
+});
+
+describe("arrasto do recorte", () => {
+  const frame = { width: 1000, height: 800 };
+  const rect = { x: 100, y: 100, width: 400, height: 300 };
+  const drag = (handle: Parameters<typeof cropHandlePoint>[1], to: { x: number; y: number }, aspect?: number) =>
+    dragCrop({ rect, point: cropHandlePoint(rect, handle), handle }, to, frame, aspect);
+
+  it("a alça arrasta o canto e ancora o oposto", () => {
+    expect(drag("se", { x: 900, y: 700 })).toEqual({ x: 100, y: 100, width: 800, height: 600 });
+    expect(drag("nw", { x: 0, y: 0 })).toEqual({ x: 0, y: 0, width: 500, height: 400 });
+    expect(drag("e", { x: 900, y: 0 })).toEqual({ x: 100, y: 100, width: 800, height: 300 });
+  });
+
+  it("não deixa fechar a seleção em nada", () => {
+    // Um recorte de 2 px exporta uma imagem que ninguém consegue mais reabrir para
+    // consertar.
+    expect(drag("se", { x: 0, y: 0 })).toEqual({ x: 100, y: 100, width: MIN_CROP_SIDE, height: MIN_CROP_SIDE });
+  });
+
+  it("não deixa passar da borda do quadro", () => {
+    expect(drag("se", { x: 5_000, y: 5_000 })).toEqual({ x: 100, y: 100, width: 900, height: 700 });
+    expect(drag("nw", { x: -900, y: -900 })).toEqual({ x: 0, y: 0, width: 500, height: 400 });
+  });
+
+  it("mover mantém o tamanho e para na borda", () => {
+    expect(dragCrop({ rect, point: { x: 200, y: 200 }, handle: "move" }, { x: 260, y: 150 }, frame)).toEqual({ x: 160, y: 50, width: 400, height: 300 });
+    expect(dragCrop({ rect, point: { x: 200, y: 200 }, handle: "move" }, { x: 5_000, y: 5_000 }, frame)).toEqual({ x: 600, y: 500, width: 400, height: 300 });
+  });
+
+  it("a proporção travada segue a quina pelo eixo que puxou mais", () => {
+    expect(drag("se", { x: 600, y: 800 }, 1)).toEqual({ x: 100, y: 100, width: 700, height: 700 });
+  });
+
+  it("a proporção travada não deixa o retângulo sair do quadro", () => {
+    const cropped = drag("se", { x: 5_000, y: 5_000 }, 16 / 9);
+    expect(cropped.width / cropped.height).toBeCloseTo(16 / 9, 6);
+    expect(cropped.x + cropped.width).toBeLessThanOrEqual(frame.width);
+    expect(cropped.y + cropped.height).toBeLessThanOrEqual(frame.height);
+  });
+
+  it("na alça de borda, o lado perpendicular segue a proporção e fica centrado", () => {
+    expect(drag("e", { x: 900, y: 0 }, 2)).toEqual({ x: 100, y: 50, width: 800, height: 400 });
+    expect(drag("s", { x: 0, y: 600 }, 2)).toEqual({ x: 0, y: 100, width: 1000, height: 500 });
+  });
+
+  it("a proporção de atalho encolhe a seleção em vez de pular para a imagem inteira", () => {
+    expect(fitAspect({ x: 0, y: 0, width: 1000, height: 800 }, 1)).toEqual({ x: 100, y: 0, width: 800, height: 800 });
+    const wide = fitAspect(rect, 16 / 9);
+    expect(wide.width / wide.height).toBeCloseTo(16 / 9, 6);
+    expect(wide.width).toBeLessThanOrEqual(rect.width);
+    expect(wide.height).toBeLessThanOrEqual(rect.height);
+    // Mesmo centro: escolher uma proporção não muda o que está enquadrado.
+    expect(wide.x + wide.width / 2).toBeCloseTo(rect.x + rect.width / 2, 6);
+  });
+
+  it("as proporções oferecidas são as três comuns, mais a livre", () => {
+    expect(CROP_ASPECTS.map((option) => option.label)).toEqual(["Livre", "1:1", "4:3", "16:9"]);
+    expect(CROP_ASPECTS[0].value).toBeUndefined();
+    expect(CROP_ASPECTS.slice(1).map((option) => option.value)).toEqual([1, 4 / 3, 16 / 9]);
+  });
+
+  it("cada alça sabe onde está, que é de onde a seta do teclado parte", () => {
+    expect(cropHandlePoint(rect, "nw")).toEqual({ x: 100, y: 100 });
+    expect(cropHandlePoint(rect, "ne")).toEqual({ x: 500, y: 100 });
+    expect(cropHandlePoint(rect, "e")).toEqual({ x: 500, y: 250 });
+    expect(cropHandlePoint(rect, "s")).toEqual({ x: 300, y: 400 });
+    expect(cropHandlePoint(rect, "move")).toEqual({ x: 300, y: 250 });
+  });
+});
+
+describe("edição intocada", () => {
+  it("só é intocada sem traço, sem giro e sem recorte", () => {
+    // É a condição de §3.6: confirmar assim devolve o `File` que entrou. Giro e
+    // recorte entram na conta porque mudam os pixels tanto quanto um traço.
+    expect(isPristineEdit({ strokes: [], rotation: 0 })).toBe(true);
+    expect(isPristineEdit({ strokes: [line([[1, 1]])], rotation: 0 })).toBe(false);
+    expect(isPristineEdit({ strokes: [], rotation: 90 })).toBe(false);
+    expect(isPristineEdit({ strokes: [], rotation: 0, crop: { x: 0, y: 0, width: 10, height: 10 } })).toBe(false);
   });
 });
 
@@ -160,6 +382,28 @@ describe("repintura", () => {
     const ordem = names(context);
     expect(ordem.indexOf("drawImage")).toBeLessThan(ordem.indexOf("moveTo"));
     expect(ordem.filter((name) => name === "stroke")).toHaveLength(2);
+  });
+
+  it("o fundo cobre a saída, e a geometria só entra depois dele", () => {
+    const context = spyContext();
+    // Girado 90°, o canvas é 900×1200 — o fundo tem de cobrir esse, não a base.
+    renderAnnotation(context, {} as CanvasImageSource, [], { width: 1200, height: 900 }, { rotation: 90 });
+    const transforms = context.ops.filter((op) => op.name === "setTransform");
+    expect(transforms[0].args).toEqual([1, 0, 0, 1, 0, 0]);
+    expect(context.ops.find((op) => op.name === "fillRect")!.args).toEqual([0, 0, 900, 1200]);
+    expect(transforms[1].args).toEqual([0, 1, -1, 0, 900, 0]);
+  });
+
+  it("a imagem e os traços vão nas coordenadas da base, por dentro da geometria", () => {
+    const context = spyContext();
+    const base = { width: 1200, height: 900 };
+    renderAnnotation(context, {} as CanvasImageSource, [line([[40, 60], [80, 90]])], base, { rotation: 0, crop: { x: 100, y: 200, width: 400, height: 300 } });
+    // Recorte é translação da moldura: o traço continua onde foi feito na foto, e
+    // é o canvas que passou a olhar para outro pedaço. É por isso que riscar e
+    // depois recortar mantém o risco em cima do que ele marcou.
+    expect(context.ops.find((op) => op.name === "setTransform" && op.args[4] !== 0)!.args).toEqual([1, 0, 0, 1, -100, -200]);
+    expect(context.ops.find((op) => op.name === "drawImage")!.args).toEqual([0, 0, 1200, 900]);
+    expect(context.ops.find((op) => op.name === "moveTo")!.args).toEqual([40, 60]);
   });
 });
 

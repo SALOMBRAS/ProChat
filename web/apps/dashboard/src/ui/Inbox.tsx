@@ -25,7 +25,7 @@ import { bodyRepeatsCard, mapsUrl } from "./messageMedia.js";
 // reexporte mantém o caminho de importação que já existia.
 export { coordinatesLabel, locationOf, mapsUrl } from "./messageMedia.js";
 import { ImageAnnotator } from "./ImageAnnotator.js";
-import { isEditableImage, type Stroke } from "./imageAnnotation.js";
+import { PRISTINE_EDIT, isEditableImage, isPristineEdit, type ImageEdit } from "./imageAnnotation.js";
 import { AttachmentComposer } from "./AttachmentComposer.js";
 import { ContactPicker } from "./ContactPicker.js";
 import {
@@ -191,9 +191,10 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [attachment, setAttachment] = useState<File>();
   /** O arquivo como foi escolhido, antes de qualquer marcação. O editor sempre
    *  parte dele: reeditar a partir da exportação anterior empilharia perda de
-   *  qualidade a cada rodada. Os traços aplicados voltam por `attachmentStrokes`. */
+   *  qualidade a cada rodada. A edição aplicada — traços, giro e recorte — volta
+   *  por `attachmentEdit`, e é o que permite reabrir sem recodificar de novo. */
   const [attachmentSource, setAttachmentSource] = useState<File>();
-  const [attachmentStrokes, setAttachmentStrokes] = useState<Stroke[]>([]);
+  const [attachmentEdit, setAttachmentEdit] = useState<ImageEdit>(PRISTINE_EDIT);
   const [editorOpen, setEditorOpen] = useState(false);
   const [attachmentPreview, setAttachmentPreview] = useState<string>();
   const [attachmentStatus, setAttachmentStatus] = useState("");
@@ -262,14 +263,14 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     history.pushState({}, "", `/contacts?search=${encodeURIComponent(search)}`);
     dispatchEvent(new PopStateEvent("popstate"));
   };
-  const applyAttachment = (file?: File) => { setAttachment(file); setAttachmentSource(file); setAttachmentStrokes([]); setEditorOpen(false); setIntakeMessage(undefined); };
+  const applyAttachment = (file?: File) => { setAttachment(file); setAttachmentSource(file); setAttachmentEdit(PRISTINE_EDIT); setEditorOpen(false); setIntakeMessage(undefined); };
   /** Só imagem da allowlist entra no editor: vídeo e documento não têm o que
    *  marcar, e um mime fora dela voltaria 415 depois de reexportado. */
   const editableAttachment = isEditableImage(attachmentSource?.type) ? attachmentSource : undefined;
   /** A tela de composição está no ar: a conversa deu lugar ao preview. */
   const stageOpen = Boolean(attachment) && STAGE_KINDS.includes(attachmentKind(attachment?.type) ?? "");
-  /** Há legenda ou traço a perder ao descartar. */
-  const stageDirty = Boolean(composerText.trim()) || attachmentStrokes.length > 0;
+  /** Há legenda ou edição de imagem a perder ao descartar. */
+  const stageDirty = Boolean(composerText.trim()) || !isPristineEdit(attachmentEdit);
   /** Fechar devolve a legenda ao compositor: quem escreveu a frase ainda pode
    *  mandá-la como texto. Remover joga fora as duas coisas. */
   const closeStage = () => clearAttachment();
@@ -1200,9 +1201,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 onEdit={() => setEditorOpen(true)}
                 editor={editorOpen && editableAttachment ? <ImageAnnotator
                   file={editableAttachment}
-                  initialStrokes={attachmentStrokes}
+                  initialEdit={attachmentEdit}
                   onCancel={() => setEditorOpen(false)}
-                  onConfirm={(edited, strokes) => { setAttachment(edited); setAttachmentStrokes(strokes); setEditorOpen(false); }}
+                  onConfirm={(edited, edit) => { setAttachment(edited); setAttachmentEdit(edit); setEditorOpen(false); }}
                 /> : undefined}
                 onEditorClose={() => setEditorOpen(false)}
                 dirty={stageDirty}

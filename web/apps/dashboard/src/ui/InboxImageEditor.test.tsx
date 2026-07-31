@@ -61,6 +61,7 @@ const fakeContext = () => {
     save: () => { drawn = []; }, restore: push("restore"),
     beginPath: push("beginPath"), moveTo: push("moveTo"), lineTo: push("lineTo"),
     quadraticCurveTo: push("quadraticCurveTo"), stroke: push("stroke"),
+    setTransform: push("setTransform"),
     fillRect: push("fillRect"), drawImage: () => drawn.push("drawImage"),
     fillStyle: "", strokeStyle: "", lineWidth: 0, lineCap: "butt", lineJoin: "miter",
   };
@@ -143,9 +144,25 @@ const bytes = (file: Blob) => new Promise<Uint8Array>((resolve, reject) => {
 });
 const enviado = (client: InboxApi) => (client.sendAttachment as ReturnType<typeof vi.fn>).mock.calls[0][1] as File;
 /** As operações são gravadas como `nome(args)`; contar traços é contar `stroke(`. */
-const tracos = () => drawn.filter((op) => op.startsWith("stroke"));
+const tracos = () => drawn.filter((op) => op.startsWith("stroke("));
 const curvas = () => drawn.filter((op) => op.startsWith("quadraticCurveTo"));
 const ultimoContexto = () => (HTMLCanvasElement.prototype.getContext as ReturnType<typeof vi.fn>).mock.results.at(-1)!.value;
+/** A geometria chega ao desenho como transformação do canvas: é este `setTransform`
+ *  — o segundo, porque o primeiro devolve a identidade para o fundo — que diz qual
+ *  giro e qual recorte foram aplicados. */
+const geometria = () => drawn.filter((op) => op.startsWith("setTransform")).at(-1);
+const canvasDoEditor = () => screen.getByLabelText("Área de marcação da imagem") as HTMLCanvasElement;
+const recortar = () => fireEvent.click(screen.getByLabelText("Recortar"));
+const caneta = () => fireEvent.click(screen.getByLabelText("Caneta"));
+/** O arrasto da alça corre na janela, não na alça: o ponteiro sai dos 15 px dela
+ *  no primeiro milímetro. O `getBoundingClientRect` do jsdom devolve tudo zero, e a
+ *  guarda de `canvasPoint` faz a coordenada da tela valer a do quadro — que é o que
+ *  torna estes números legíveis. */
+const arrastarAlca = (alca: string, de: [number, number], para: [number, number], pointerId = 7) => {
+  fireEvent(screen.getByLabelText(alca), pointer("pointerdown", { pointerId, button: 0, clientX: de[0], clientY: de[1] }));
+  fireEvent(window, pointer("pointermove", { pointerId, clientX: para[0], clientY: para[1] }));
+  fireEvent(window, pointer("pointerup", { pointerId, clientX: para[0], clientY: para[1] }));
+};
 
 describe("editor de imagem no composer", () => {
   it("o caminho inteiro: imagem entra, traço é aplicado, e o arquivo enviado difere do original e passa na allowlist", async () => {
@@ -369,5 +386,345 @@ describe("editor de imagem no composer", () => {
     expect(usados.size).toBeGreaterThan(0);
     for (const token of usados)
       expect(stylesheet.split(token).length - 1, `${token} é uma cor nova`).toBeGreaterThan(1);
+  });
+});
+
+describe("recorte e giro", () => {
+  /** A base é 1200×900 em todo este bloco, e o canvas do modo recorte mostra o
+   *  quadro inteiro — é por isso que arrastar até (1200,900) é arrastar até o canto
+   *  de baixo à direita da imagem. */
+  it("girar 90° gira o arquivo que sai, e o traço já feito continua onde estava", async () => {
+    const client = await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    desenhar(canvas, [[10, 10], [60, 40], [120, 90]]);
+
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    // Um quarto de volta troca os lados: o canvas de saída passa a ser 900×1200.
+    await waitFor(() => expect(canvas.width).toBe(900));
+    expect(canvas.height).toBe(1200);
+    // O traço não foi refeito nem transformado: continua nas coordenadas da base, e
+    // é a matriz do canvas que gira. Guardar o traço na base é o que torna o giro
+    // uma operação de custo zero sobre o desenho.
+    expect(drawn).toContain("moveTo(10,10)");
+    expect(geometria()).toBe("setTransform(0,1,-1,0,900,0)");
+
+    fireEvent.click(screen.getByText("Concluir"));
+    await screen.findByText("foto-editada.jpg");
+    fireEvent.click(screen.getByLabelText("Enviar"));
+    await waitFor(() => expect(client.sendAttachment).toHaveBeenCalled());
+    const saida = new TextDecoder().decode(await bytes(enviado(client)));
+    expect(saida).toContain("setTransform(0,1,-1,0,900,0)");
+    expect(saida).toContain("fillRect(0,0,900,1200)");
+  });
+
+  it("girar para os dois lados e voltar devolve a imagem como estava", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    fireEvent.click(screen.getByLabelText("Girar 90° à esquerda"));
+    await waitFor(() => expect(canvas.width).toBe(900));
+    expect(geometria()).toBe("setTransform(0,-1,1,0,0,1200)");
+
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    await waitFor(() => expect(canvas.width).toBe(1200));
+    // Giro é rígido: quatro quartos de volta não reamostram um pixel sequer, então
+    // desgirar tem de deixar a matriz na identidade.
+    expect(geometria()).toBe("setTransform(1,0,0,1,0,0)");
+  });
+
+  it("o traço feito depois de girar cai onde o operador tocou", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    await waitFor(() => expect(canvas.width).toBe(900));
+
+    desenhar(canvas, [[10, 20], [40, 60], [80, 90]]);
+    // O ponteiro deu (10,20) no canvas girado; na foto isso é (20,890). Sem a volta
+    // pela inversa da geometria o traço seria gravado em (10,20) e apareceria no
+    // canto errado assim que o giro fosse desfeito.
+    await waitFor(() => expect(drawn).toContain("moveTo(20,890)"));
+    expect(drawn).not.toContain("moveTo(10,20)");
+  });
+
+  it("o traço feito depois de recortar cai onde o operador tocou", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    recortar();
+    arrastarAlca("Canto superior esquerdo do recorte", [0, 0], [500, 300]);
+    await screen.findByText("700×600 px");
+    caneta();
+    await waitFor(() => expect(canvas.width).toBe(700));
+
+    desenhar(canvas, [[10, 20], [40, 60], [80, 90]]);
+    // Dentro do recorte, (10,20) do canvas é (510,320) da foto.
+    await waitFor(() => expect(drawn).toContain("moveTo(510,320)"));
+  });
+
+  it("o recorte corta o traço que ficou de fora e mantém o que ficou dentro", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    desenhar(canvas, [[600, 400], [640, 430], [700, 470]]);
+    recortar();
+    // Arrastar o canto de cima à esquerda até (500,300) deixa a seleção em
+    // 700×600 a partir dali.
+    arrastarAlca("Canto superior esquerdo do recorte", [0, 0], [500, 300]);
+    await screen.findByText("700×600 px");
+    caneta();
+
+    await waitFor(() => expect(canvas.width).toBe(700));
+    expect(canvas.height).toBe(600);
+    // O traço continua em (600,400) na foto: quem se moveu foi a moldura. É esta a
+    // ordem — traço na imagem, recorte por cima dela — e é o que faz o risco
+    // continuar em cima do que ele marcou.
+    expect(drawn).toContain("moveTo(600,400)");
+    expect(geometria()).toBe("setTransform(1,0,0,1,-500,-300)");
+  });
+
+  it("recortar sozinho já muda o arquivo, mesmo sem nenhum traço", async () => {
+    const client = await abrirConversa();
+    await abrirEditor(originalImage());
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [1200, 900], [700, 600]);
+    await screen.findByText("700×600 px");
+    fireEvent.click(screen.getByText("Concluir"));
+
+    await screen.findByText("foto-editada.jpg");
+    fireEvent.click(screen.getByLabelText("Enviar"));
+    await waitFor(() => expect(client.sendAttachment).toHaveBeenCalled());
+    // A regra de "sem traço, devolve o original" passa a valer para a edição
+    // inteira: recorte e giro mudam os pixels tanto quanto um traço.
+    expect(enviado(client)).not.toBe(originalImage());
+    expect(exportedTypes).toHaveLength(1);
+    expect(new TextDecoder().decode(await bytes(enviado(client)))).toContain("fillRect(0,0,700,600)");
+  });
+
+  it("concluir dentro do recorte exporta o resultado, não o quadro inteiro", async () => {
+    const client = await abrirConversa();
+    await abrirEditor(originalImage());
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [1200, 900], [700, 600]);
+    await screen.findByText("700×600 px");
+    // Sem sair do modo recorte: o canvas ainda mostra o quadro inteiro com a
+    // seleção por cima, e é o recorte que tem de ir para o arquivo.
+    expect(canvasDoEditor().width).toBe(1200);
+    fireEvent.click(screen.getByText("Concluir"));
+
+    await screen.findByText("foto-editada.jpg");
+    fireEvent.click(screen.getByLabelText("Enviar"));
+    await waitFor(() => expect(client.sendAttachment).toHaveBeenCalled());
+    expect(new TextDecoder().decode(await bytes(enviado(client)))).toContain("fillRect(0,0,700,600)");
+  });
+
+  it("girar leva o recorte junto, em vez de largá-lo noutro pedaço da foto", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [1200, 900], [700, 600]);
+    await screen.findByText("700×600 px");
+    caneta();
+
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    // O recorte estava no canto de cima à esquerda; girando à direita ele tem de
+    // ficar no canto de cima à direita, com os lados trocados.
+    await waitFor(() => expect(canvas.width).toBe(600));
+    expect(canvas.height).toBe(700);
+    expect(geometria()).toBe("setTransform(0,1,-1,0,600,0)");
+  });
+
+  it("desfazer e refazer cobrem o traço, o recorte e o giro na mesma pilha", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    desenhar(canvas, [[10, 10], [60, 40], [120, 90]]);
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [1200, 900], [700, 600]);
+    await screen.findByText("700×600 px");
+    caneta();
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    await waitFor(() => expect(canvas.width).toBe(600));
+
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    await waitFor(() => expect(canvas.width).toBe(700));
+    expect(canvas.height).toBe(600);
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    await waitFor(() => expect(canvas.width).toBe(1200));
+    expect(tracos()).toHaveLength(1);
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    await waitFor(() => expect(tracos()).toHaveLength(0));
+    expect(screen.getByLabelText("Desfazer")).toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText("Refazer"));
+    await waitFor(() => expect(tracos()).toHaveLength(1));
+    fireEvent.click(screen.getByLabelText("Refazer"));
+    await waitFor(() => expect(canvas.width).toBe(700));
+  });
+
+  it("descartar volta à imagem original mesmo depois de girar e recortar", async () => {
+    const client = await abrirConversa();
+    const original = originalImage();
+    const canvas = await abrirEditor(original);
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [900, 1200], [500, 700]);
+    await screen.findByText("500×700 px");
+
+    fireEvent.click(screen.getByText("Descartar edição"));
+    await waitFor(() => expect(canvas.width).toBe(1200));
+    expect(canvas.height).toBe(900);
+    fireEvent.click(screen.getByText("Concluir"));
+    fireEvent.click(await screen.findByLabelText("Enviar"));
+    await waitFor(() => expect(client.sendAttachment).toHaveBeenCalled());
+    // Voltou à original de verdade: nem sequer houve reexportação.
+    expect(enviado(client)).toBe(original);
+    expect(exportedTypes).toHaveLength(0);
+  });
+
+  it("as proporções de atalho enquadram a seleção sem sair da imagem", async () => {
+    await abrirConversa();
+    await abrirEditor(originalImage());
+    recortar();
+
+    fireEvent.click(screen.getByRole("radio", { name: "16:9" }));
+    // Numa base 1200×900, o maior 16:9 centrado é 1200×675.
+    await screen.findByText("1200×675 px");
+    fireEvent.click(screen.getByRole("radio", { name: "1:1" }));
+    // E o maior quadrado dentro de um 16:9 de 1200×675 é 675×675 — a proporção
+    // encolhe a seleção, não pula de volta para a imagem inteira.
+    await screen.findByText("675×675 px");
+    expect(screen.getByRole("radio", { name: "1:1" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("a seleção acompanha o arrasto antes de soltar", async () => {
+    await abrirConversa();
+    await abrirEditor(originalImage());
+    recortar();
+
+    fireEvent(screen.getByLabelText("Canto inferior direito do recorte"), pointer("pointerdown", { pointerId: 9, button: 0, clientX: 1200, clientY: 900 }));
+    fireEvent(window, pointer("pointermove", { pointerId: 9, clientX: 800, clientY: 600 }));
+    // Ainda com o dedo na tela. Sem o recorte vivo entrar na seleção, o operador
+    // arrastaria às cegas e o enquadramento só apareceria ao soltar.
+    await screen.findByText("800×600 px");
+
+    fireEvent(window, pointer("pointerup", { pointerId: 9, clientX: 800, clientY: 600 }));
+    await screen.findByText("800×600 px");
+  });
+
+  it("arrastar a alça de volta à borda deixa de ser recorte, e o arquivo volta a ser o original", async () => {
+    const client = await abrirConversa();
+    const original = originalImage();
+    await abrirEditor(original);
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [1200, 900], [700, 600]);
+    await screen.findByText("700×600 px");
+
+    arrastarAlca("Canto inferior direito do recorte", [700, 600], [1200, 900], 8);
+    await screen.findByText("1200×900 px");
+    fireEvent.click(screen.getByText("Concluir"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Editar imagem" })).toBeNull());
+
+    fireEvent.click(screen.getByLabelText("Enviar"));
+    await waitFor(() => expect(client.sendAttachment).toHaveBeenCalled());
+    // Recortar o quadro inteiro é não recortar: guardar isso como recorte faria
+    // uma imagem intocada ser recodificada por nada.
+    expect(enviado(client)).toBe(original);
+    expect(exportedTypes).toHaveLength(0);
+  });
+
+  it("a moldura carrega a proporção da saída, que é o que põe a alça sobre o pixel certo", async () => {
+    await abrirConversa();
+    await abrirEditor(originalImage());
+    const moldura = () => document.querySelector<HTMLElement>(".composer-editor-frame")!;
+    // 1200×900 deitada. A moldura mede a área desenhada, e é sobre ela que a
+    // seleção do recorte é posicionada em porcentagem.
+    await waitFor(() => expect(moldura().style.getPropertyValue("--editor-ratio")).toBe(`${1200 / 900}`));
+
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    await waitFor(() => expect(moldura().style.getPropertyValue("--editor-ratio")).toBe("0.75"));
+
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [900, 1200], [600, 600]);
+    await screen.findByText("600×600 px");
+    caneta();
+    await waitFor(() => expect(moldura().style.getPropertyValue("--editor-ratio")).toBe("1"));
+  });
+
+  it("a alça também anda pelo teclado, que é como o recorte fica alcançável sem mouse", async () => {
+    await abrirConversa();
+    await abrirEditor(originalImage());
+    recortar();
+
+    fireEvent.keyDown(screen.getByLabelText("Borda direita do recorte"), { key: "ArrowLeft" });
+    await screen.findByText("1199×900 px");
+    fireEvent.keyDown(screen.getByLabelText("Borda direita do recorte"), { key: "ArrowLeft", shiftKey: true });
+    await screen.findByText("1189×900 px");
+  });
+
+  it("depois de recortar, a caneta continua do mesmo tamanho para quem olha", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    desenhar(canvas, [[10, 10], [40, 40], [80, 20]]);
+    // Nível 3 numa imagem de 1200 px de lado maior.
+    expect(ultimoContexto().lineWidth).toBe(14);
+
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [1200, 900], [600, 450]);
+    await screen.findByText("600×450 px");
+    caneta();
+    await waitFor(() => expect(canvas.width).toBe(600));
+    desenhar(canvas, [[100, 100], [140, 140], [180, 120]], 4);
+    // Metade da imagem à vista, metade da espessura em pixels da base: na tela, o
+    // traço sai com o mesmo peso do anterior. É tinta sobre a foto vista de perto.
+    await waitFor(() => expect(ultimoContexto().lineWidth).toBe(7));
+  });
+
+  it("recusa a exportação grande também quando só houve recorte", async () => {
+    const client = await abrirConversa();
+    await abrirEditor(originalImage());
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [1200, 900], [700, 600]);
+    await screen.findByText("700×600 px");
+    forcedBlobSize = IMAGE_UPLOAD_LIMIT + 1;
+    fireEvent.click(screen.getByText("Concluir"));
+
+    // A conferência de tamanho é na saída, e a saída da geometria passa pelo mesmo
+    // caminho da saída do traço.
+    const alerta = await screen.findByRole("alert");
+    expect(alerta.textContent ?? "").toMatch(/limite de envio é 15 MB/i);
+    expect(client.sendAttachment).not.toHaveBeenCalled();
+  });
+
+  it("reabrir traz o giro e o recorte de volta, ainda partindo do original", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [900, 1200], [500, 700]);
+    await screen.findByText("500×700 px");
+    fireEvent.click(screen.getByText("Concluir"));
+    await screen.findByText("foto-editada.jpg");
+
+    fireEvent.click(screen.getByLabelText("Editar com a caneta"));
+    await screen.findByRole("dialog", { name: "Editar imagem" });
+    const reaberto = canvasDoEditor();
+    // A base é sempre o arquivo escolhido — 1200×900 —, e a geometria volta por
+    // cima dele: uma recodificação, não duas.
+    await waitFor(() => expect(reaberto.width).toBe(500));
+    expect(reaberto.height).toBe(700);
+    expect(geometria()).toBe("setTransform(0,1,-1,0,900,0)");
+    expect(screen.getByLabelText("Desfazer")).not.toBeDisabled();
+    expect(canvas.isConnected).toBe(false);
+  });
+
+  it("a moldura e as alças têm estilo próprio, com a proporção da imagem", () => {
+    // A moldura mede exatamente a área desenhada. Sem ela, `object-fit: contain`
+    // deixaria faixa vazia dentro da caixa do canvas e a alça — posicionada em
+    // porcentagem — pousaria fora da imagem.
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-frame\s*\{[^}]*aspect-ratio:\s*var\(--editor-ratio/);
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-frame\s*\{[^}]*position:\s*relative/);
+    // A camada do recorte precisa recortar a sombra que escurece o lado de fora.
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-crop\s*\{[^}]*overflow:\s*hidden/);
+    // E a alça, como o canvas, não pode deixar o dedo rolar a conversa.
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-crop-handle\s*\{[^}]*touch-action:\s*none/);
+    // A alça é posicionada contra a caixa da seleção; no fluxo normal ela cairia
+    // enfileirada num canto e nenhuma quina teria a sua.
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-crop-handle\s*\{[^}]*position:\s*absolute/);
   });
 });
