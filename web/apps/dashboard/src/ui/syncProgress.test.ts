@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HistorySyncJob } from "../api/inbox.js";
-import { isActiveSync, progressDetail, resumeAttribution, syncView, type SyncResume } from "./syncProgress.js";
+import { isActiveSync, progressDetail, progressPercent, resumeAttribution, syncView, type SyncResume } from "./syncProgress.js";
 
 const job = (over: Partial<HistorySyncJob> = {}): HistorySyncJob => ({
   id: "job-a",
@@ -9,6 +9,7 @@ const job = (over: Partial<HistorySyncJob> = {}): HistorySyncJob => ({
   status: "running",
   chatsProcessed: 240,
   messagesProcessed: 1834,
+  chatsTotal: null,
   currentChat: "5511999999999@c.us",
   hasMore: true,
   progressLabel: "Sincronizando histórico…",
@@ -28,6 +29,39 @@ describe("contagem do progresso", () => {
 
   it("não anuncia progresso nenhum antes do primeiro chat", () => {
     expect(progressDetail(job({ chatsProcessed: 0, messagesProcessed: 0 }))).toBe("");
+  });
+
+  it("com total conhecido, conta de quantas e mostra a fração", () => {
+    expect(progressDetail(job({ chatsProcessed: 240, chatsTotal: 551 }))).toBe("240 de 551 conversas (44%), 1.834 mensagens");
+  });
+
+  it("sem total, volta a contar sem denominador em vez de inventar um", () => {
+    // `chatsTotal` nulo é "a contagem não veio", e a corrida falha aberta.
+    expect(progressDetail(job({ chatsTotal: null }))).toBe("240 conversas, 1.834 mensagens");
+  });
+
+  it("total zero não é denominador, é ausência de conversa", () => {
+    expect(progressDetail(job({ chatsTotal: 0 }))).toBe("240 conversas, 1.834 mensagens");
+  });
+});
+
+describe("a fração andada", () => {
+  it("arredonda para inteiro", () => {
+    expect(progressPercent({ chatsProcessed: 240, chatsTotal: 551 })).toBe(44);
+    expect(progressPercent({ chatsProcessed: 551, chatsTotal: 551 })).toBe(100);
+  });
+
+  it("prende em 100 quando a corrida anda mais posições do que o retrato tinha", () => {
+    // A listagem se reordena enquanto a corrida anda: um chat que recebe mensagem
+    // pula para o topo e empurra os outros, então o cursor pode passar do total
+    // contado no início. Mostrar 118% seria pior do que prender.
+    expect(progressPercent({ chatsProcessed: 650, chatsTotal: 551 })).toBe(100);
+    expect(progressDetail(job({ chatsProcessed: 650, chatsTotal: 551 }))).toBe("551 de 551 conversas (100%), 1.834 mensagens");
+  });
+
+  it("sem denominador não há fração", () => {
+    expect(progressPercent({ chatsProcessed: 240, chatsTotal: null })).toBe(0);
+    expect(progressPercent({ chatsProcessed: 240, chatsTotal: 0 })).toBe(0);
   });
 });
 

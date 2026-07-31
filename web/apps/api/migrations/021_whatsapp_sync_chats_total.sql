@@ -1,0 +1,12 @@
+-- Denominador do progresso da sincronização de histórico.
+--
+-- Nulo é o estado honesto: "esta corrida não sabe o total". A contagem é feita
+-- uma vez por corrida, dentro do job, e falha aberta — se a WAHA não responder,
+-- a coluna fica nula e a Inbox mostra a contagem sem porcentagem.
+--
+-- ADD COLUMN é seguro aqui porque o INSERT de whatsapp_sync_jobs nomeia colunas
+-- e parâmetros (`INSERT INTO ... (id,workspaceId,...) VALUES (@id,@workspaceId,...)`),
+-- não é posicional. A PR #32 corrigiu 16 INSERTs posicionais em
+-- sqlite-domain.repository.ts justamente porque ADD COLUMN os quebra em silêncio;
+-- este não é um deles.
+ALTER TABLE whatsapp_sync_jobs ADD COLUMN chatsTotal INTEGER;

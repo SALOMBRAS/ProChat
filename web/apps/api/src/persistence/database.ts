@@ -24,7 +24,10 @@ export class SqlitePersistenceDatabase implements PersistenceDatabase {
   migrate(): void {
     this.sqlite.exec('CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, appliedAt TEXT NOT NULL)');
     const applied = new Set(this.sqlite.prepare('SELECT id FROM schema_migrations').all().map((row) => (row as { id: string }).id));
-    const migrations = readdirSync(this.migrationsDirectory).filter((file) => file.endsWith('.sql')).sort();
+    // `.rollback.sql` fica ao lado da migration, como no diretório do Supabase, e
+    // NÃO é migration: ordenado, `021_x.rollback.sql` vem logo depois de
+    // `021_x.sql` e desfaria em silêncio o que acabou de ser aplicado.
+    const migrations = readdirSync(this.migrationsDirectory).filter((file) => file.endsWith('.sql') && !file.endsWith('.rollback.sql')).sort();
     const insert = this.sqlite.prepare('INSERT INTO schema_migrations (id, appliedAt) VALUES (?, ?)');
     for (const migration of migrations) {
       if (applied.has(migration)) continue;

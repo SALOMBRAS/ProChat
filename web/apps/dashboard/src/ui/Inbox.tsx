@@ -644,6 +644,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                     event.payload.messagesProcessed ??
                       current.messagesProcessed,
                   ),
+                  chatsTotal: typeof event.payload.chatsTotal === "number" ? event.payload.chatsTotal : current.chatsTotal,
                   currentChat: typeof event.payload.currentChat === "string" ? event.payload.currentChat : null,
                   hasMore: Boolean(event.payload.hasMore ?? current.hasMore),
                   progressLabel: String(event.payload.progressLabel ?? current.progressLabel),

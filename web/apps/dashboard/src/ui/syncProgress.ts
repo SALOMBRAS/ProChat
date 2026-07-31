@@ -3,28 +3,22 @@
  *  Fica fora do componente porque é a parte que pede teste próprio: são regras de
  *  redação e de atribuição, não desenho.
  *
- *  ## Por que não há porcentagem
+ *  ## De onde vem a porcentagem
  *
- *  "240 de 550 conversas (44%)" precisa de um denominador, e ele não existe.
+ *  Do `chatsTotal` do job, contado uma vez por corrida. A WAHA não tem rota de
+ *  contagem para chats, então o servidor descobre o total por busca binária sobre
+ *  o `offset` (ver `countChats` em whatsapp-history-sync.service.ts e
+ *  web/docs/history-sync-chats-total.md).
  *
- *  O job (`SyncJob`, em `whatsapp-history-sync.service.ts`) carrega `status`,
- *  `chatsProcessed`, `messagesProcessed`, `chatCursor`, `currentChatId`,
- *  `messageCursor`, `startedAt`, `completedAt` e `lastErrorSafe`. A projeção que
- *  chega em `/api/v1/inbox/sync/status` acrescenta `jobId`, `currentChat`,
- *  `hasMore` e `progressLabel`. **Nenhum campo traz o total de conversas da
- *  sessão.**
+ *  `chatsTotal` é **nulo** quando a contagem não veio — a corrida falha aberta e
+ *  segue sem denominador. Nulo não é zero: zero seria "nenhuma conversa". Sem
+ *  total, esta tela volta a contar sem porcentagem, que é o que ela fazia antes.
  *
- *  `chatCursor` engana: é a posição do cursor na lista de chats, e anda junto com
- *  `chatsProcessed` — é o mesmo número com outro nome, não o alvo.
- *
- *  O total de conversas já importadas (`conversationPage.total`) também não serve:
- *  ele cresce *por causa* da sincronização. Seria numerador dos dois lados da
- *  divisão e mostraria 100% o tempo inteiro, que é pior do que não mostrar nada.
- *
- *  Para haver porcentagem, o servidor precisaria contar os chats da sessão na WAHA
- *  ao abrir o job e gravar esse número — um campo novo (`chatsTotal`) na tabela
- *  `whatsapp_sync_jobs`, no tipo `SyncJob` e na projeção de status. Enquanto ele
- *  não existir, esta tela conta o que de fato sabe e não finge precisão.
+ *  A porcentagem é **presa em 100%** de propósito. O numerador conta posições
+ *  andadas na listagem, e a listagem se reordena enquanto a corrida anda: um chat
+ *  que recebe mensagem pula para o topo e empurra os outros para trás, então a
+ *  corrida pode consumir mais posições do que o total que contou no início. O
+ *  denominador é um retrato, não uma verdade estável.
  *
  *  ## Por que a conversa atual não aparece
  *
@@ -63,10 +57,22 @@ const count = (value: number, one: string, many: string) =>
 
 /** "240 conversas, 1.834 mensagens" — e "" enquanto os dois são zero, para a faixa
  *  não anunciar um progresso que ainda não houve. */
-export const progressDetail = (job: Pick<HistorySyncJob, "chatsProcessed" | "messagesProcessed">): string =>
-  job.chatsProcessed || job.messagesProcessed
-    ? `${count(job.chatsProcessed, "conversa", "conversas")}, ${count(job.messagesProcessed, "mensagem", "mensagens")}`
-    : "";
+export const progressDetail = (job: Pick<HistorySyncJob, "chatsProcessed" | "messagesProcessed" | "chatsTotal">): string => {
+  if (!job.chatsProcessed && !job.messagesProcessed) return "";
+  const messages = count(job.messagesProcessed, "mensagem", "mensagens");
+  const total = job.chatsTotal ?? 0;
+  if (total <= 0) return `${count(job.chatsProcessed, "conversa", "conversas")}, ${messages}`;
+  const walked = Math.min(job.chatsProcessed, total);
+  return `${decimal.format(walked)} de ${count(total, "conversa", "conversas")} (${progressPercent(job)}%), ${messages}`;
+};
+
+/** A fração andada, de 0 a 100. Presa nas duas pontas: o denominador é o retrato
+ *  do começo da corrida, e a listagem anda por baixo dele. */
+export const progressPercent = (job: Pick<HistorySyncJob, "chatsProcessed" | "chatsTotal">): number => {
+  const total = job.chatsTotal ?? 0;
+  if (total <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((job.chatsProcessed / total) * 100)));
+};
 
 const RESUME_NOTE: Record<SyncResume, string> = {
   operator: "Retomada por você.",

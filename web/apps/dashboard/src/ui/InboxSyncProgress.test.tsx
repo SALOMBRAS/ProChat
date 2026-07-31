@@ -16,8 +16,9 @@ import Inbox from "./Inbox.js";
  * gravou. Um job que falhou e voltou a rodar continuava anunciando "Falhou;
  * corrija o problema e retome" enquanto trazia conversas na frente do operador.
  *
- * Não há porcentagem porque não há denominador — o job não carrega o total de
- * conversas da sessão. Ver o cabeçalho de syncProgress.ts.
+ * A porcentagem existe desde que o job traga `chatsTotal`, contado uma vez por
+ * corrida pelo servidor. Nulo é "a contagem não veio", e aí a faixa volta a
+ * contar sem denominador. Ver o cabeçalho de syncProgress.ts.
  */
 const conversation = (): InboxConversation => ({
   id: "11111111-1111-4111-8111-111111111111", whatsappSessionId: "session-a", chatId: "5511999990001@c.us",
@@ -31,7 +32,7 @@ const emptyPage = <T,>(): Page<T> => ({ items: [], page: 1, pageSize: 50, total:
 
 const job = (over: Partial<HistorySyncJob> = {}): HistorySyncJob => ({
   id: "job-a", jobId: "job-a", wahaSession: "session-a", status: "running",
-  chatsProcessed: 240, messagesProcessed: 1834, currentChat: "5511999990001@c.us", hasMore: true,
+  chatsProcessed: 240, messagesProcessed: 1834, chatsTotal: null, currentChat: "5511999990001@c.us", hasMore: true,
   progressLabel: "Sincronizando histórico…", lastErrorSafe: null, updatedAt: "2026-07-31T12:00:00.000Z",
   ...over,
 });
@@ -168,14 +169,32 @@ describe("a faixa de progresso da sincronização", () => {
     expect(screen.queryByText(/Retomada/)).not.toBeInTheDocument();
   });
 
-  it("nunca mostra porcentagem nem o identificador da conversa em curso", async () => {
+  it("com o total contado, mostra de quantas e a porcentagem", async () => {
+    render(<Inbox api={api({ syncStatus: vi.fn().mockResolvedValue(job({ chatsTotal: 551 })) })} />);
+    expect(await screen.findByText("240 de 551 conversas (44%), 1.834 mensagens")).toBeInTheDocument();
+  });
+
+  it("o total chega pelo tempo real junto com o avanço", async () => {
+    const client = api();
+    render(<Inbox api={client} />);
+    await screen.findByText("240 conversas, 1.834 mensagens");
+
+    act(() => realtime.handler?.({ workspaceId: "default-workspace", eventType: "conversation.sync.updated", payload: { wahaSession: "session-a", jobId: "job-a", status: "running", chatsProcessed: 305, messagesProcessed: 2500, chatsTotal: 551, hasMore: true, progressLabel: "Sincronizando histórico…", updatedAt: "2026-07-31T12:01:00.000Z" } }));
+    expect(screen.getByText("305 de 551 conversas (55%), 2.500 mensagens")).toBeInTheDocument();
+  });
+
+  it("sem total, a faixa segue sem porcentagem em vez de travar", async () => {
+    // A contagem falha aberta no servidor. A tela tem de continuar útil.
+    render(<Inbox api={api({ syncStatus: vi.fn().mockResolvedValue(job({ chatsTotal: null })) })} />);
+    expect(await screen.findByText("240 conversas, 1.834 mensagens")).toBeInTheDocument();
+    expect(faixa().textContent ?? "").not.toContain("%");
+  });
+
+  it("nunca mostra o identificador da conversa em curso", async () => {
     render(<Inbox api={api()} />);
     await screen.findByText("Sincronizando o histórico");
-    const texto = faixa().textContent ?? "";
-    // Sem total de conversas não há denominador — ver syncProgress.ts. E JID não é
-    // informação de usuário (regra 6 do CLAUDE.md).
-    expect(texto).not.toContain("%");
-    expect(texto).not.toContain("@c.us");
+    // JID não é informação de usuário (regra 6 do CLAUDE.md).
+    expect(faixa().textContent ?? "").not.toContain("@c.us");
   });
 
   it("a faixa tem estilo próprio, com um tom por estado", () => {

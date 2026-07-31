@@ -8,10 +8,10 @@ import { historyRecord, type WahaWebhookStore } from './waha-webhook.service.js'
 import { isConversationChatId } from './conversation-identity.js';
 
 export type SyncStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type SyncJob = { id: string; workspaceId: string; wahaSession: string; status: SyncStatus; currentChatId: string | null; chatCursor: string | null; messageCursor: string | null; chatsProcessed: number; messagesProcessed: number; startedAt: string; completedAt: string | null; lastErrorSafe: string | null; updatedAt: string };
+export type SyncJob = { id: string; workspaceId: string; wahaSession: string; status: SyncStatus; currentChatId: string | null; chatCursor: string | null; messageCursor: string | null; chatsProcessed: number; messagesProcessed: number; chatsTotal: number | null; startedAt: string; completedAt: string | null; lastErrorSafe: string | null; updatedAt: string };
 export type SyncJobStatus = SyncJob & { jobId: string; currentChat: string | null; hasMore: boolean; progressLabel: string };
 export type SyncJobStore = { get(workspaceId: string, wahaSession: string): Promise<SyncJob | undefined>; save(job: SyncJob): Promise<void> };
-export type HistorySyncOptions = { chatPageSize?: number; messagePageSize?: number; maxChatsPerRun?: number; maxMessagesPerRun?: number; emergencyMaxMessages?: number; continuationDelayMs?: number; maxAttempts?: number; retryBaseMs?: number; maxConsecutiveChatTimeouts?: number; staleRunningAfterMs?: number; sleep?: (milliseconds: number) => Promise<void> };
+export type HistorySyncOptions = { chatPageSize?: number; messagePageSize?: number; maxChatsPerRun?: number; maxMessagesPerRun?: number; emergencyMaxMessages?: number; continuationDelayMs?: number; maxAttempts?: number; retryBaseMs?: number; maxConsecutiveChatTimeouts?: number; staleRunningAfterMs?: number; maxCountedChats?: number; sleep?: (milliseconds: number) => Promise<void> };
 export type HistorySyncRunLimits = { maxChatsPerRun?: number; maxMessagesPerRun?: number };
 const transientCodes = new Set(['TIMEOUT', 'SERVICE_UNAVAILABLE']);
 // A provider timeout while paginating one chat is scoped to that chat. The WAHA
@@ -39,6 +39,7 @@ export class WhatsAppHistorySyncService {
       retryBaseMs: options.retryBaseMs ?? 250,
       maxConsecutiveChatTimeouts: options.maxConsecutiveChatTimeouts ?? 5,
       staleRunningAfterMs: options.staleRunningAfterMs ?? 300_000,
+      maxCountedChats: options.maxCountedChats ?? 200_000,
       sleep: options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))),
     };
   }
@@ -59,10 +60,11 @@ export class WhatsAppHistorySyncService {
     this.cancelling.delete(key);
     const now = new Date().toISOString();
     const job: SyncJob = previous && previous.status === 'completed'
-      ? { ...previous, status: 'pending', currentChatId: null, chatCursor: '0', messageCursor: null, chatsProcessed: 0, messagesProcessed: 0, startedAt: now, completedAt: null, lastErrorSafe: null, updatedAt: now }
+      // Corrida nova conta de novo: a conta pode ter crescido desde a anterior.
+      ? { ...previous, status: 'pending', currentChatId: null, chatCursor: '0', messageCursor: null, chatsProcessed: 0, messagesProcessed: 0, chatsTotal: null, startedAt: now, completedAt: null, lastErrorSafe: null, updatedAt: now }
       : previous
         ? { ...previous, status: 'pending', completedAt: null, lastErrorSafe: null, updatedAt: now }
-        : { id: randomUUID(), workspaceId, wahaSession, status: 'pending', currentChatId: null, chatCursor: '0', messageCursor: null, chatsProcessed: 0, messagesProcessed: 0, startedAt: now, completedAt: null, lastErrorSafe: null, updatedAt: now };
+        : { id: randomUUID(), workspaceId, wahaSession, status: 'pending', currentChatId: null, chatCursor: '0', messageCursor: null, chatsProcessed: 0, messagesProcessed: 0, chatsTotal: null, startedAt: now, completedAt: null, lastErrorSafe: null, updatedAt: now };
     await this.save(job, previous?.status === 'running' ? 'adopted after an interrupted run' : previous?.status === 'failed' || previous?.status === 'cancelled' ? 'resumed manually' : 'started');
     this.launch(job, limits);
     return this.view(job);
@@ -115,6 +117,13 @@ export class WhatsAppHistorySyncService {
     if (!job || job.status === 'cancelled') return;
     try {
       job = await this.save({ ...job, status: 'running', updatedAt: new Date().toISOString() }, 'running');
+      // O denominador do progresso. Contado aqui dentro, e não em `start`, para o
+      // endpoint não pagar a latência; a Inbox está em polling e pega o número no
+      // tique seguinte. Falha aberta: sem total, a corrida segue sem porcentagem.
+      if (job.chatsTotal === null) {
+        const chatsTotal = await this.countChats(job);
+        if (chatsTotal !== null) job = await this.save({ ...job, chatsTotal, updatedAt: new Date().toISOString() }, 'chat total counted');
+      }
       let chatsThisBatch = 0;
       let messagesThisBatch = 0;
       let messagesThisExecution = 0;
@@ -150,7 +159,7 @@ export class WhatsAppHistorySyncService {
             const page = await this.page(job, undefined, offset, this.options.chatPageSize);
             if (!page.items.length) {
               if (page.hasMore) {
-                job = await this.save({ ...job, chatCursor: String(offset + this.options.chatPageSize), updatedAt: new Date().toISOString() }, 'skipped unsupported chat page');
+                job = await this.save({ ...job, chatCursor: String(offset + this.options.chatPageSize), chatsProcessed: job.chatsProcessed + this.options.chatPageSize, updatedAt: new Date().toISOString() }, 'skipped unsupported chat page');
                 continue;
               }
               await this.save({ ...job, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, 'completed');
@@ -161,7 +170,7 @@ export class WhatsAppHistorySyncService {
           const candidate = listing.items[offset - listing.offset];
           const chatId = typeof candidate.id === 'string' && isConversationChatId(candidate.id) ? candidate.id : null;
           if (!chatId) {
-            job = await this.save({ ...job, chatCursor: String(offset + 1), updatedAt: new Date().toISOString() }, 'skipped invalid chat');
+            job = await this.save({ ...job, chatCursor: String(offset + 1), chatsProcessed: job.chatsProcessed + 1, updatedAt: new Date().toISOString() }, 'skipped invalid chat');
             continue;
           }
           // A chat that receives a message jumps to the top of the listing and
@@ -169,7 +178,7 @@ export class WhatsAppHistorySyncService {
           // run already walked. Its history is on disk and anything newer arrives
           // by webhook, so paginating it again would only re-read it.
           if (visited.has(chatId)) {
-            job = await this.save({ ...job, chatCursor: String(offset + 1), updatedAt: new Date().toISOString() }, 'skipped a chat already synchronized in this run');
+            job = await this.save({ ...job, chatCursor: String(offset + 1), chatsProcessed: job.chatsProcessed + 1, updatedAt: new Date().toISOString() }, 'skipped a chat already synchronized in this run');
             continue;
           }
           visited.add(chatId);
@@ -229,6 +238,59 @@ export class WhatsAppHistorySyncService {
     }
   }
 
+  /** Quantos chats a sessão tem, para o progresso ter denominador.
+   *
+   *  A WAHA 2026.7.1 não tem rota de contagem para chats — tem para grupos e para
+   *  LIDs, não para chats. `GET /api/{sessão}/chats` devolve array puro, sem
+   *  envelope e sem cabeçalho de total, então contar significaria receber os
+   *  552 objetos (2,7 MB medidos nesta conta) só para tirar o `length`.
+   *
+   *  Em vez disso: rampa exponencial e busca binária sobre o `offset`, pedindo uma
+   *  página de **um** item. O WEBJS fatia antes de serializar, então cada sonda
+   *  transfere um chat, não a lista. Medido nesta conta: 552 exatos em 20 sondas,
+   *  299 KB, 0,136 s — contra 2,7 MB e 0,47 s de varrer tudo. E não degrada quando
+   *  a conta cresce, que é por que a busca binária foi escolhida em vez da
+   *  varredura (ver web/docs/history-sync-chats-total.md).
+   *
+   *  **Ramifica em `hasMore`, nunca em `items.length`.** `hasMore` é medido antes
+   *  do filtro (`listChats` em waha-client.ts), e é isso que torna a sonda uma
+   *  pergunta sobre a posição existir. `items.length` é depois do filtro, e
+   *  `status@broadcast` ocupa uma posição real: com a ordenação por recência ele
+   *  pode cair no offset 0, e uma sonda que olhasse `items.length` leria a lista
+   *  inteira como vazia.
+   */
+  private async countChats(job: SyncJob): Promise<number | null> {
+    // Uma sonda pergunta "existe chat nesta posição?" — nada mais.
+    const occupied = async (offset: number) => (await this.page(job, undefined, offset, 1)).hasMore;
+    // Zero desliga a contagem: é a válvula operacional para uma conta grande, e o
+    // que os testes que não são sobre contagem usam para manter a sequência de
+    // chamadas ao provedor sob análise.
+    if (this.options.maxCountedChats <= 0) return null;
+    try {
+      if (!(await occupied(0))) return 0;
+      // Rampa: dobra até passar do fim, para a busca binária começar com limites.
+      let low = 0;
+      let high = 1;
+      while (await occupied(high)) {
+        low = high;
+        high *= 2;
+        // Teto de sanidade. Uma conta maior que isto não existe no WhatsApp, e sem
+        // o limite um `hasMore` sempre verdadeiro sondaria para sempre.
+        if (high > this.options.maxCountedChats) return null;
+      }
+      // `low` está ocupado, `high` não. O total é o primeiro offset vazio.
+      while (high - low > 1) {
+        const middle = Math.floor((low + high) / 2);
+        if (await occupied(middle)) low = middle; else high = middle;
+      }
+      return high;
+    } catch (error) {
+      // Falha aberta: a corrida vale mais que a barra de progresso.
+      log('info', 'WhatsApp history sync could not count chats', { workspaceId: job.workspaceId, wahaSession: job.wahaSession, jobId: job.id, error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }
+  }
+
   private async page(job: SyncJob, chatId: string | undefined, offset: number, limit: number): Promise<{ items: Record<string, unknown>[]; hasMore: boolean }> {
     let last: ProviderFailure | undefined;
     for (let attempt = 1; attempt <= this.options.maxAttempts; attempt += 1) {
@@ -254,7 +316,7 @@ export class WhatsAppHistorySyncService {
   private async save(job: SyncJob, event: string): Promise<SyncJob> {
     await this.jobs.save(job);
     const status = this.view(job);
-    this.realtime.publish(job.workspaceId, 'conversation.sync.updated', { jobId: status.jobId, wahaSession: job.wahaSession, status: job.status, chatsProcessed: job.chatsProcessed, messagesProcessed: job.messagesProcessed, currentChat: status.currentChat, hasMore: status.hasMore, progressLabel: status.progressLabel, lastErrorSafe: job.lastErrorSafe, updatedAt: job.updatedAt });
+    this.realtime.publish(job.workspaceId, 'conversation.sync.updated', { jobId: status.jobId, wahaSession: job.wahaSession, status: job.status, chatsProcessed: job.chatsProcessed, messagesProcessed: job.messagesProcessed, chatsTotal: job.chatsTotal, currentChat: status.currentChat, hasMore: status.hasMore, progressLabel: status.progressLabel, lastErrorSafe: job.lastErrorSafe, updatedAt: job.updatedAt });
     log('info', 'WhatsApp history sync', { workspaceId: job.workspaceId, wahaSession: job.wahaSession, jobId: job.id, event, status: job.status, chatsProcessed: job.chatsProcessed, messagesProcessed: job.messagesProcessed });
     return job;
   }
@@ -283,17 +345,17 @@ export class WhatsAppHistorySyncService {
 export class SqliteWhatsAppHistorySyncStore implements SyncJobStore {
   constructor(private readonly db: SqliteDatabase) {}
   async get(workspaceId: string, wahaSession: string) { const row = this.db.prepare('SELECT * FROM whatsapp_sync_jobs WHERE workspaceId=? AND wahaSession=?').get(workspaceId, wahaSession) as Record<string, unknown> | undefined; return row ? sqliteJob(row) : undefined; }
-  async save(job: SyncJob) { this.db.prepare('INSERT INTO whatsapp_sync_jobs (id,workspaceId,wahaSession,status,currentChatId,chatCursor,messageCursor,chatsProcessed,messagesProcessed,startedAt,completedAt,lastErrorSafe,updatedAt) VALUES (@id,@workspaceId,@wahaSession,@status,@currentChatId,@chatCursor,@messageCursor,@chatsProcessed,@messagesProcessed,@startedAt,@completedAt,@lastErrorSafe,@updatedAt) ON CONFLICT(workspaceId,wahaSession) DO UPDATE SET status=excluded.status,currentChatId=excluded.currentChatId,chatCursor=excluded.chatCursor,messageCursor=excluded.messageCursor,chatsProcessed=excluded.chatsProcessed,messagesProcessed=excluded.messagesProcessed,completedAt=excluded.completedAt,lastErrorSafe=excluded.lastErrorSafe,updatedAt=excluded.updatedAt').run(job); }
+  async save(job: SyncJob) { this.db.prepare('INSERT INTO whatsapp_sync_jobs (id,workspaceId,wahaSession,status,currentChatId,chatCursor,messageCursor,chatsProcessed,messagesProcessed,chatsTotal,startedAt,completedAt,lastErrorSafe,updatedAt) VALUES (@id,@workspaceId,@wahaSession,@status,@currentChatId,@chatCursor,@messageCursor,@chatsProcessed,@messagesProcessed,@chatsTotal,@startedAt,@completedAt,@lastErrorSafe,@updatedAt) ON CONFLICT(workspaceId,wahaSession) DO UPDATE SET status=excluded.status,currentChatId=excluded.currentChatId,chatCursor=excluded.chatCursor,messageCursor=excluded.messageCursor,chatsProcessed=excluded.chatsProcessed,messagesProcessed=excluded.messagesProcessed,chatsTotal=excluded.chatsTotal,completedAt=excluded.completedAt,lastErrorSafe=excluded.lastErrorSafe,updatedAt=excluded.updatedAt').run(job); }
 }
 
 export class SupabaseWhatsAppHistorySyncStore implements SyncJobStore {
   constructor(private readonly client: SupabaseClient) {}
   async get(workspaceId: string, wahaSession: string) { const { data, error } = await this.client.from('whatsapp_sync_jobs').select().eq('workspace_id', workspaceId).eq('waha_session', wahaSession).maybeSingle(); if (error) throw error; return data ? remoteJob(data) : undefined; }
-  async save(job: SyncJob) { const { error } = await this.client.from('whatsapp_sync_jobs').upsert({ id: job.id, workspace_id: job.workspaceId, waha_session: job.wahaSession, status: job.status, current_chat_id: job.currentChatId, chat_cursor: job.chatCursor, message_cursor: job.messageCursor, chats_processed: job.chatsProcessed, messages_processed: job.messagesProcessed, started_at: job.startedAt, completed_at: job.completedAt, last_error_safe: job.lastErrorSafe, updated_at: job.updatedAt }, { onConflict: 'workspace_id,waha_session' }); if (error) throw error; }
+  async save(job: SyncJob) { const { error } = await this.client.from('whatsapp_sync_jobs').upsert({ id: job.id, workspace_id: job.workspaceId, waha_session: job.wahaSession, status: job.status, current_chat_id: job.currentChatId, chat_cursor: job.chatCursor, message_cursor: job.messageCursor, chats_processed: job.chatsProcessed, messages_processed: job.messagesProcessed, chats_total: job.chatsTotal, started_at: job.startedAt, completed_at: job.completedAt, last_error_safe: job.lastErrorSafe, updated_at: job.updatedAt }, { onConflict: 'workspace_id,waha_session' }); if (error) throw error; }
 }
 
 function sqliteJob(row: Record<string, unknown>): SyncJob { return row as unknown as SyncJob; }
-function remoteJob(row: Record<string, any>): SyncJob { return { id: row.id, workspaceId: row.workspace_id, wahaSession: row.waha_session, status: row.status, currentChatId: row.current_chat_id, chatCursor: row.chat_cursor, messageCursor: row.message_cursor, chatsProcessed: row.chats_processed, messagesProcessed: row.messages_processed, startedAt: row.started_at, completedAt: row.completed_at, lastErrorSafe: row.last_error_safe, updatedAt: row.updated_at }; }
+function remoteJob(row: Record<string, any>): SyncJob { return { id: row.id, workspaceId: row.workspace_id, wahaSession: row.waha_session, status: row.status, currentChatId: row.current_chat_id, chatCursor: row.chat_cursor, messageCursor: row.message_cursor, chatsProcessed: row.chats_processed, messagesProcessed: row.messages_processed, chatsTotal: row.chats_total ?? null, startedAt: row.started_at, completedAt: row.completed_at, lastErrorSafe: row.last_error_safe, updatedAt: row.updated_at }; }
 function integerCursor(value: string | null): number { const number = Number(value ?? 0); return Number.isInteger(number) && number >= 0 ? number : 0; }
 /**
  * Reading messages costs the WAHA WEBJS engine time proportional to the offset
