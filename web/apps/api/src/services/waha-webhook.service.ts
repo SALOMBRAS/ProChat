@@ -145,11 +145,23 @@ function chatIdFromPayload(value: Record<string, unknown>, direction: 'inbound' 
   const remote = [text(value.remoteJid), text(value.remote_jid), text(nested(value, 'key', 'remoteJid')), text(nested(value, 'key', 'remote_jid'))].find(isChatIdentifier);
   const hasParticipant = Boolean(text(value.participant) || text(nested(value, 'key', 'participant')));
   if (remote?.endsWith('@g.us')) return remote;
+  // Um JID de grupo endereça um chat e nunca um autor, então a ambiguidade que a
+  // guarda de participante abaixo existe para resolver não se aplica a ele: se
+  // `from` ou `to` traz um `@g.us`, aquele é o chat, com participante ou sem.
+  //
+  // Sem esta linha, todo evento de grupo cujo payload não traz `chatId` nem
+  // `remoteJid` morre na guarda. É a forma que o WEBJS passou a mandar em
+  // 2026-07-20 — `from` com o grupo, `participant` com o autor em `@lid`, e nada
+  // mais —, e ela responde por 9.686 dos 10.372 descartes `missing_chat_id`
+  // medidos em `waha_webhook_events`: 9.581 recebidas, pelo `from`, e 105
+  // enviadas por nós, pelo `to`.
+  const group = [text(value.from), text(value.to)].find(candidate => candidate?.endsWith('@g.us'));
+  if (group) return group;
   if (hasParticipant) return undefined;
   if (remote) return remote;
   return direction === 'inbound' ? firstValid(value.from, value.sender, value.author) : firstValid(value.to);
 }
-function chatIdSource(value: Record<string, unknown>, direction: 'inbound' | 'outbound'): string { if (text(value.chatId)) return 'chatId'; if (text(value.chat_id)) return 'chat_id'; if (text(value.remoteJid) || text(value.remote_jid)) return 'remoteJid'; if (text(nested(value, 'key', 'remoteJid')) || text(nested(value, 'key', 'remote_jid'))) return 'key.remoteJid'; return direction === 'inbound' ? 'sender_fallback' : 'to_fallback'; }
+function chatIdSource(value: Record<string, unknown>, direction: 'inbound' | 'outbound'): string { if (text(value.chatId)) return 'chatId'; if (text(value.chat_id)) return 'chat_id'; if (text(value.remoteJid) || text(value.remote_jid)) return 'remoteJid'; if (text(nested(value, 'key', 'remoteJid')) || text(nested(value, 'key', 'remote_jid'))) return 'key.remoteJid'; if ([text(value.from), text(value.to)].some(candidate => candidate?.endsWith('@g.us'))) return 'group_jid'; return direction === 'inbound' ? 'sender_fallback' : 'to_fallback'; }
 function firstValid(...values: unknown[]): string | undefined { return values.map(text).find(isChatIdentifier); }
 function isChatIdentifier(value: string | undefined): value is string { return Boolean(value && (value.endsWith('@c.us') || value.endsWith('@lid') || value.endsWith('@g.us'))); }
 function isTechnical(message: StoredMessage): boolean { return isTechnicalMessageType(wahaMessageType(message.payload)) || message.chatId === 'status@broadcast'; }

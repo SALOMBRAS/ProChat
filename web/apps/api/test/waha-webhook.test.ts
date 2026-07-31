@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import request from 'supertest';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
 import { historyRecord, messagePreview, webhookRecord } from '../src/services/waha-webhook.service.js';
 import { createWorkerTransportHandler, listenInternalTransport } from '../../worker/src/internal-transport-server.js';
@@ -112,6 +112,59 @@ describe('WAHA webhook ingress', () => {
     expect(database.prepare('SELECT chatId, conversationType FROM conversations').all()).toEqual([{ chatId: group, conversationType: 'group' }]);
     expect(database.prepare('SELECT count(*) total FROM whatsapp_messages WHERE externalMessageId=?').get('participant-remote-message')).toEqual({ total: 0 });
     expect(database.prepare('SELECT count(*) total FROM contacts').get()).toEqual({ total: 0 });
+  });
+  // Forma real do WEBJS medida em `waha_webhook_events`: sem `chatId` e sem
+  // `remoteJid`, com o grupo em `from` e o autor em `participant` — 9.686 dos
+  // 10.372 eventos que a base descartou com `missing_chat_id`. Os identificadores
+  // abaixo são os do evento citado no relatório; corpo e URL de mídia ficaram
+  // fora porque nada aqui depende deles.
+  it('accepts a group message whose only chat identity is the group JID in from', async () => {
+    const app = await appFor(); const group = '120363363444637332@g.us'; const author = '105257451397231@lid';
+    const body = { id: 'evt-group-from', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: `false_${group}_3EB06F93242EDB5978123A_${author}`, from: group, to: '558592369359@c.us', participant: author, fromMe: false, hasMedia: true, media: { mimetype: 'image/jpeg', filename: null }, _data: { type: 'image' } } };
+    const requestBody = signed(body);
+    const lines: string[] = []; const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { lines.push(String(args[0])); });
+    try { await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); } finally { spy.mockRestore(); }
+    const database = app.locals.persistenceDatabase.sqlite;
+    expect(database.prepare('SELECT chatId, conversationType FROM conversations').all()).toEqual([{ chatId: group, conversationType: 'group' }]);
+    // O autor vira remetente da mensagem, nunca a conversa: é o precedente da #18.
+    expect(database.prepare('SELECT chatId, senderWhatsappId, messageType FROM whatsapp_messages').all()).toEqual([{ chatId: group, senderWhatsappId: author, messageType: 'image' }]);
+    // O log tem de dizer de onde veio o chat: foi ele que apontou para o defeito
+    // errado enquanto dizia `chatIdReceived: null`, e `sender_fallback` aqui
+    // mandaria o próximo leitor procurar em `from`/`sender` indistintamente.
+    const normalized = lines.map(line => { try { return JSON.parse(line); } catch { return undefined; } }).find(entry => entry?.message === 'WAHA message normalized');
+    expect(normalized).toMatchObject({ chatIdReceived: group, chatIdNormalized: group, chatIdSource: 'group_jid' });
+  });
+  // O mesmo grupo visto do outro lado: quando somos nós que enviamos, o WEBJS
+  // manda o nosso `@lid` em `from` e o grupo em `to`. São 105 eventos medidos, e
+  // o risco aqui é o inverso — abrir uma conversa privada com o nosso próprio
+  // alias em vez de gravar no grupo.
+  it('keeps an outbound group message in the group when only to carries the group JID', async () => {
+    const app = await appFor(); const group = '120363363444637332@g.us';
+    const body = { id: 'evt-group-to', timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload: { id: `true_${group}_3EB06F93242EDB5978123B_130236326891636@lid`, from: '130236326891636@lid', to: group, participant: '130236326891636@lid', fromMe: true, body: 'resposta ao grupo' } };
+    const requestBody = signed(body);
+    await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202);
+    const database = app.locals.persistenceDatabase.sqlite;
+    expect(database.prepare('SELECT chatId, conversationType FROM conversations').all()).toEqual([{ chatId: group, conversationType: 'group' }]);
+    expect(database.prepare("SELECT count(*) total FROM conversations WHERE chatId LIKE '%@lid'").get()).toEqual({ total: 0 });
+    expect(database.prepare('SELECT chatId, direction FROM whatsapp_messages').all()).toEqual([{ chatId: group, direction: 'outbound' }]);
+  });
+  // A guarda da #18 continua de pé onde não há grupo nenhum no evento: com
+  // `participant` e um `from` privado, o chat é ambíguo e o evento tem de
+  // continuar sendo descartado em vez de abrir conversa com o participante.
+  // As duas outras formas medidas que somem sem grupo — `@broadcast` (558) e
+  // `@newsletter` (126) — seguem descartadas pelo mesmo caminho.
+  it('still refuses to open a private conversation from a participant when no group JID is present', async () => {
+    const app = await appFor();
+    const events = [
+      { id: 'evt-private-participant', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'private-participant-message', from: '5511999990000@c.us', to: '558592369359@c.us', participant: '5511999990000@c.us', fromMe: false, body: 'nao criar privada' } },
+      { id: 'evt-broadcast-participant', timestamp: Date.now() + 1, event: 'message' as const, session: 'waha-a', payload: { id: 'broadcast-participant-message', from: 'status@broadcast', to: '558592369359@c.us', participant: '5511999990001@lid', fromMe: false, body: 'status' } },
+      { id: 'evt-newsletter', timestamp: Date.now() + 2, event: 'message' as const, session: 'waha-a', payload: { id: 'newsletter-message', from: '120363000000000000@newsletter', to: '558592369359@c.us', fromMe: false, body: 'canal' } },
+    ];
+    for (const body of events) { const requestBody = signed(body); await request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', requestBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', requestBody.timestamp).send(requestBody.raw).expect(202); }
+    const database = app.locals.persistenceDatabase.sqlite;
+    expect(database.prepare('SELECT count(*) total FROM waha_webhook_events').get()).toEqual({ total: 3 });
+    expect(database.prepare('SELECT count(*) total FROM conversations').get()).toEqual({ total: 0 });
+    expect(database.prepare('SELECT count(*) total FROM whatsapp_messages').get()).toEqual({ total: 0 });
   });
   it('persists media metadata from WAHA without downloading it in the webhook', async () => {
     const app = await appFor(); const body = { id: 'evt-media', timestamp: Date.now(), event: 'message' as const, session: 'waha-a', payload: { id: 'media-image-1', chatId: '5511999990000@c.us', body: 'Foto', type: 'image', hasMedia: true, media: { url: 'https://waha.example.test/api/files/photo.jpg', mimetype: 'image/jpeg', filename: 'photo.jpg', size: 1234 } } }; const requestBody = signed(body);
