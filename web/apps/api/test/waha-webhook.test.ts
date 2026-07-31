@@ -23,7 +23,11 @@ describe('WAHA webhook ingress', () => {
     const socket = { readyState: 1, messages: [] as string[], send(data: string) { this.messages.push(data); } }; app.locals.realtimeHub.add(socket, 'workspace-a'); const incoming = { id: 'automation-event', timestamp: Date.now(), event: 'message', session: 'waha-a', payload: { id: 'automation-message', chatId: '5511999990000@c.us', body: 'novo' } };
     await post(incoming).expect(202); await post(incoming).expect(200); const state = db.prepare('SELECT s.key FROM conversation_kanban_state c JOIN kanban_stages s ON s.id=c.stageId WHERE c.conversationId=?').get(conversation.id) as { key: string };
     expect(state.key).toBe('waiting_operator'); expect(db.prepare('SELECT count(*) total FROM conversation_kanban_events WHERE conversationId=?').get(conversation.id)).toEqual({ total: 1 }); expect(socket.messages.map(message => JSON.parse(message).eventType).filter((event: string) => event === 'conversation.kanban.moved')).toHaveLength(1);
-    const history = historyRecord('workspace-a', 'waha-a', { id: 'automation-history', chatId: '5511999990000@c.us', body: 'antiga' }); await (app.locals.persistenceDatabase ? (async () => { if (!history) throw new Error('history record missing'); const { SqliteWahaWebhookStore } = await import('../src/services/waha-webhook.service.js'); return new SqliteWahaWebhookStore(db).ingest(history); })() : Promise.resolve()); expect(db.prepare('SELECT count(*) total FROM conversation_kanban_events WHERE conversationId=?').get(conversation.id)).toEqual({ total: 1 });
+    db.prepare('UPDATE conversation_kanban_state SET stageId=? WHERE conversationId=? AND boardId=?').run(waiting.id, conversation.id, board.id);
+    const history = historyRecord('workspace-a', 'waha-a', { id: 'automation-history', chatId: '5511999990000@c.us', body: 'antiga' }); if (!history) throw new Error('history record missing');
+    await app.locals.wahaWebhookStore.ingest(history);
+    expect(db.prepare('SELECT s.key FROM conversation_kanban_state c JOIN kanban_stages s ON s.id=c.stageId WHERE c.conversationId=?').get(conversation.id)).toEqual({ key: 'waiting_customer' });
+    expect(db.prepare('SELECT count(*) total FROM conversation_kanban_events WHERE conversationId=?').get(conversation.id)).toEqual({ total: 1 });
   });
   it('formats media conversation previews without falling back to text-only placeholders', () => {
     expect(messagePreview({ messageType: 'image', body: null, mediaFilename: null })).toBe('Foto');

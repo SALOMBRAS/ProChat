@@ -89,6 +89,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const kanban = database ? new KanbanService(database.sqlite, realtimeHub, sla) : new SupabaseKanbanService(supabase!, realtimeHub, sla);
     const kanbanAutomation = new KanbanAutomationCoordinator(kanban);
     webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite, kanbanAutomation, config.ownWhatsappNumbers, slaMessages) : new SupabaseWahaWebhookStore(supabase!, kanbanAutomation, config.ownWhatsappNumbers, slaMessages);
+    app.locals.wahaWebhookStore = webhookStore;
     const mediaPersistence = new WhatsAppMediaPersistenceService(webhookStore, permanentMedia, { baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey });
     if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void sla.tick().catch(error => log('error', 'SLA tick failed', { error: error instanceof Error ? error.stack ?? error.message : String(error) })); }, 60_000); timer.unref(); }
     const routing = new RoutingService(routingStore, webhookStore, directory, realtimeHub, database ? new SqliteRoutingJobStore(database.sqlite) : undefined);
