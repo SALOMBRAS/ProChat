@@ -9,9 +9,16 @@ import {
   MIN_CROP_SIDE,
   PEN_COLORS,
   PEN_LEVELS,
+  TEXT_HALO,
+  TEXT_LEVELS,
+  TEXT_LINE_RATIO,
+  addItem,
   annotatedName,
   applyMatrix,
+  canvasDeltaToBase,
   canvasPoint,
+  clampTextPosition,
+  composeMatrix,
   cropHandlePoint,
   dragCrop,
   exportAnnotated,
@@ -22,19 +29,39 @@ import {
   geometryMatrix,
   isEditableImage,
   isPristineEdit,
+  measureWith,
+  nextTextId,
   normalizeCrop,
+  oppositeRotation,
   outputSize,
   penWidth,
   pointerSamples,
+  removeTextItem,
   renderAnnotation,
+  spinMatrix,
+  textBaseRect,
+  textBox,
+  textById,
+  textFont,
+  textLevelOf,
+  textMatrix,
+  textOverlayRect,
+  textSize,
+  textsOf,
   toBasePoint,
   tracePath,
   turnRect,
   turnRotation,
+  updateTextItem,
+  visibleBase,
   type AnnotationContext,
+  type Matrix,
   type Rect,
   type Rotation,
-  type Stroke,
+  type StrokeItem,
+  type TextEditItem,
+  type TextItem,
+  type TextMeasure,
 } from "./imageAnnotation.js";
 
 /**
@@ -53,11 +80,23 @@ const spyContext = () => {
     quadraticCurveTo: record("quadraticCurveTo"), stroke: record("stroke"),
     setTransform: record("setTransform"),
     fillRect: record("fillRect"), drawImage: record("drawImage"),
+    // O texto escrito não é número, então entra no registro pelo próprio nome da
+    // operação; o que interessa conferir dele é *o quê* e *sob qual matriz*.
+    fillText: (text: string, x: number, y: number) => { ops.push({ name: `fillText:${text}`, args: [x, y] }); },
+    strokeText: (text: string, x: number, y: number) => { ops.push({ name: `strokeText:${text}`, args: [x, y] }); },
+    measureText: (text: string) => ({ width: text.length * 10 }),
     fillStyle: "", strokeStyle: "", lineWidth: 0, lineCap: "butt" as CanvasLineCap, lineJoin: "miter" as CanvasLineJoin,
+    font: "", textAlign: "start" as CanvasTextAlign, textBaseline: "alphabetic" as CanvasTextBaseline,
   };
   return context as typeof context & AnnotationContext;
 };
-const line = (points: [number, number][]): Stroke => ({ color: "#fb7185", width: 8, points: points.map(([x, y]) => ({ x, y })) });
+const line = (points: [number, number][]): StrokeItem => ({ kind: "stroke", color: "#fb7185", width: 8, points: points.map(([x, y]) => ({ x, y })) });
+const words = (text: string, over: Partial<TextItem> = {}): TextEditItem =>
+  ({ kind: "text", id: 1, text, x: 40, y: 60, size: 50, color: "#fff", turn: 0, ...over });
+/** Um medidor previsível: cada caractere vale meio corpo de fonte. O canvas do jsdom
+ *  não mede texto, e a aritmética da caixa não precisa de fonte de verdade — precisa
+ *  de uma largura que dependa do texto e do corpo, que é o que isto dá. */
+const meia: TextMeasure = (text, size) => text.length * size * 0.5;
 const names = (context: { ops: Op[] }) => context.ops.map((op) => op.name);
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
@@ -289,13 +328,22 @@ describe("arrasto do recorte", () => {
 });
 
 describe("edição intocada", () => {
-  it("só é intocada sem traço, sem giro e sem recorte", () => {
+  it("só é intocada sem marcação, sem giro e sem recorte", () => {
     // É a condição de §3.6: confirmar assim devolve o `File` que entrou. Giro e
     // recorte entram na conta porque mudam os pixels tanto quanto um traço.
-    expect(isPristineEdit({ strokes: [], rotation: 0 })).toBe(true);
-    expect(isPristineEdit({ strokes: [line([[1, 1]])], rotation: 0 })).toBe(false);
-    expect(isPristineEdit({ strokes: [], rotation: 90 })).toBe(false);
-    expect(isPristineEdit({ strokes: [], rotation: 0, crop: { x: 0, y: 0, width: 10, height: 10 } })).toBe(false);
+    expect(isPristineEdit({ items: [], rotation: 0 })).toBe(true);
+    expect(isPristineEdit({ items: [line([[1, 1]])], rotation: 0 })).toBe(false);
+    expect(isPristineEdit({ items: [words("urgente")], rotation: 0 })).toBe(false);
+    expect(isPristineEdit({ items: [], rotation: 90 })).toBe(false);
+    expect(isPristineEdit({ items: [], rotation: 0, crop: { x: 0, y: 0, width: 10, height: 10 } })).toBe(false);
+  });
+
+  it("caixa de texto criada e deixada vazia não faz a imagem deixar de ser a original", () => {
+    // Criar a caixa e desistir de digitar não põe um pixel na foto. Se contasse como
+    // marcação, o Concluir reexportaria uma imagem idêntica à que entrou — perdendo
+    // qualidade e EXIF por nada, que é exatamente o que §3.6 existe para impedir.
+    expect(isPristineEdit({ items: [words("")], rotation: 0 })).toBe(true);
+    expect(isPristineEdit({ items: [words("   ")], rotation: 0 })).toBe(true);
   });
 });
 
@@ -404,6 +452,227 @@ describe("repintura", () => {
     expect(context.ops.find((op) => op.name === "setTransform" && op.args[4] !== 0)!.args).toEqual([1, 0, 0, 1, -100, -200]);
     expect(context.ops.find((op) => op.name === "drawImage")!.args).toEqual([0, 0, 1200, 900]);
     expect(context.ops.find((op) => op.name === "moveTo")!.args).toEqual([40, 60]);
+  });
+});
+
+describe("texto: corpo e caixa", () => {
+  it("o corpo é proporcional ao lado maior, então o mesmo nível pesa igual na tela", () => {
+    // Corpo fixo em pixels sairia gigante numa imagem de 600 px e ilegível numa foto
+    // de 12 MP — a mesma razão da espessura da caneta.
+    expect(textSize(3, 1200)).toBe(60);
+    expect(textSize(3, 2400)).toBe(120);
+    expect(textSize(6, 1200)).toBeGreaterThan(textSize(1, 1200));
+  });
+
+  it("não deixa o texto sumir em imagem pequena, e prende o nível na faixa oferecida", () => {
+    expect(textSize(1, 60)).toBe(12);
+    expect(textSize(99, 1200)).toBe(textSize(TEXT_LEVELS.max, 1200));
+    expect(textSize(-4, 1200)).toBe(textSize(TEXT_LEVELS.min, 1200));
+  });
+
+  it("o caminho de volta diz que nível produziu aquele corpo", () => {
+    // Sem isto, selecionar um texto já criado deixaria a régua no último valor que
+    // ela tinha, e o primeiro arrasto dela pularia para um tamanho que ninguém pediu.
+    expect(textLevelOf(textSize(4, 1200), 1200)).toBe(4);
+    expect(textLevelOf(9000, 1200)).toBe(TEXT_LEVELS.max);
+  });
+
+  it("a caixa cresce com o texto e com o corpo, e o texto vazio ainda tem caixa", () => {
+    expect(textBox(words("ab", { size: 50 }), meia)).toEqual({ x: 0, y: 0, width: 50, height: 50 * TEXT_LINE_RATIO });
+    expect(textBox(words("abcd", { size: 50 }), meia).width).toBe(100);
+    // Caixa de largura zero não dá alvo nenhum: quem acabou de criar um texto não
+    // conseguiria pegá-lo para arrastar nem alcançá-lo pelo Tab.
+    expect(textBox(words(""), meia).width).toBeGreaterThan(0);
+  });
+});
+
+describe("texto: o quadro em que foi escrito", () => {
+  const base = { width: 1200, height: 900 };
+
+  it("escrito na foto endireitada, sai em pé — e é aí que a matriz do texto é só translação", () => {
+    // O caso que derruba a alternativa ingênua: o operador gira 90° para endireitar a
+    // foto e SÓ ENTÃO escreve. Desenhar em coordenadas da base com a matriz do giro
+    // ativa faria as letras correrem para baixo, na mesma sessão, sem nenhum passo
+    // intermediário. Guardando o quadro de origem, o giro se cancela.
+    const deitada = words("ok", { turn: 90 });
+    expect(textMatrix(deitada, base, { rotation: 90 })).toEqual([1, 0, 0, 1, 840, 40]);
+  });
+
+  it("escrito antes do giro, o texto gira junto com a foto", () => {
+    // A outra metade da mesma decisão: texto é tinta sobre a foto (§3.7). Quem marcou
+    // e depois virou a foto vira a marca junto, como aconteceria no papel.
+    const emPe = words("ok", { turn: 0 });
+    expect(textMatrix(emPe, base, { rotation: 0 })).toEqual([1, 0, 0, 1, 40, 60]);
+    expect(textMatrix(emPe, base, { rotation: 90 })).toEqual([0, 1, -1, 0, 840, 40]);
+  });
+
+  it("a matriz do texto é rígida: gira e desloca, mas nunca escala", () => {
+    // Determinante 1 nos quatro giros e nos quatro quadros de origem. Qualquer escala
+    // aqui reamostraria a letra e engordaria o contorno junto.
+    for (const turn of [0, 90, 180, 270] as Rotation[])
+      for (const rotation of [0, 90, 180, 270] as Rotation[]) {
+        const [a, b, c, d] = textMatrix(words("ok", { turn }), base, { rotation });
+        expect(a * d - b * c, `turn ${turn} sobre giro ${rotation}`).toBe(1);
+      }
+  });
+
+  it("o giro que desfaz o giro: 90 vira 270, e zero continua zero", () => {
+    expect(oppositeRotation(0)).toBe(0);
+    expect(oppositeRotation(90)).toBe(270);
+    expect(oppositeRotation(180)).toBe(180);
+    expect(oppositeRotation(270)).toBe(90);
+  });
+
+  it("compor duas matrizes é aplicar a segunda primeiro", () => {
+    // Deslocar e então girar não é a mesma coisa que girar e então deslocar; trocar a
+    // ordem aqui põe o texto no canto errado só depois do primeiro giro.
+    const deslocar: Matrix = [1, 0, 0, 1, 10, 20];
+    expect(applyMatrix(composeMatrix(deslocar, spinMatrix(90)), { x: 1, y: 0 })).toEqual({ x: 10, y: 21 });
+    expect(applyMatrix(composeMatrix(spinMatrix(90), deslocar), { x: 1, y: 0 })).toEqual({ x: -20, y: 11 });
+  });
+
+  it("a pegada na base troca de lados quando o texto foi escrito de lado", () => {
+    expect(textBaseRect(words("ab", { size: 50, turn: 0 }), meia)).toEqual({ x: 40, y: 60, width: 50, height: 64 });
+    expect(textBaseRect(words("ab", { size: 50, turn: 90 }), meia)).toEqual({ x: 40, y: 10, width: 64, height: 50 });
+  });
+
+  it("a alça pousa sobre as letras em qualquer giro, porque usa a mesma matriz do desenho", () => {
+    const item = words("ab", { size: 50, turn: 0 });
+    expect(textOverlayRect(item, meia, base, { rotation: 0 })).toEqual({ x: 40, y: 60, width: 50, height: 64 });
+    // Girado, a caixa acompanha: 50 de largura viram 50 de altura no canvas.
+    expect(textOverlayRect(item, meia, base, { rotation: 90 })).toEqual({ x: 776, y: 40, width: 64, height: 50 });
+  });
+
+  it("o recorte desloca a alça pelo mesmo tanto que desloca a imagem", () => {
+    const item = words("ab", { size: 50, turn: 0 });
+    expect(textOverlayRect(item, meia, base, { rotation: 0, crop: { x: 10, y: 20, width: 400, height: 300 } }))
+      .toEqual({ x: 30, y: 40, width: 50, height: 64 });
+  });
+});
+
+describe("texto: onde ele pode ficar", () => {
+  const base = { width: 1200, height: 900 };
+
+  it("o que está à vista é a imagem inteira, ou o recorte, em coordenadas da base", () => {
+    expect(visibleBase(base, { rotation: 0 })).toEqual({ x: 0, y: 0, width: 1200, height: 900 });
+    expect(visibleBase(base, { rotation: 0, crop: { x: 100, y: 200, width: 400, height: 300 } })).toEqual({ x: 100, y: 200, width: 400, height: 300 });
+    // Girar não esconde nada: o que está à vista continua sendo a base inteira.
+    expect(visibleBase(base, { rotation: 90 })).toEqual({ x: 0, y: 0, width: 1200, height: 900 });
+  });
+
+  it("para a direita na tela continua sendo para a direita depois de girar", () => {
+    // Sem passar pela inversa da geometria, a seta para a direita moveria o texto para
+    // baixo numa foto girada — o mesmo erro que §3.7 descreve para o ponteiro.
+    expect(canvasDeltaToBase({ x: 10, y: 0 }, base, { rotation: 0 })).toEqual({ x: 10, y: 0 });
+    expect(canvasDeltaToBase({ x: 10, y: 0 }, base, { rotation: 90 })).toEqual({ x: 0, y: -10 });
+    expect(canvasDeltaToBase({ x: 0, y: 10 }, base, { rotation: 90 })).toEqual({ x: 10, y: 0 });
+  });
+
+  it("prende a pegada dentro do que está à vista, e não a âncora", () => {
+    const bounds = visibleBase(base, { rotation: 0 });
+    // Encostado na direita: a caixa de 50 px não pode começar depois de 1150.
+    expect(clampTextPosition(words("ab", { size: 50, x: 1180, turn: 0 }), meia, bounds)).toEqual({ x: 1150, y: 60 });
+    // Escrito de lado, a pegada sobe a partir da âncora — a caixa vai de y=−40 a
+    // y=10. Prender a âncora em vez da pegada deixaria os 40 px de cima do texto
+    // fora da foto, e o operador veria a legenda cortada pela borda.
+    expect(clampTextPosition(words("ab", { size: 50, x: 40, y: 10, turn: 90 }), meia, bounds)).toEqual({ x: 40, y: 50 });
+  });
+
+  it("não deixa o texto ser arrastado para o pedaço que o recorte joga fora", () => {
+    const bounds = visibleBase(base, { rotation: 0, crop: { x: 100, y: 200, width: 400, height: 300 } });
+    expect(clampTextPosition(words("ab", { size: 50, x: 0, y: 0, turn: 0 }), meia, bounds)).toEqual({ x: 100, y: 200 });
+    expect(clampTextPosition(words("ab", { size: 50, x: 900, y: 800, turn: 0 }), meia, bounds)).toEqual({ x: 450, y: 436 });
+  });
+
+  it("texto mais largo que a área encosta na borda em vez de ir para um limite negativo", () => {
+    expect(clampTextPosition(words("abcdef", { size: 50, x: 40, turn: 0 }), meia, { x: 0, y: 0, width: 90, height: 900 }).x).toBe(0);
+  });
+});
+
+describe("texto: a lista de objetos", () => {
+  it("o id novo é o maior mais um, e não um contador escondido", () => {
+    // Derivar da lista faz reabrir o editor com a mesma edição reconstruir os mesmos
+    // ids: o histórico continua falando do mesmo texto depois de desfazer.
+    expect(nextTextId([])).toBe(1);
+    expect(nextTextId([words("a", { id: 1 }), line([[0, 0]]), words("b", { id: 7 })])).toBe(8);
+  });
+
+  it("mexer num texto copia a lista em vez de mutar o objeto", () => {
+    // O histórico é barato porque os instantâneos compartilham os objetos. Mutar um
+    // deles reescreveria o passado, e desfazer não traria a posição de volta.
+    const antes = { items: [words("oi", { id: 1 })], rotation: 0 as Rotation };
+    const depois = updateTextItem(antes, 1, { x: 500 });
+    expect(textById(antes.items, 1)!.x).toBe(40);
+    expect(textById(depois.items, 1)!.x).toBe(500);
+  });
+
+  it("apagar tira só o texto pedido: os outros e o traço ficam", () => {
+    const edit = { items: [line([[1, 1]]), words("fica", { id: 2 }), words("sai", { id: 3 })], rotation: 0 as Rotation };
+    const depois = removeTextItem(edit, 3).items;
+    expect(textsOf(depois).map((item) => item.text)).toEqual(["fica"]);
+    expect(depois).toHaveLength(2);
+  });
+});
+
+describe("texto: como é desenhado", () => {
+  const base = { width: 1200, height: 900 };
+
+  it("o contorno escuro vem antes do preenchimento, senão ele cobriria o miolo da letra", () => {
+    const context = spyContext();
+    renderAnnotation(context, undefined, [words("urgente", { color: "#fff" })], base);
+    const ordem = names(context);
+    expect(ordem.indexOf("strokeText:urgente")).toBeLessThan(ordem.indexOf("fillText:urgente"));
+    // A paleta tem branco, e branco sobre céu branco não existe. O contorno tem de ser
+    // de outra cor que a letra, senão ele não separa nada do fundo.
+    expect(context.strokeStyle).toBe(TEXT_HALO);
+    expect(context.fillStyle).toBe("#fff");
+    expect(context.strokeStyle).not.toBe(context.fillStyle);
+    expect(context.lineWidth).toBeGreaterThan(0);
+  });
+
+  it("escreve na origem do próprio quadro: quem posiciona é a matriz", () => {
+    const context = spyContext();
+    renderAnnotation(context, undefined, [words("ok", { x: 40, y: 60, turn: 0 })], base);
+    expect(context.ops.find((op) => op.name === "fillText:ok")!.args).toEqual([0, 0]);
+    // O contorno tem de sair no mesmo lugar do preenchimento; meio pixel de diferença
+    // vira sombra torta em volta da letra.
+    expect(context.ops.find((op) => op.name === "strokeText:ok")!.args).toEqual([0, 0]);
+    // E a matriz aplicada logo antes é a que leva o texto ao lugar.
+    const antes = context.ops.slice(0, context.ops.findIndex((op) => op.name === "strokeText:ok"));
+    expect(antes.filter((op) => op.name === "setTransform").at(-1)!.args).toEqual([1, 0, 0, 1, 40, 60]);
+  });
+
+  it("depois do texto a geometria volta, senão o traço seguinte herdaria o quadro dele", () => {
+    const context = spyContext();
+    renderAnnotation(context, undefined, [words("ok", { turn: 0 }), line([[10, 20], [30, 40]])], base, { rotation: 90 });
+    const geometria = [0, 1, -1, 0, 900, 0];
+    const depoisDoTexto = context.ops.slice(context.ops.findIndex((op) => op.name === "fillText:ok"));
+    expect(depoisDoTexto.find((op) => op.name === "setTransform")!.args).toEqual(geometria);
+    // E o traço sai nas coordenadas da base, como sempre saiu.
+    expect(depoisDoTexto.find((op) => op.name === "moveTo")!.args).toEqual([10, 20]);
+  });
+
+  it("a ordem da lista é a ordem de empilhamento: risco por cima de texto fica por cima", () => {
+    const context = spyContext();
+    renderAnnotation(context, undefined, [words("ok"), line([[0, 0], [5, 5]])], base);
+    const ordem = names(context);
+    expect(ordem.indexOf("fillText:ok")).toBeLessThan(ordem.indexOf("moveTo"));
+  });
+
+  it("texto vazio não emite desenho nenhum", () => {
+    const context = spyContext();
+    renderAnnotation(context, undefined, [words("")], base);
+    expect(names(context).some((name) => name.startsWith("fillText"))).toBe(false);
+  });
+
+  it("a fonte é a do produto, com peso, e a medida sai dela", () => {
+    // Fonte fina sobre foto some, e uma pilha diferente da do tema faria o texto na
+    // foto sair com outra letra que a do resto da tela.
+    expect(textFont(48)).toContain("700 48px");
+    expect(textFont(48)).toContain("Inter");
+    const context = spyContext();
+    expect(measureWith(context)("abcd", 30)).toBe(40);
+    expect(context.font).toBe(textFont(30));
   });
 });
 

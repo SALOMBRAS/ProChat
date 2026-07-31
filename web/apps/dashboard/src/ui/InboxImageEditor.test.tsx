@@ -63,7 +63,14 @@ const fakeContext = () => {
     quadraticCurveTo: push("quadraticCurveTo"), stroke: push("stroke"),
     setTransform: push("setTransform"),
     fillRect: push("fillRect"), drawImage: () => drawn.push("drawImage"),
+    // O texto entra no registro com o próprio conteúdo, então a frase escrita acaba
+    // nos bytes exportados: é assim que o teste prova que ela foi para o arquivo, e
+    // não só para a tela.
+    fillText: (text: string, x: number, y: number) => { drawn.push(`fillText:${text}(${x},${y})`); },
+    strokeText: (text: string, x: number, y: number) => { drawn.push(`strokeText:${text}(${x},${y})`); },
+    measureText: (text: string) => ({ width: text.length * 12 }),
     fillStyle: "", strokeStyle: "", lineWidth: 0, lineCap: "butt", lineJoin: "miter",
+    font: "", textAlign: "start", textBaseline: "alphabetic",
   };
 };
 
@@ -163,6 +170,23 @@ const arrastarAlca = (alca: string, de: [number, number], para: [number, number]
   fireEvent(window, pointer("pointermove", { pointerId, clientX: para[0], clientY: para[1] }));
   fireEvent(window, pointer("pointerup", { pointerId, clientX: para[0], clientY: para[1] }));
 };
+
+const modoTexto = () => fireEvent.click(screen.getByLabelText("Texto"));
+const campoTexto = () => screen.getByLabelText("Conteúdo do texto") as HTMLInputElement;
+/** Toca a imagem para criar a caixa e digita. O ponteiro não precisa de `pointerup`:
+ *  a caixa nasce no `pointerdown`, que é onde o operador vê o cursor aparecer. */
+const escrever = (canvas: HTMLCanvasElement, [x, y]: [number, number], frase: string, pointerId = 3) => {
+  fireEvent(canvas, pointer("pointerdown", { pointerId, button: 0, clientX: x, clientY: y }));
+  fireEvent.change(campoTexto(), { target: { value: frase } });
+};
+/** A matriz aplicada logo antes de escrever a frase: é ela que diz onde o texto foi
+ *  parar e em que orientação — as duas coisas que o giro e o recorte podem estragar. */
+const matrizDoTexto = (frase: string) => {
+  const indice = drawn.findIndex((op) => op.startsWith(`fillText:${frase}(`));
+  return indice < 0 ? undefined : drawn.slice(0, indice).filter((op) => op.startsWith("setTransform")).at(-1);
+};
+const numeros = (op?: string) => (op ?? "").replace(/^[^(]*\(/, "").replace(/\)$/, "").split(",").map(Number);
+const alcaDoTexto = (frase: string) => screen.getByLabelText(`Texto “${frase}”`);
 
 describe("editor de imagem no composer", () => {
   it("o caminho inteiro: imagem entra, traço é aplicado, e o arquivo enviado difere do original e passa na allowlist", async () => {
@@ -726,5 +750,541 @@ describe("recorte e giro", () => {
     // A alça é posicionada contra a caixa da seleção; no fluxo normal ela cairia
     // enfileirada num canto e nenhuma quina teria a sua.
     expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-crop-handle\s*\{[^}]*position:\s*absolute/);
+  });
+});
+
+describe("texto", () => {
+  /** A base é 1200×900 aqui também, e o `getBoundingClientRect` do jsdom devolve tudo
+   *  zero — a guarda de `canvasPoint` faz a coordenada da tela valer a da imagem, que
+   *  é o que torna estes números legíveis. O medidor de mentira dá 12 px por
+   *  caractere, então "aqui" mede 48 px. */
+  it("o caminho inteiro: a frase escrita vai para os bytes do arquivo enviado", async () => {
+    const client = await abrirConversa();
+    const original = originalImage();
+    const canvas = await abrirEditor(original);
+    modoTexto();
+    escrever(canvas, [300, 400], "URGENTE");
+    fireEvent.click(screen.getByText("Concluir"));
+
+    await screen.findByText("foto-editada.jpg");
+    fireEvent.click(screen.getByLabelText("Enviar"));
+    await waitFor(() => expect(client.sendAttachment).toHaveBeenCalled());
+
+    const arquivo = enviado(client);
+    expect(arquivo.type).toBe("image/jpeg");
+    const saida = new TextDecoder().decode(await bytes(arquivo));
+    // A frase está no arquivo, não só na tela — e o original ficou para trás.
+    expect(saida).toContain("fillText:URGENTE");
+    expect(saida).not.toContain("original-sem-marcacao");
+  });
+
+  it("caixa criada e deixada vazia devolve o próprio original, sem recodificar", async () => {
+    const client = await abrirConversa();
+    const original = originalImage();
+    const canvas = await abrirEditor(original);
+    modoTexto();
+    // Tocar a imagem e desistir de digitar não põe pixel nenhum: reexportar aqui
+    // perderia qualidade e EXIF por nada.
+    fireEvent(canvas, pointer("pointerdown", { pointerId: 3, button: 0, clientX: 300, clientY: 400 }));
+    fireEvent.click(screen.getByText("Concluir"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Editar imagem" })).toBeNull());
+
+    expect(exportedTypes).toHaveLength(0);
+    fireEvent.click(await screen.findByLabelText("Enviar"));
+    await waitFor(() => expect(client.sendAttachment).toHaveBeenCalled());
+    expect(enviado(client)).toBe(original);
+  });
+
+  it("desfazer apaga a palavra inteira, não uma letra por tecla", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    fireEvent(canvas, pointer("pointerdown", { pointerId: 3, button: 0, clientX: 300, clientY: 400 }));
+    for (const parcial of ["u", "ur", "urg", "urgente"]) fireEvent.change(campoTexto(), { target: { value: parcial } });
+    expect(matrizDoTexto("urgente")).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    expect(matrizDoTexto("urgente")).toBeUndefined();
+    // Nem sobrou o passo intermediário, nem a caixa vazia da criação: escrever é um
+    // gesto só, e o histórico guarda gestos.
+    expect(matrizDoTexto("urg")).toBeUndefined();
+    expect(screen.getByLabelText("Desfazer")).toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText("Refazer"));
+    expect(matrizDoTexto("urgente")).toBeTruthy();
+  });
+
+  it("texto e traço saem da mesma pilha de desfazer, na ordem em que foram feitos", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    desenhar(canvas, [[10, 10], [60, 40], [120, 90]]);
+    modoTexto();
+    escrever(canvas, [300, 400], "junto");
+    expect(tracos()).toHaveLength(1);
+
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    expect(matrizDoTexto("junto")).toBeUndefined();
+    expect(tracos()).toHaveLength(1);
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    expect(tracos()).toHaveLength(0);
+  });
+
+  it("arrastar a caixa move o texto pelo mesmo tanto que o ponteiro andou", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "aqui");
+    const antes = numeros(matrizDoTexto("aqui"));
+
+    fireEvent(alcaDoTexto("aqui"), pointer("pointerdown", { pointerId: 5, button: 0, clientX: 300, clientY: 400 }));
+    fireEvent(window, pointer("pointermove", { pointerId: 5, clientX: 500, clientY: 430 }));
+    // O texto já acompanha o dedo antes de soltar: sem isso o arrasto seria às cegas,
+    // e só ao largar é que o operador descobriria onde a frase caiu.
+    expect(numeros(matrizDoTexto("aqui"))[4]).toBeCloseTo(antes[4] + 200);
+    fireEvent(window, pointer("pointerup", { pointerId: 5, clientX: 500, clientY: 430 }));
+
+    const depois = numeros(matrizDoTexto("aqui"));
+    expect(depois[4]).toBeCloseTo(antes[4] + 200);
+    expect(depois[5]).toBeCloseTo(antes[5] + 30);
+  });
+
+  it("a caixa também anda pelo teclado, que é como o texto fica alcançável sem mouse", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "seta");
+    const antes = numeros(matrizDoTexto("seta"));
+
+    fireEvent.keyDown(alcaDoTexto("seta"), { key: "ArrowRight" });
+    expect(numeros(matrizDoTexto("seta"))[4]).toBeCloseTo(antes[4] + 1);
+    fireEvent.keyDown(alcaDoTexto("seta"), { key: "ArrowDown", shiftKey: true });
+    expect(numeros(matrizDoTexto("seta"))[5]).toBeCloseTo(antes[5] + 10);
+    // Segurar a seta dispara uma tecla por quadro: os dois passos são um gesto só de
+    // reposicionar, como o arrasto do ponteiro é um gesto só.
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    expect(numeros(matrizDoTexto("seta"))).toEqual(antes);
+  });
+
+  it("criar texto sem ponteiro nenhum: o botão põe a caixa no meio e o foco vai para o campo", async () => {
+    await abrirConversa();
+    await abrirEditor(originalImage());
+    modoTexto();
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar texto" }));
+    // Sem o foco automático, o operador de teclado teria de sair procurando o campo
+    // depois de cada inserção.
+    await waitFor(() => expect(document.activeElement).toBe(campoTexto()));
+
+    fireEvent.change(campoTexto(), { target: { value: "sem mouse" } });
+    // Base 1200×900, corpo 60: a caixa vazia mede meio corpo (30 px) e a linha 76,8.
+    // O meio é (600, 450), então a caixa nasce em (585, 411,6) — centrada, e não num
+    // quarto da largura. É a única inserção que o teclado alcança; largá-la fora do
+    // meio deixa quem não tem mouse escrevendo num canto.
+    const posto = numeros(matrizDoTexto("sem mouse"));
+    expect(posto[4]).toBeCloseTo(585);
+    expect(posto[5]).toBeCloseTo(411.6);
+  });
+
+  it("o botão não empilha uma caixa em cima da outra", async () => {
+    await abrirConversa();
+    await abrirEditor(originalImage());
+    modoTexto();
+    // Com a foto girada, "uma linha abaixo" na tela é outra direção na base: medir o
+    // passo na base faria a segunda caixa andar para o lado em vez de descer.
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    modoTexto();
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar texto" }));
+    await waitFor(() => expect(document.activeElement).toBe(campoTexto()));
+    fireEvent.change(campoTexto(), { target: { value: "primeira" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar texto" }));
+    fireEvent.change(campoTexto(), { target: { value: "segunda" } });
+
+    // Sem descer uma linha, as duas caixas nasceriam no mesmo pixel: a segunda frase
+    // sairia escrita por cima da primeira e as alças se sobreporiam.
+    const primeira = numeros(matrizDoTexto("primeira"));
+    const segunda = numeros(matrizDoTexto("segunda"));
+    expect(segunda[5]).toBeCloseTo(primeira[5] + 76.8);
+    expect(segunda[4]).toBeCloseTo(primeira[4]);
+  });
+
+  it("descartar varre as caixas vazias que sobraram na tela", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    fireEvent(canvas, pointer("pointerdown", { pointerId: 3, button: 0, clientX: 300, clientY: 400 }));
+    fireEvent(canvas, pointer("pointerdown", { pointerId: 4, button: 0, clientX: 600, clientY: 700 }));
+    expect(screen.getAllByLabelText("Texto sem conteúdo")).toHaveLength(2);
+
+    // Caixa vazia não é marcação (§3.6) e o arquivo continua o original — mas ela está
+    // na tela, e com o botão desabilitado não haveria como varrê-las de uma vez.
+    fireEvent.click(screen.getByText("Descartar edição"));
+    expect(screen.queryByLabelText("Texto sem conteúdo")).toBeNull();
+  });
+
+  it("texto que o recorte jogou fora não deixa alça invisível no caminho do Tab", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [1000, 800], "no canto");
+    expect(alcaDoTexto("no canto")).toBeTruthy();
+
+    recortar();
+    arrastarAlca("Canto inferior direito do recorte", [1200, 900], [600, 450]);
+    caneta();
+    modoTexto();
+    // O recorte corta a marcação como corta tinta, e o texto sai do arquivo junto —
+    // mas a alça não pode ficar para trás: a camada tem `overflow: hidden`, então ela
+    // seria um alvo de Tab que ninguém vê, e um Delete ali apagaria às cegas.
+    expect(matrizDoTexto("no canto")).toBeTruthy();
+    expect(screen.queryByLabelText("Texto “no canto”")).toBeNull();
+  });
+
+  it("clicar numa alça dá foco a ela, senão a seta continuaria movendo o texto anterior", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [200, 200], "antes");
+    escrever(canvas, [200, 600], "depois", 4);
+
+    fireEvent(alcaDoTexto("antes"), pointer("pointerdown", { pointerId: 9, button: 0, clientX: 200, clientY: 200 }));
+    fireEvent(window, pointer("pointerup", { pointerId: 9, clientX: 200, clientY: 200 }));
+    // `preventDefault` num ponteiro impede o navegador de dar o foco, e sem foco a
+    // barra falaria de um texto e o teclado de outro.
+    expect(document.activeElement).toBe(alcaDoTexto("antes"));
+  });
+
+  it("Esc solta a seleção e fecha o passo: o que for digitado depois não engole o anterior", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "aa");
+
+    fireEvent.keyDown(campoTexto(), { key: "Escape" });
+    fireEvent.click(alcaDoTexto("aa"));
+    fireEvent.change(campoTexto(), { target: { value: "bbb" } });
+    // Sem fechar o agrupamento no Esc, esta digitação substituiria o passo do "aa" e
+    // um Desfazer pularia direto para antes do texto existir.
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    expect(matrizDoTexto("aa")).toBeTruthy();
+  });
+
+  it("escrever depois de endireitar a foto sai em pé, e não deitado junto com ela", async () => {
+    // O caso que decide o modelo: quem gira para endireitar e SÓ ENTÃO escreve tem de
+    // ver letra em pé. Desenhar em coordenadas da base com a matriz do giro ativa
+    // faria a frase correr para baixo, na mesma sessão, sem nenhum passo intermediário.
+    await abrirConversa();
+    await abrirEditor(originalImage());
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    modoTexto();
+    escrever(canvasDoEditor(), [200, 300], "reto");
+    // Matriz de translação pura: nenhum giro sobrou para deitar a letra. E a
+    // translação prova as outras duas contas do toque — a caixa nasce na coluna do
+    // dedo (200) e meia linha acima dele (300 − 76,8/2), com a meia linha medida na
+    // TELA: em coordenadas da base ela apontaria para o lado numa foto girada.
+    expect(numeros(matrizDoTexto("reto"))).toEqual([1, 0, 0, 1, 200, 261.6]);
+  });
+
+  it("girar depois de escrever leva o texto junto, como leva a tinta", async () => {
+    // A outra metade da mesma decisão: o texto é tinta sobre a foto. Quem marcou e
+    // depois virou a foto vira a marca junto, como aconteceria no papel.
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "vira");
+    expect(numeros(matrizDoTexto("vira")).slice(0, 4)).toEqual([1, 0, 0, 1]);
+
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    expect(numeros(matrizDoTexto("vira")).slice(0, 4)).toEqual([0, 1, -1, 0]);
+  });
+
+  it("o recorte desloca o texto pelo mesmo tanto que desloca a imagem", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "corte");
+    const antes = numeros(matrizDoTexto("corte"));
+
+    recortar();
+    arrastarAlca("Canto superior esquerdo do recorte", [0, 0], [100, 200]);
+    caneta();
+
+    const depois = numeros(matrizDoTexto("corte"));
+    expect(depois[4]).toBeCloseTo(antes[4] - 100);
+    expect(depois[5]).toBeCloseTo(antes[5] - 200);
+  });
+
+  it("uma frase longa perto da borda encosta na margem em vez de vazar da imagem", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    // 22 caracteres a 12 px medem 264: começando em 1190 numa base de 1200, o texto
+    // sairia quase inteiro para fora e o envio levaria a frase cortada.
+    escrever(canvas, [1190, 400], "uma frase bem comprida");
+    // Exatamente encostado: a medida vem do contexto que desenhou, e não de um palpite
+    // por número de caracteres — palpite erraria a margem para os dois lados.
+    expect(numeros(matrizDoTexto("uma frase bem comprida"))[4]).toBeCloseTo(1200 - 264);
+  });
+
+  it("selecionar um texto já criado traz o conteúdo dele de volta ao campo", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [200, 300], "um");
+    escrever(canvas, [400, 500], "dois", 4);
+    expect(campoTexto().value).toBe("dois");
+
+    fireEvent.click(alcaDoTexto("um"));
+    expect(campoTexto().value).toBe("um");
+    fireEvent.change(campoTexto(), { target: { value: "primeiro" } });
+    expect(matrizDoTexto("primeiro")).toBeTruthy();
+    expect(matrizDoTexto("dois")).toBeTruthy();
+  });
+
+  it("selecionar traz também o tamanho daquele texto para a régua", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [200, 300], "grande");
+    fireEvent.change(screen.getByLabelText("Tamanho do texto"), { target: { value: "6" } });
+    escrever(canvas, [200, 600], "outro", 4);
+    fireEvent.change(screen.getByLabelText("Tamanho do texto"), { target: { value: "2" } });
+
+    // Sem sincronizar, a régua ficaria no último valor e o primeiro arrasto dela
+    // redimensionaria o texto para um tamanho que ninguém pediu.
+    fireEvent.click(alcaDoTexto("grande"));
+    expect((screen.getByLabelText("Tamanho do texto") as HTMLInputElement).value).toBe("6");
+  });
+
+  it("Enter na caixa leva ao campo mesmo com o texto ainda não selecionado", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "curto");
+    // O foco que a criação agendou ainda está na fila de microtasks; sem drená-lo
+    // aqui, ele chegaria durante o `waitFor` lá embaixo e daria o foco ao campo por
+    // conta própria — mascarando exatamente o que este teste quer prender.
+    await Promise.resolve();
+    // Sair do texto e voltar solta a seleção — é o mesmo estado de quem reabriu o
+    // editor. O campo está desabilitado, e elemento desabilitado não recebe foco:
+    // mandar o foco no mesmo tique deixaria quem só tem teclado digitando no vazio.
+    caneta();
+    modoTexto();
+    expect(campoTexto()).toBeDisabled();
+    expect(document.activeElement).not.toBe(campoTexto());
+
+    fireEvent.keyDown(alcaDoTexto("curto"), { key: "Enter" });
+    await waitFor(() => expect(document.activeElement).toBe(campoTexto()));
+
+    fireEvent.change(campoTexto(), { target: { value: "x".repeat(400) } });
+    expect(campoTexto().value).toHaveLength(120);
+  });
+
+  it("a caixa do texto só existe no modo texto", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "oculta");
+    caneta();
+    // No modo caneta a alça sairia na frente do traço: quem quer riscar por cima do
+    // texto acertaria a caixa em vez da imagem.
+    expect(screen.queryByLabelText("Texto “oculta”")).toBeNull();
+    expect(matrizDoTexto("oculta")).toBeTruthy();
+  });
+
+  it("desfazer solta a seleção, para ela não cair num id reaproveitado", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    // O id novo é o maior da lista mais um, então apagar o segundo devolve o crachá 2
+    // para o terceiro. Sem soltar a seleção, desfazer até o passo em que o crachá 2
+    // era do "b" faria o campo — e o Apagar — passarem a falar de outro texto.
+    escrever(canvas, [200, 200], "a");
+    escrever(canvas, [200, 400], "b", 4);
+    fireEvent.click(screen.getByLabelText("Apagar texto"));
+    escrever(canvas, [200, 600], "c", 5);
+
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    expect(matrizDoTexto("b")).toBeTruthy();
+    expect(campoTexto()).toBeDisabled();
+  });
+
+  it("desfazer fecha o agrupamento, senão o passo seguinte engole o que foi restaurado", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "chave");
+    const antes = numeros(matrizDoTexto("chave"));
+
+    fireEvent.keyDown(alcaDoTexto("chave"), { key: "ArrowRight" });
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    // A chave do passo desfeito ainda era `move`. Se ela sobreviver ao desfazer, esta
+    // seta substitui o passo restaurado em vez de empilhar sobre ele — e o desfazer
+    // seguinte pula direto para antes do texto existir.
+    fireEvent.keyDown(alcaDoTexto("chave"), { key: "ArrowRight" });
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    expect(numeros(matrizDoTexto("chave"))).toEqual(antes);
+  });
+
+  it("sair da caixa fecha o passo: dois grupos de setas são dois desfazeres", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "duas");
+    const antes = numeros(matrizDoTexto("duas"));
+
+    fireEvent.keyDown(alcaDoTexto("duas"), { key: "ArrowRight" });
+    fireEvent.blur(alcaDoTexto("duas"));
+    fireEvent.keyDown(alcaDoTexto("duas"), { key: "ArrowRight" });
+    expect(numeros(matrizDoTexto("duas"))[4]).toBeCloseTo(antes[4] + 2);
+
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    expect(numeros(matrizDoTexto("duas"))[4]).toBeCloseTo(antes[4] + 1);
+  });
+
+  it("reabrir não traz de volta a caixa vazia que ficou para trás", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    // Criar a caixa e desistir: não é trabalho, e não tem por que virar um passo de
+    // desfazer que não muda nada na tela quando o editor reabrir.
+    fireEvent(canvas, pointer("pointerdown", { pointerId: 3, button: 0, clientX: 300, clientY: 400 }));
+    fireEvent.click(screen.getByText("Concluir"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Editar imagem" })).toBeNull());
+
+    fireEvent.click(screen.getByLabelText("Editar com a caneta"));
+    await screen.findByRole("dialog", { name: "Editar imagem" });
+    modoTexto();
+    expect(screen.queryByLabelText("Texto sem conteúdo")).toBeNull();
+    expect(screen.getByLabelText("Desfazer")).toBeDisabled();
+  });
+
+  it("apagar tira o texto selecionado, pelo botão e pela tecla", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "some");
+    fireEvent.click(screen.getByLabelText("Apagar texto"));
+    expect(matrizDoTexto("some")).toBeUndefined();
+    expect(screen.queryByLabelText("Texto “some”")).toBeNull();
+
+    escrever(canvas, [300, 400], "tambem", 6);
+    fireEvent.keyDown(alcaDoTexto("tambem"), { key: "Delete" });
+    expect(matrizDoTexto("tambem")).toBeUndefined();
+  });
+
+  it("a cor e o tamanho escolhidos chegam ao texto", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    fireEvent.click(screen.getByLabelText("Verde"));
+    escrever(canvas, [300, 400], "verde");
+    expect(ultimoContexto().fillStyle).toBe("#25d366");
+
+    // E a cor escolhida com o texto já criado recolore o que está selecionado, em vez
+    // de valer só para o próximo.
+    fireEvent.click(screen.getByLabelText("Azul"));
+    expect(ultimoContexto().fillStyle).toBe("#59adff");
+
+    const corpo = () => Number(/(\d+)px/.exec(String(ultimoContexto().font))?.[1]);
+    const antes = corpo();
+    fireEvent.change(screen.getByLabelText("Tamanho do texto"), { target: { value: "6" } });
+    expect(corpo()).toBeGreaterThan(antes!);
+  });
+
+  it("a alça do texto pousa sobre as letras, em porcentagem da moldura", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "alça");
+    // Base 1200×900: 300 px é um quarto da largura, e "alça" mede 4×12 = 48 px, que é
+    // 4% dela. Sem a moldura com a proporção da saída, a porcentagem cairia noutro
+    // pixel — é o caso de §3.11.
+    expect((alcaDoTexto("alça") as HTMLElement).style.left).toBe("25%");
+    expect((alcaDoTexto("alça") as HTMLElement).style.width).toBe("4%");
+
+    // Girada a foto, a alça acompanha pela mesma matriz do desenho: a largura de 48 px
+    // vira altura, agora sobre um canvas de 900×1200.
+    fireEvent.click(screen.getByLabelText("Girar 90° à direita"));
+    expect((alcaDoTexto("alça") as HTMLElement).style.height).toBe("4%");
+  });
+
+  it("sair do modo texto solta a seleção, para a régua não mexer no que ninguém vê", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "solta");
+    expect(campoTexto()).not.toBeDisabled();
+
+    caneta();
+    modoTexto();
+    expect(campoTexto()).toBeDisabled();
+    expect(screen.getByLabelText("Apagar texto")).toBeDisabled();
+  });
+
+  it("Esc no campo de texto solta a seleção antes de fechar o editor", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "fica");
+    // Um Esc por passo: fechar o painel na primeira tecla perderia a edição inteira de
+    // quem só queria sair do campo.
+    fireEvent.keyDown(campoTexto(), { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Editar imagem" })).not.toBeNull();
+    expect(matrizDoTexto("fica")).toBeTruthy();
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Editar imagem" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Editar imagem" })).toBeNull());
+  });
+
+  it("descartar a edição leva o texto junto, e desfazer traz tudo de volta", async () => {
+    await abrirConversa();
+    const canvas = await abrirEditor(originalImage());
+    modoTexto();
+    escrever(canvas, [300, 400], "vai e volta");
+    fireEvent.click(screen.getByText("Descartar edição"));
+    expect(matrizDoTexto("vai e volta")).toBeUndefined();
+
+    fireEvent.click(screen.getByLabelText("Desfazer"));
+    expect(matrizDoTexto("vai e volta")).toBeTruthy();
+  });
+
+  it("reabrir traz o texto de volta, ainda partindo do arquivo original", async () => {
+    await abrirConversa();
+    const original = originalImage();
+    const canvas = await abrirEditor(original);
+    modoTexto();
+    escrever(canvas, [300, 400], "de novo");
+    fireEvent.click(screen.getByText("Concluir"));
+    await screen.findByText("foto-editada.jpg");
+
+    fireEvent.click(screen.getByLabelText("Editar com a caneta"));
+    await screen.findByRole("dialog", { name: "Editar imagem" });
+    await waitFor(() => expect(canvasDoEditor().width).toBeGreaterThan(0));
+    modoTexto();
+    expect(alcaDoTexto("de novo")).toBeTruthy();
+    expect(screen.getByLabelText("Desfazer")).not.toBeDisabled();
+
+    fireEvent.click(screen.getByText("Concluir"));
+    // O nome prova a origem: reeditar a exportação anterior devolveria
+    // "foto-editada-editada.jpg", e cada passagem teria custado uma recompressão.
+    await screen.findByText("foto-editada.jpg");
+    expect(exportedTypes).toHaveLength(2);
+  });
+
+  it("a camada e a alça do texto têm estilo próprio, com os tokens que já existiam", () => {
+    // A camada recorta a alça que escapa da imagem e não intercepta ponteiro: quem
+    // desenha é o canvas por baixo.
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-text-layer\s*\{[^}]*overflow:\s*hidden/);
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-text-layer\s*\{[^}]*pointer-events:\s*none/);
+    // A alça é posicionada contra a moldura; no fluxo normal cairia enfileirada.
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-text-item\s*\{[^}]*position:\s*absolute/);
+    // E, como o canvas, não pode deixar o dedo rolar a conversa durante o arrasto.
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-text-item\s*\{[^}]*touch-action:\s*none/);
+    // Sem foco visível, quem chega de Tab não sabe em qual texto está.
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-editor-text-item:focus-visible\s*\{[^}]*outline/);
+
+    const regra = /\.chat-inbox \.composer-editor-text-item\s*\{([^}]*)\}/.exec(stylesheet)!;
+    for (const token of new Set([...regra[1].matchAll(/#[0-9a-f]{3,8}\b/gi)].map((match) => match[0])))
+      expect(stylesheet.split(token).length - 1, `${token} é uma cor nova`).toBeGreaterThan(1);
   });
 });
