@@ -160,6 +160,47 @@ Cards que ele removeria hoje: **504**, sendo 499 da `chatpro-42217e8d…` e 5 da
 seguem alcançáveis; removê-los tiraria do quadro conversas que o operador ainda
 consegue responder.
 
+> **Estado em 31/07/2026, mais tarde:** o `DELETE` foi executado antes deste
+> relatório. `conversation_kanban_state` foi de 631 para **127** linhas.
+>
+> **O CSV exportado antes do `DELETE` não existe:** foi copiado para a área de
+> transferência e perdido antes de virar arquivo. A restauração linha a linha,
+> com `position` e datas originais, ficou impossível — e o gerador e o
+> procedimento que existiam para ela foram removidos, porque não tinham de onde
+> ler. A lição virou regra em `CONTRIBUTING.md`, seção "Antes de apagar em
+> massa".
+>
+> **A recuperação possível é o reparo do próprio código**, não o CSV:
+> `POST /api/v1/inbox/kanban/backfill` (`KanbanService.backfillStates`) insere a
+> linha que falta para cada conversa visível, com `INSERT OR IGNORE` — rodar
+> duas vezes não duplica.
+>
+> Ele **depende da correção do alias**: o reparo filtra pelas sessões vivas, e
+> só depois de a correção incluir os `aliases` é que as 499 conversas do alias
+> voltam. As **5** genuinamente órfãs não voltam, porque o filtro as exclui na
+> origem — o que também encerra a pergunta sobre removê-las por SQL.
+>
+> **O que o reparo não devolve:** `position` (nova sequência, a partir do
+> `MAX(position)` atual), `created_at`, `updated_at` e `last_transition_at`
+> (todos `now()`). `manual_override`, `last_transition_source` e
+> `last_transition_by` são gravados fixos em `false`, `'system'` e `NULL`. O
+> `stage_id` **não é preservado: é recalculado** a partir de
+> `conversations.status`.
+>
+> Neste caso a perda é cosmética, e há evidência independente disso.
+> `conversation_kanban_events` registra toda movimentação e tem **17 eventos, de
+> 3 conversas**, nenhuma delas entre as 504 — nenhum daqueles cards foi movido,
+> nem à mão nem por automação. E os 504 estão **todos com `status = 'open'`**,
+> então voltam todos para a etapa `new`, que é onde estavam.
+>
+> O efeito visível é de ordem: a lista ordena por `position DESC` nos dois
+> provedores, e os recriados recebem posições acima das dos 127 sobreviventes,
+> invertendo a ordem relativa entre os dois grupos dentro de "Novo".
+>
+> Conversas, mensagens e contatos ficaram intactos — 658, 6.861 e 82. Nada mais
+> lê `conversation_kanban_state`, e `conversation_kanban_events` não tem chave
+> estrangeira para ela: não houve cascata.
+
 ## 7. O que não foi verificado
 
 - **Nada foi observado em produção em operação**, porque a #98 não está
