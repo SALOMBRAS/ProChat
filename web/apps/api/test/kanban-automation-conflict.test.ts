@@ -45,6 +45,7 @@ function setup(conflicts = 0) {
  *  test starts the card there — anywhere else the rule declines before the race. */
 async function waitingCustomer(database: SqlitePersistenceDatabase, service: KanbanService) {
   const [board] = await service.boards(workspaceId);
+  await service.backfillStates(workspaceId);
   const stage = board.stages.find(item => item.key === 'waiting_customer')!;
   database.sqlite.prepare('UPDATE conversation_kanban_state SET stageId=? WHERE workspaceId=? AND conversationId=? AND boardId=?').run(stage.id, workspaceId, conversationId, board.id);
   return board;
@@ -110,7 +111,7 @@ describe('Kanban automation under conflict', () => {
   });
 
   // Supabase is the provider that actually raises 40001, so its loop is covered on
-  // its own: `boards` and `move` are stubbed and only the two client calls the loop
+  // its own: `ensureBoard` and `move` are stubbed and only the two client calls the loop
   // itself makes — reading the state and claiming the delivery — stay real.
   it('re-reads the remote state and claims the delivery once across attempts', async () => {
     const stageState = { stage_id: 'stage-waiting-customer', manual_override: false, updated_at: '2026-07-30T00:00:00.000Z', kanban_stages: { key: 'waiting_customer' } };
@@ -121,7 +122,7 @@ describe('Kanban automation under conflict', () => {
     const waits: number[] = [];
     class RacingRemote extends SupabaseKanbanService {
       public attempts = 0;
-      async boards() { return [board] as any; }
+      protected async ensureBoard() { return board; }
       async move() { this.attempts += 1; if (this.attempts === 1) throw new AppError(409, 'CONFLICT', 'Conversation was moved by another operator'); return {} as any; }
     }
     const service = new RacingRemote(client, new RealtimeHub(), sla, kanbanRetry({ sleep: async milliseconds => { waits.push(milliseconds); }, random: () => 0.5 }));
@@ -137,7 +138,7 @@ describe('Kanban automation under conflict', () => {
     const client = { from: () => { reads += 1; return {} as any; } } as never;
     class Remote extends SupabaseKanbanService {
       public moves = 0;
-      async boards() { reads += 1; return [{ id: 'board-1', stages: [] }] as any; }
+      protected async ensureBoard() { reads += 1; return { id: 'board-1', stages: [] }; }
       async move() { this.moves += 1; return {} as any; }
     }
     const service = new Remote(client, new RealtimeHub(), sla);
