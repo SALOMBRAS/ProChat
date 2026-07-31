@@ -57,7 +57,7 @@ export class SupabaseAttachmentOutboxStore implements AttachmentOutboxStore {
 
 export class AttachmentOutboxService {
   private readonly startupCutoff = new Date().toISOString();
-  constructor(private readonly conversations: { getConversation(workspaceId: string, conversationId: string): Promise<Conversation | undefined> }, private readonly store: AttachmentOutboxStore, private readonly storage: TemporaryAttachmentStorage, private readonly worker: InternalWorkerClient) {}
+  constructor(private readonly conversations: { getConversation(workspaceId: string, conversationId: string): Promise<Conversation | undefined> }, private readonly store: AttachmentOutboxStore, private readonly storage: TemporaryAttachmentStorage, private readonly worker: InternalWorkerClient, private readonly sessionActivity?: { assertActive(context: RequestContext, wahaSession: string): Promise<void> }) {}
   /** `voiceNote` is the operator's intent and it is deliberately NOT a column.
    *
    *  It would have to be one if a row could ever be dispatched twice, because
@@ -74,6 +74,10 @@ export class AttachmentOutboxService {
    *  become a column first; see web/docs/inbox-audio-arquivo.md. */
   async create(context: RequestContext, conversationId: string, file: UploadFile, clientRequestId: string, caption?: string, voiceNote?: boolean): Promise<OutboxJob> {
     const conversation = await this.conversations.getConversation(context.workspaceId, conversationId); if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
+    // Antes da linha de outbox e do upload, de propósito: recusar depois deixaria
+    // um job `failed` e um arquivo no storage por até 24h para um envio que a
+    // conversa nunca deveria ter permitido.
+    await this.sessionActivity?.assertActive(context, conversation.whatsappSessionId);
     const existing = await this.store.findByClientRequest(context.workspaceId, clientRequestId); if (existing) return existing;
     const type = validateFile(file); const id = randomUUID(); const filename = sanitizeFilename(file.originalname); const now = new Date().toISOString(); const path = `${context.workspaceId}/${conversationId}/${id}/${filename}`;
     const job: OutboxJob = { id, workspaceId: context.workspaceId, conversationId, wahaSession: conversation.whatsappSessionId, clientRequestId, type, storageObjectPath: path, filename, mimeType: file.mimetype, sizeBytes: file.size, caption: caption?.trim() || null, status: 'pending', attemptCount: 0, externalMessageId: null, providerAcceptedAt: null, lastErrorSafe: null, createdAt: now, updatedAt: now };

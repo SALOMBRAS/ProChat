@@ -37,6 +37,7 @@ import { SlaMessageCoordinator } from './services/sla-message-coordinator.servic
 import { KanbanService } from './services/kanban.service.js';
 import { SupabaseKanbanService } from './services/supabase-kanban.service.js';
 import { KanbanAutomationCoordinator } from './services/kanban-automation.service.js';
+import { WhatsAppSessionActivityService } from './services/whatsapp-session-activity.service.js';
 import { log } from './logging.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
@@ -87,7 +88,10 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const routingStore = database ? new SqliteRoutingStore(database.sqlite) : new SupabaseRoutingStore(supabase!);
     const sla = new SlaService(database ? new SqliteSlaStore(database.sqlite) : new SupabaseSlaStore(supabase!), realtimeHub);
     const slaMessages = new SlaMessageCoordinator(sla);
-    const kanban = database ? new KanbanService(database.sqlite, realtimeHub, sla) : new SupabaseKanbanService(supabase!, realtimeHub, sla);
+    // Uma instância só: o cache de 30 s vale para Inbox, Kanban e envio, e é o
+    // que impede a lista de conversas de virar uma chamada à WAHA por requisição.
+    const sessionActivity = new WhatsAppSessionActivityService(sessions);
+    const kanban = database ? new KanbanService(database.sqlite, realtimeHub, sla, undefined, sessionActivity) : new SupabaseKanbanService(supabase!, realtimeHub, sla, undefined, sessionActivity);
     const kanbanAutomation = new KanbanAutomationCoordinator(kanban);
     webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite, kanbanAutomation, config.ownWhatsappNumbers, slaMessages) : new SupabaseWahaWebhookStore(supabase!, kanbanAutomation, config.ownWhatsappNumbers, slaMessages);
     app.locals.wahaWebhookStore = webhookStore;
@@ -98,7 +102,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     // — foi confundir acumulado com taxa que apontou o Kanban como suspeito.
     if (supabaseCallStatsEnabled()) { const timer = setInterval(() => { log('info', 'Supabase call tally', { windowSeconds: 60, calls: supabaseCallTally() }); resetSupabaseCallTally(); }, 60_000); timer.unref(); }
     const routing = new RoutingService(routingStore, webhookStore, directory, realtimeHub, database ? new SqliteRoutingJobStore(database.sqlite) : undefined);
-    const attachments = new AttachmentOutboxService(webhookStore, outboxStore, attachmentStorage, workerClient);
+    const attachments = new AttachmentOutboxService(webhookStore, outboxStore, attachmentStorage, workerClient, sessionActivity);
     // A restart must never turn stored work into provider calls. Old rows
     // without provider acceptance are retained and made terminal for review.
     await attachments.reconcileStartup();
@@ -109,7 +113,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
     const historySync = new WhatsAppHistorySyncService(workerClient, webhookStore, syncStore, realtimeHub, { maxChatsPerRun: config.whatsappHistorySyncBatchChats, maxMessagesPerRun: config.whatsappHistorySyncBatchMessages, emergencyMaxMessages: config.whatsappHistorySyncEmergencyMaxMessages });
     app.locals.routingJobs = database ? new SqliteRoutingJobStore(database.sqlite) : undefined;
-    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub, kanbanAutomation, slaMessages), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, sla, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments, new WahaMediaProxyService({ baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey, signingKey: config.mediaProxyTokenSecret }), permanentMedia, sla, kanban, new InboxContactService(webhookStore, repositories)), new WorkspaceDirectoryController(directory), new RoutingController(routing))); app.use(errorHandler);
+    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub, kanbanAutomation, slaMessages, sessionActivity), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, sla, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments, new WahaMediaProxyService({ baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey, signingKey: config.mediaProxyTokenSecret }), permanentMedia, sla, kanban, new InboxContactService(webhookStore, repositories), sessionActivity), new WorkspaceDirectoryController(directory), new RoutingController(routing))); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }
   return app;
 }
