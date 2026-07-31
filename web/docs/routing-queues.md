@@ -1,25 +1,25 @@
-# Filas e distribuição automática
+# Filas e distribuiÃ§Ã£o automÃ¡tica
 
-Cada fila pertence a um workspace e pode ser vinculada a uma equipe. Operadores só entram na seleção quando estão ativos no workspace, são membros disponíveis da fila e, quando houver equipe vinculada, também pertencem à equipe.
+Cada fila pertence a um workspace e pode ser vinculada a uma equipe. Operadores sÃ³ entram na seleÃ§Ã£o quando estÃ£o ativos no workspace, sÃ£o membros disponÃ­veis da fila e, quando houver equipe vinculada, tambÃ©m pertencem Ã  equipe.
 
-As estratégias disponíveis são:
+As estratÃ©gias disponÃ­veis sÃ£o:
 
 - `round_robin`: escolhe o operador com `lastAssignedAt` mais antigo; empates usam `userId`.
 - `least_loaded`: escolhe a menor quantidade de conversas operacionais abertas; empates usam o cursor e `userId`.
-- `manual`: mantém a conversa na fila sem responsável.
+- `manual`: mantÃ©m a conversa na fila sem responsÃ¡vel.
 
-O limite da fila é aplicado à quantidade de conversas `open`, `in_progress` ou `waiting_customer` do operador. Usuários desativados e indisponíveis nunca entram na consulta.
+O limite da fila Ã© aplicado Ã  quantidade de conversas `open`, `in_progress` ou `waiting_customer` do operador. UsuÃ¡rios desativados e indisponÃ­veis nunca entram na consulta.
 
-## Concorrência e auditoria
+## ConcorrÃªncia e auditoria
 
-No SQLite, seleção, revalidação de conversa sem responsável, atualização de `lastAssignedAt` e gravação de `routing_events` são uma única transação. No Supabase, a RPC `chatpro_distribute_conversation` bloqueia fila e conversa com `FOR UPDATE` antes de selecionar o operador. Assim, a atribuição condicional só ocorre se a conversa continuar sem responsável e desbloqueada.
+No SQLite, seleÃ§Ã£o, revalidaÃ§Ã£o de conversa sem responsÃ¡vel, atualizaÃ§Ã£o de `lastAssignedAt` e gravaÃ§Ã£o de `routing_events` sÃ£o uma Ãºnica transaÃ§Ã£o. No Supabase, a RPC `chatpro_distribute_conversation` bloqueia fila e conversa com `FOR UPDATE` antes de selecionar o operador. Assim, a atribuiÃ§Ã£o condicional sÃ³ ocorre se a conversa continuar sem responsÃ¡vel e desbloqueada.
 
-Toda decisão registra fila, estratégia, resultado, operador (quando houver) e um motivo seguro, sem conteúdo de mensagem. A atribuição manual grava `routingLockedAt`; a distribuição automática não a sobrescreve. A ação explícita de redistribuição é a única que pode limpar esse bloqueio.
+Toda decisÃ£o registra fila, estratÃ©gia, resultado, operador (quando houver) e um motivo seguro, sem conteÃºdo de mensagem. A atribuiÃ§Ã£o manual grava `routingLockedAt`; a distribuiÃ§Ã£o automÃ¡tica nÃ£o a sobrescreve. A aÃ§Ã£o explÃ­cita de redistribuiÃ§Ã£o Ã© a Ãºnica que pode limpar esse bloqueio.
 
-## Limitações atuais
+## LimitaÃ§Ãµes atuais
 
-A elegibilidade usa o status administrativo e a disponibilidade configurada na fila. Enquanto a autenticação e a presença reais não estiverem ativas, o fallback de desenvolvimento continua sendo o ator administrativo. A estrutura já tem `autoAssignedAt`, `routingLockedAt`, disponibilidade e limite de carga para suportar presença, SLA e regras de roteamento futuras; não há cálculo de SLA nem análise de conteúdo nesta etapa.
+A elegibilidade usa o status administrativo e a disponibilidade configurada na fila. Enquanto a autenticaÃ§Ã£o e a presenÃ§a reais nÃ£o estiverem ativas, o fallback de desenvolvimento continua sendo o ator administrativo. A estrutura jÃ¡ tem `autoAssignedAt`, `routingLockedAt`, disponibilidade e limite de carga para suportar presenÃ§a, SLA e regras de roteamento futuras; nÃ£o hÃ¡ cÃ¡lculo de SLA nem anÃ¡lise de conteÃºdo nesta etapa.
 
 ## Jobs no worker
 
-Filas autom�ticas criam `routing_jobs` e a API retorna `202`. Configure o worker com `ROUTING_DATABASE_PATH` apontando para o SQLite compartilhado; `ROUTING_POLL_MS` (1000) e `ROUTING_BATCH_SIZE` (10) regulam o consumo. O lease usa `lockedAt` e `lockedBy`; leases expirados s�o recuper�veis. Falhas transit�rias recebem at� tr�s tentativas com backoff exponencial. Atribui��o manual cancela jobs pendentes ou em processamento da conversa.
+Filas automáticas criam `routing_jobs` e a API retorna `202`. Configure o worker com `ROUTING_DATABASE_PATH` apontando para o SQLite compartilhado; `ROUTING_POLL_MS` (1000) e `ROUTING_BATCH_SIZE` (10) regulam o consumo. O lease usa `lockedAt` e `lockedBy`; leases expirados são recuperáveis. Falhas transitórias recebem até três tentativas com backoff exponencial. Atribuição manual cancela jobs pendentes ou em processamento da conversa.
