@@ -78,8 +78,13 @@ laço avançavam o `chatCursor` **sem** incrementar `chatsProcessed`:
 
 Com o cursor andando e o contador parado, uma corrida real **não chegava
 matematicamente a 100%**. `chatsProcessed` passou a contar **posições andadas na
-listagem**, que é o que a barra precisa e o que o rótulo "conversas" já dava a
-entender.
+listagem**, que é o que a barra precisa.
+
+E o rótulo teve de acompanhar. Sem denominador, a faixa dizia "240 conversas", que
+com o sentido novo é mentira: uma conversa fechada cedo por tempo esgotado
+incrementa o contador sem ter sido lida. Passou a dizer **"240 conversas
+percorridas"**. O ramo com denominador não precisa da palavra — "240 de 551" já se
+lê como andamento, não como contagem do que foi lido.
 
 ### Por que a porcentagem é presa em 100%
 

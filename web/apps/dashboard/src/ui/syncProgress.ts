@@ -20,6 +20,14 @@
  *  corrida pode consumir mais posições do que o total que contou no início. O
  *  denominador é um retrato, não uma verdade estável.
  *
+ *  ## O que `chatsProcessed` conta
+ *
+ *  **Posições andadas na listagem**, não conversas lidas. Uma conversa fechada
+ *  cedo por tempo esgotado conta; uma entrada que nem era conversa conta; uma
+ *  conversa que o reordenamento devolveu ao caminho do cursor conta de novo. É o
+ *  que faz a fração fechar — o denominador conta as mesmas unidades —, e é por
+ *  isso que o texto sem denominador diz "percorridas" em vez de nada.
+ *
  *  ## Por que a conversa atual não aparece
  *
  *  `currentChat` é um JID (`5511999999999@c.us`). A regra 6 do CLAUDE.md proíbe
@@ -61,7 +69,15 @@ export const progressDetail = (job: Pick<HistorySyncJob, "chatsProcessed" | "mes
   if (!job.chatsProcessed && !job.messagesProcessed) return "";
   const messages = count(job.messagesProcessed, "mensagem", "mensagens");
   const total = job.chatsTotal ?? 0;
-  if (total <= 0) return `${count(job.chatsProcessed, "conversa", "conversas")}, ${messages}`;
+  // "percorridas", não "lidas". Desde que `chatsProcessed` passou a contar posições
+  // da listagem, o número inclui o que a corrida pulou: conversa fechada cedo por
+  // tempo esgotado, entrada que nem era conversa, e conversa que o reordenamento
+  // pôs de novo no caminho. Chamá-las de lidas seria mentira — e é justamente a
+  // conversa que falhou que o operador não deve achar que foi lida.
+  //
+  // O ramo com denominador não precisa da palavra: "240 de 551" já se lê como
+  // andamento, não como contagem do que foi lido.
+  if (total <= 0) return `${count(job.chatsProcessed, "conversa percorrida", "conversas percorridas")}, ${messages}`;
   const walked = Math.min(job.chatsProcessed, total);
   return `${decimal.format(walked)} de ${count(total, "conversa", "conversas")} (${progressPercent(job)}%), ${messages}`;
 };

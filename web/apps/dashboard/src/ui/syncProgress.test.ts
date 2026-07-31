@@ -20,15 +20,23 @@ const job = (over: Partial<HistorySyncJob> = {}): HistorySyncJob => ({
 
 describe("contagem do progresso", () => {
   it("conta conversas e mensagens com separador de milhar", () => {
-    expect(progressDetail(job())).toBe("240 conversas, 1.834 mensagens");
+    expect(progressDetail(job())).toBe("240 conversas percorridas, 1.834 mensagens");
   });
 
   it("usa o singular quando é uma só", () => {
-    expect(progressDetail(job({ chatsProcessed: 1, messagesProcessed: 1 }))).toBe("1 conversa, 1 mensagem");
+    expect(progressDetail(job({ chatsProcessed: 1, messagesProcessed: 1 }))).toBe("1 conversa percorrida, 1 mensagem");
   });
 
   it("não anuncia progresso nenhum antes do primeiro chat", () => {
     expect(progressDetail(job({ chatsProcessed: 0, messagesProcessed: 0 }))).toBe("");
+  });
+
+  it("sem denominador, não diz que as conversas foram lidas", () => {
+    // `chatsProcessed` conta posições andadas: inclui a conversa fechada cedo por
+    // tempo esgotado, que o operador não deve achar que foi lida.
+    const detail = progressDetail(job({ chatsTotal: null }));
+    expect(detail).toContain("percorridas");
+    expect(detail).not.toMatch(/\d+ conversas,/);
   });
 
   it("com total conhecido, conta de quantas e mostra a fração", () => {
@@ -37,11 +45,11 @@ describe("contagem do progresso", () => {
 
   it("sem total, volta a contar sem denominador em vez de inventar um", () => {
     // `chatsTotal` nulo é "a contagem não veio", e a corrida falha aberta.
-    expect(progressDetail(job({ chatsTotal: null }))).toBe("240 conversas, 1.834 mensagens");
+    expect(progressDetail(job({ chatsTotal: null }))).toBe("240 conversas percorridas, 1.834 mensagens");
   });
 
   it("total zero não é denominador, é ausência de conversa", () => {
-    expect(progressDetail(job({ chatsTotal: 0 }))).toBe("240 conversas, 1.834 mensagens");
+    expect(progressDetail(job({ chatsTotal: 0 }))).toBe("240 conversas percorridas, 1.834 mensagens");
   });
 });
 
@@ -70,7 +78,7 @@ describe("a faixa de sincronização", () => {
     const view = syncView(job(), "unknown", false);
     expect(view.tone).toBe("active");
     expect(view.headline).toBe("Sincronizando o histórico");
-    expect(view.detail).toBe("240 conversas, 1.834 mensagens");
+    expect(view.detail).toBe("240 conversas percorridas, 1.834 mensagens");
     // Rodando não se retoma: o botão que aparece é o de cancelar.
     expect(view.canStart).toBe(false);
     expect(view.canCancel).toBe(true);

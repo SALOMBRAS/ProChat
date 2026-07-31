@@ -70,7 +70,7 @@ describe("a faixa de progresso da sincronização", () => {
   it("mostra o andamento real enquanto o job roda", async () => {
     render(<Inbox api={api()} />);
     expect(await screen.findByText("Sincronizando o histórico")).toBeInTheDocument();
-    expect(screen.getByText("240 conversas, 1.834 mensagens")).toBeInTheDocument();
+    expect(screen.getByText("240 conversas percorridas, 1.834 mensagens")).toBeInTheDocument();
     expect(faixa().className).toContain("is-active");
   });
 
@@ -89,10 +89,10 @@ describe("a faixa de progresso da sincronização", () => {
     // real pode produzir 305, e o teste prova o caminho que diz provar.
     const client = api();
     render(<Inbox api={client} />);
-    await screen.findByText("240 conversas, 1.834 mensagens");
+    await screen.findByText("240 conversas percorridas, 1.834 mensagens");
 
     act(() => realtime.handler?.({ workspaceId: "default-workspace", eventType: "conversation.sync.updated", payload: { wahaSession: "session-a", jobId: "job-a", status: "running", chatsProcessed: 305, messagesProcessed: 2500, hasMore: true, progressLabel: "Sincronizando histórico…", updatedAt: "2026-07-31T12:01:00.000Z" } }));
-    expect(screen.getByText("305 conversas, 2.500 mensagens")).toBeInTheDocument();
+    expect(screen.getByText("305 conversas percorridas, 2.500 mensagens")).toBeInTheDocument();
   });
 
   it("continua consultando o estado enquanto o job está ativo", async () => {
@@ -177,7 +177,7 @@ describe("a faixa de progresso da sincronização", () => {
   it("o total chega pelo tempo real junto com o avanço", async () => {
     const client = api();
     render(<Inbox api={client} />);
-    await screen.findByText("240 conversas, 1.834 mensagens");
+    await screen.findByText("240 conversas percorridas, 1.834 mensagens");
 
     act(() => realtime.handler?.({ workspaceId: "default-workspace", eventType: "conversation.sync.updated", payload: { wahaSession: "session-a", jobId: "job-a", status: "running", chatsProcessed: 305, messagesProcessed: 2500, chatsTotal: 551, hasMore: true, progressLabel: "Sincronizando histórico…", updatedAt: "2026-07-31T12:01:00.000Z" } }));
     expect(screen.getByText("305 de 551 conversas (55%), 2.500 mensagens")).toBeInTheDocument();
@@ -186,7 +186,7 @@ describe("a faixa de progresso da sincronização", () => {
   it("sem total, a faixa segue sem porcentagem em vez de travar", async () => {
     // A contagem falha aberta no servidor. A tela tem de continuar útil.
     render(<Inbox api={api({ syncStatus: vi.fn().mockResolvedValue(job({ chatsTotal: null })) })} />);
-    expect(await screen.findByText("240 conversas, 1.834 mensagens")).toBeInTheDocument();
+    expect(await screen.findByText("240 conversas percorridas, 1.834 mensagens")).toBeInTheDocument();
     expect(faixa().textContent ?? "").not.toContain("%");
   });
 
