@@ -281,6 +281,51 @@ describe('Inbox contact creation', () => {
     expect(await screen.findByText('Phone number already exists in this workspace')).toBeInTheDocument();
     expect(screen.getByLabelText('Nome ChatPro')).toHaveValue('Ada Lovelace');
   });
+
+  const second = { ...unlinked, id: 'conversation-b', chatId: '5511999990002@c.us', identity: { ...identity, phone: '5511999990002', pushName: 'Grace' } };
+
+  it('keeps the form the operator just opened, instead of closing it a paint later', async () => {
+    const api = apiFor();
+    render(<Inbox api={api} />);
+    // The click lands on the first instant the button exists, which is the
+    // instant the deep link resolved the conversation. Closing the form belongs
+    // to *changing* conversation and has to happen in the same update that sets
+    // it -- an effect keyed on the id runs after the paint, and this click used
+    // to land inside that window and be undone.
+    fireEvent.click(await screen.findByRole('button', { name: 'Criar contato' }));
+    expect(screen.getByLabelText('Nome ChatPro')).toBeInTheDocument();
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByLabelText('Nome ChatPro')).toBeInTheDocument();
+  });
+
+  it('drops a half-typed contact form when the operator moves to another conversation', async () => {
+    const api = apiFor({ conversations: vi.fn().mockResolvedValue({ items: [unlinked, second], page: 1, pageSize: 50, total: 2 }) });
+    render(<Inbox api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Criar contato' }));
+    fireEvent.change(await screen.findByLabelText('Nome ChatPro'), { target: { value: 'Ada Lovelace' } });
+
+    fireEvent.click(screen.getByLabelText('Abrir conversa 5511999990002@c.us'));
+    // The draft belongs to the conversation left behind; carrying it over would
+    // create the wrong contact on the first distracted Salvar.
+    await waitFor(() => expect(screen.queryByLabelText('Nome ChatPro')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Criar contato' })).toBeInTheDocument();
+  });
+
+  it('drops the form when the operator leaves the conversation altogether', async () => {
+    const api = apiFor();
+    render(<Inbox api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Criar contato' }));
+    fireEvent.change(await screen.findByLabelText('Nome ChatPro'), { target: { value: 'Ada Lovelace' } });
+
+    history.replaceState({}, '', '/inbox');
+    fireEvent(window, new PopStateEvent('popstate'));
+    await waitFor(() => expect(screen.queryByLabelText('Nome ChatPro')).not.toBeInTheDocument());
+
+    history.replaceState({}, '', '/inbox?conversationId=conversation-a');
+    fireEvent(window, new PopStateEvent('popstate'));
+    // Coming back shows the clean panel, not the draft from before.
+    expect(await screen.findByText('Esta conversa ainda não tem contato no ChatPro.')).toBeInTheDocument();
+  });
 });
 
 describe('Contacts', () => {
