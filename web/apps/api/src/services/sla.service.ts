@@ -41,8 +41,45 @@ export function projectSlaCard(row: Pick<Row, 'slaStatus' | 'waitingSinceAt' | '
   const indicator = row.slaStatus === 'expired' || elapsed >= threshold ? 'red' : elapsed >= threshold * config.warningRatio ? 'yellow' : 'green';
   return { status: row.slaStatus, indicator, deadlineAt };
 }
+// A configuração de SLA é uma linha por workspace, alterada por ação humana na
+// tela de configurações, e é lida em todo caminho quente: a projeção de cada
+// conversa, cada publicação de evento e cada página de etapa do Kanban precisam
+// dela. Sem memória, cada uma dessas leituras é uma ida ao banco.
+//
+// Medido na base de produção em 2026-07-31, com o provider Supabase: um único
+// workspace; `conversation_sla_metrics` com 61 linhas, todas com `frozenAt`
+// nulo; 657 conversas. Quem o tick percorre é a primeira contagem, não a
+// segunda — confundir as duas superestima o problema em dez vezes. Uma leitura
+// remota da configuração custa ~155 ms (mediana de 12 amostras desta máquina),
+// então o tick gastava 61 leituras da mesma linha, ~9,5 s só nisso, e cada
+// mensagem recebida, cada consulta de métricas e cada etapa de Kanban carregada
+// somava mais uma. Os ~10 GETs por segundo observados são a soma desses
+// caminhos; o tick sozinho não os explica. `workspace_sla_config` está vazia:
+// todas essas leituras voltavam com os padrões declarados acima.
+//
+// Escolhemos cache com invalidação explícita, e não apenas içar a busca para
+// fora de cada laço, porque içar resolve uma operação de cada vez e deixa de pé
+// o caminho por mensagem e por conversa aberta, que são justamente os que
+// escalam com o tráfego. A invalidação é exata: toda escrita passa por
+// `SlaService.config`, que grava o valor novo no cache no mesmo passo.
+//
+// O TTL de 60 s não existe para corrigir a escrita local — essa é imediata. Ele
+// cobre o caso de outra instância da API gravar a configuração, e 60 s é o
+// próprio período do tick: nenhum limiar obsoleto sobrevive a mais de uma
+// passagem do relógio de SLA, que é a granularidade em que esses limiares são
+// avaliados de qualquer forma.
+export const slaConfigTtlMs = 60_000;
 export class SlaService {
+  private readonly configCache = new Map<string, { value: SlaConfig; expiresAt: number }>();
+  private ticking = false;
   constructor(private readonly store: SlaStore, private readonly realtime: RealtimeHub) {}
+  private async configFor(workspaceId: string) {
+    const now = Date.now(); const cached = this.configCache.get(workspaceId);
+    if (cached && cached.expiresAt > now) return cached.value;
+    const value = await this.store.getConfig(workspaceId);
+    this.configCache.set(workspaceId, { value, expiresAt: now + slaConfigTtlMs });
+    return value;
+  }
   async message(workspaceId: string, conversationId: string, direction: 'inbound' | 'outbound', occurredAt: string, historical: boolean) {
     if (historical) return;
     const now = new Date().toISOString(); let row = await this.store.get(workspaceId, conversationId);
@@ -69,16 +106,45 @@ export class SlaService {
   // congelamento. De quem é a vez sai do histórico preservado — se a última
   // mensagem foi nossa, a bola voltou para o cliente.
   async reopen(workspaceId: string, conversationId: string) { const row = await this.store.get(workspaceId, conversationId); if (!row || !row.frozenAt) return; const now = new Date().toISOString(); const answered = !!row.lastOutboundAt && new Date(row.lastOutboundAt).getTime() >= new Date(row.lastInboundAt).getTime(); row.slaStatus = answered ? 'waiting_customer' : 'waiting_operator'; row.waitingSinceAt = now; row.frozenAt = null; row.resolvedAt = null; row.archivedAt = null; row.updatedAt = now; await this.store.save(row); await this.publish(workspaceId, row); }
-  async metrics(workspaceId: string, conversationId: string) { const row = await this.store.get(workspaceId, conversationId); return row ? projectSla(row, await this.store.getConfig(workspaceId)) : undefined; }
-  async summary(workspaceId: string) { const rows = await this.store.listDue(workspaceId); const config = await this.store.getConfig(workspaceId); const values = rows.map(row => ({ row, metrics: projectSla(row, config) })); const active = values.filter(x => !x.metrics.frozenAt); const count = (indicator: 'green'|'yellow'|'red') => active.filter(x => x.metrics.slaIndicator === indicator).length; const average = (values: Array<number | null>) => { const present = values.filter((value): value is number => value !== null); return present.length ? Math.round(present.reduce((total, value) => total + value, 0) / present.length / 1000) : null; }; const criticalMetrics = active.filter(x => x.metrics.slaIndicator !== 'green').sort((a,b) => { const rank = (x: typeof a) => x.metrics.slaIndicator === 'red' ? 0 : 1; return rank(a) - rank(b) || (new Date(a.metrics.deadlineAt ?? 0).getTime() - new Date(b.metrics.deadlineAt ?? 0).getTime()); }).slice(0, criticalSampleLimit); const identities = new Map((await this.store.criticalConversationIdentities(workspaceId, criticalMetrics.map(x => x.metrics.conversationId))).map(identity => [identity.conversationId, identity])); const critical = criticalMetrics.map(x => { const identity = identities.get(x.metrics.conversationId); const displayName = identity ? preferredName(identity) : null; const phoneNumber = identity ? normalizedPhone(identity.phoneNumber) ?? normalizedPhone(identity.chatId) : null; return { conversationId:x.metrics.conversationId, displayName, phoneNumber, assignedUserId:identity?.assignedUserId ?? null, routingQueueId:identity?.routingQueueId ?? null, status:x.metrics.status, indicator:x.metrics.slaIndicator, deadlineAt:x.metrics.deadlineAt, lastActivityAt:x.metrics.lastActivityAt }; }); return { generatedAt:new Date().toISOString(), totals:{ active:active.length, waitingOperator:active.filter(x => x.metrics.status === 'waiting_operator' || x.metrics.status === 'expired').length, waitingCustomer:active.filter(x => x.metrics.status === 'waiting_customer').length, withinSla:count('green'), warning:count('yellow'), overdue:count('red'), frozen:values.length-active.length }, averages:{ firstResponseSeconds:average(values.map(x => x.metrics.firstResponseTime)), operatorWaitSeconds:average(active.filter(x => x.metrics.status !== 'waiting_customer').map(x => x.metrics.waitingTime)), customerWaitSeconds:average(active.filter(x => x.metrics.status === 'waiting_customer').map(x => x.metrics.waitingTime)) }, percentages:{ withinSla:active.length ? Math.round(count('green') / active.length * 100) : 0 }, critical }; }
-  async config(workspaceId: string, input?: Partial<SlaConfig>) { if (!input) return this.store.getConfig(workspaceId); return this.store.saveConfig(workspaceId, { ...await this.store.getConfig(workspaceId), ...input }); }
+  async metrics(workspaceId: string, conversationId: string) { const row = await this.store.get(workspaceId, conversationId); return row ? projectSla(row, await this.configFor(workspaceId)) : undefined; }
+  async summary(workspaceId: string) { const rows = await this.store.listDue(workspaceId); const config = await this.configFor(workspaceId); const values = rows.map(row => ({ row, metrics: projectSla(row, config) })); const active = values.filter(x => !x.metrics.frozenAt); const count = (indicator: 'green'|'yellow'|'red') => active.filter(x => x.metrics.slaIndicator === indicator).length; const average = (values: Array<number | null>) => { const present = values.filter((value): value is number => value !== null); return present.length ? Math.round(present.reduce((total, value) => total + value, 0) / present.length / 1000) : null; }; const criticalMetrics = active.filter(x => x.metrics.slaIndicator !== 'green').sort((a,b) => { const rank = (x: typeof a) => x.metrics.slaIndicator === 'red' ? 0 : 1; return rank(a) - rank(b) || (new Date(a.metrics.deadlineAt ?? 0).getTime() - new Date(b.metrics.deadlineAt ?? 0).getTime()); }).slice(0, criticalSampleLimit); const identities = new Map((await this.store.criticalConversationIdentities(workspaceId, criticalMetrics.map(x => x.metrics.conversationId))).map(identity => [identity.conversationId, identity])); const critical = criticalMetrics.map(x => { const identity = identities.get(x.metrics.conversationId); const displayName = identity ? preferredName(identity) : null; const phoneNumber = identity ? normalizedPhone(identity.phoneNumber) ?? normalizedPhone(identity.chatId) : null; return { conversationId:x.metrics.conversationId, displayName, phoneNumber, assignedUserId:identity?.assignedUserId ?? null, routingQueueId:identity?.routingQueueId ?? null, status:x.metrics.status, indicator:x.metrics.slaIndicator, deadlineAt:x.metrics.deadlineAt, lastActivityAt:x.metrics.lastActivityAt }; }); return { generatedAt:new Date().toISOString(), totals:{ active:active.length, waitingOperator:active.filter(x => x.metrics.status === 'waiting_operator' || x.metrics.status === 'expired').length, waitingCustomer:active.filter(x => x.metrics.status === 'waiting_customer').length, withinSla:count('green'), warning:count('yellow'), overdue:count('red'), frozen:values.length-active.length }, averages:{ firstResponseSeconds:average(values.map(x => x.metrics.firstResponseTime)), operatorWaitSeconds:average(active.filter(x => x.metrics.status !== 'waiting_customer').map(x => x.metrics.waitingTime)), customerWaitSeconds:average(active.filter(x => x.metrics.status === 'waiting_customer').map(x => x.metrics.waitingTime)) }, percentages:{ withinSla:active.length ? Math.round(count('green') / active.length * 100) : 0 }, critical }; }
+  // A escrita é o único ponto de invalidação porque é o único ponto de mudança
+  // nesta instância: guardar o valor salvo aqui mantém o cache correto sem uma
+  // releitura, e a leitura sem `input` continua servindo o cache.
+  async config(workspaceId: string, input?: Partial<SlaConfig>) { if (!input) return this.configFor(workspaceId); const saved = await this.store.saveConfig(workspaceId, { ...await this.configFor(workspaceId), ...input }); this.configCache.set(workspaceId, { value: saved, expiresAt: Date.now() + slaConfigTtlMs }); return saved; }
   // Only an operator-side wait can expire. A customer who goes quiet past the
   // customer threshold is a stale conversation, not a missed team target, and
   // `expired` is grouped with `waiting_operator` everywhere downstream: it would
   // report the customer's silence as operator waiting time and count the
   // conversation as an SLA breach the team never caused.
-  async tick() { const rows = await this.store.listDue(); let failed = 0; for (const row of rows) try { const config = await this.store.getConfig(row.workspaceId); const projected = projectSla(row, config); if (projected.slaIndicator === 'red' && row.slaStatus === 'waiting_operator') { row.slaStatus = 'expired'; row.updatedAt = new Date().toISOString(); await this.store.save(row); await this.publish(row.workspaceId, row); } } catch (error) { failed++; log('error', 'SLA tick item failed', { workspaceId: row.workspaceId, conversationId: row.conversationId, error: error instanceof Error ? error.stack ?? error.message : String(error) }); } if (failed) log('error', 'SLA tick completed with failures', { due: rows.length, failed }); }
-  private async publish(workspaceId: string, row: Row) { this.realtime.publish(workspaceId, 'conversation.sla.updated', { conversationId: row.conversationId, metrics: projectSla(row, await this.store.getConfig(workspaceId)) }); }
+  //
+  // O custo de um tick é a população de workspaces, não a de conversas: as
+  // configurações são resolvidas uma vez, antes do laço. Isso repete o efeito do
+  // cache de propósito — um tick que demore mais que o TTL não pode voltar a
+  // consultar o banco no meio do próprio percurso.
+  //
+  // A guarda de reentrância é preventiva, e não o diagnóstico: `setInterval` não
+  // espera a execução anterior, então um tick mais lento que 60 s passa a se
+  // sobrepor a si mesmo e cada cópia refaz o trabalho inteiro. Não é o que
+  // acontecia aqui — os ~9,5 s de leituras de configuração medidos acima estão
+  // longe dos 60 s —, mas é o que transformaria uma regressão de desempenho em
+  // carga multiplicada, que é justamente o caminho de volta ao problema que esta
+  // mudança corrige. Pular o disparo é correto porque o próximo vem em 60 s e
+  // reavalia o mesmo estado; não há trabalho perdido, só adiado.
+  async tick() {
+    // Nível de erro de propósito: em operação saudável isto nunca dispara, e
+    // quando dispara significa que o relógio de SLA deixou de cumprir a própria
+    // cadência — hoje não existe sinal nenhum para essa condição.
+    if (this.ticking) { log('error', 'SLA tick skipped: previous run still in progress'); return; }
+    this.ticking = true;
+    try {
+      const rows = await this.store.listDue(); let failed = 0;
+      const configs = new Map(await Promise.all([...new Set(rows.map(row => row.workspaceId))].map(async workspaceId => [workspaceId, await this.configFor(workspaceId)] as const)));
+      for (const row of rows) try { const config = configs.get(row.workspaceId)!; const projected = projectSla(row, config); if (projected.slaIndicator === 'red' && row.slaStatus === 'waiting_operator') { row.slaStatus = 'expired'; row.updatedAt = new Date().toISOString(); await this.store.save(row); await this.publish(row.workspaceId, row, config); } } catch (error) { failed++; log('error', 'SLA tick item failed', { workspaceId: row.workspaceId, conversationId: row.conversationId, error: error instanceof Error ? error.stack ?? error.message : String(error) }); }
+      if (failed) log('error', 'SLA tick completed with failures', { due: rows.length, failed });
+    } finally { this.ticking = false; }
+  }
+  private async publish(workspaceId: string, row: Row, config?: SlaConfig) { this.realtime.publish(workspaceId, 'conversation.sla.updated', { conversationId: row.conversationId, metrics: projectSla(row, config ?? await this.configFor(workspaceId)) }); }
 }
 export class SqliteSlaStore implements SlaStore {
   constructor(private readonly db: SqliteDatabase) {}
