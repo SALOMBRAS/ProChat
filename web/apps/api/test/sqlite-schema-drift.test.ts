@@ -16,8 +16,9 @@ beforeAll(() => { process.env.OPT_OUT_HASH_PEPPER = 'test-pepper-with-at-least-3
 afterAll(() => { if (previousPepper === undefined) delete process.env.OPT_OUT_HASH_PEPPER; else process.env.OPT_OUT_HASH_PEPPER = previousPepper; });
 
 /**
- * The proposed contact migrations (docs/migrations-propostas-contatos.sql) are additive:
- * M1 and M2 add columns to `contacts`, M3 rebuilds `opt_out_history` with one more column.
+ * The contact migrations are additive: M1 and M2 (applied, as 022 and 023) add
+ * columns to `contacts`; M3 (still proposed) rebuilds `opt_out_history` with one
+ * more column, and is still simulated below.
  * Positional INSERTs break on exactly that, and a bare `catch { fail(409, ...) }` used to
  * report the breakage as "Phone number already exists in this workspace".
  */
@@ -25,9 +26,12 @@ describe('SQLite domain writes under schema drift', () => {
   it('creates a contact after M1 and M2 add columns to contacts', async () => {
     const { db, repository } = create();
     try {
-      db.sqlite.exec("ALTER TABLE contacts ADD COLUMN blockState TEXT NOT NULL DEFAULT 'active'");
-      db.sqlite.exec("ALTER TABLE contacts ADD COLUMN blockPropagation TEXT NOT NULL DEFAULT 'none'");
-      db.sqlite.exec('ALTER TABLE contacts ADD COLUMN deletedAt TEXT');
+      // As colunas vinham de um ALTER simulado aqui. Desde que M1 e M2 viraram
+      // migration de verdade (022 e 023), elas chegam pelo runner — simular de
+      // novo colidiria com `duplicate column name`. O teste passou a exercitar o
+      // schema real, que é mais forte do que a imitação dele.
+      const colunas = (db.sqlite.prepare("SELECT name FROM pragma_table_info('contacts')").all() as Array<{ name: string }>).map(row => row.name);
+      expect(colunas).toEqual(expect.arrayContaining(['blockState', 'blockPropagation', 'deletedAt']));
       const contact = await repository.createContact('a', { displayName: 'Ada', phoneNumber: '+55 (11) 99999-0000' });
       expect(contact).toMatchObject({ displayName: 'Ada', phoneNumber: '5511999990000', workspaceId: 'a' });
       expect(await repository.updateContact('a', contact.id, { displayName: 'Ada Lovelace' })).toMatchObject({ displayName: 'Ada Lovelace' });
