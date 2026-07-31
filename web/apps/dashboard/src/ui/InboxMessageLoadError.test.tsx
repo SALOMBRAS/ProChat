@@ -38,7 +38,7 @@ const emptyPage = <T,>(): Page<T> => ({ items: [], page: 1, pageSize: 50, total:
 
 const syncing: HistorySyncJob = {
   id: "job-a", jobId: "job-a", wahaSession: "session-a", status: "running", chatsProcessed: 12,
-  messagesProcessed: 300, currentChat: null, hasMore: true, progressLabel: "Sincronizando histórico…",
+  messagesProcessed: 300, chatsTotal: null, currentChat: null, hasMore: true, progressLabel: "Sincronizando histórico…",
   lastErrorSafe: null, updatedAt: "2026-07-31T12:00:00.000Z",
 };
 
