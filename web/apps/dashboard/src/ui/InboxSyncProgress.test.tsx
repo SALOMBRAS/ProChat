@@ -53,7 +53,17 @@ const api = (over: Record<string, unknown> = {}) => ({
 const faixa = () => document.querySelector<HTMLElement>(".chat-inbox .inbox-sync")!;
 
 beforeEach(() => { realtime.handler = undefined; });
-afterEach(() => vi.restoreAllMocks());
+// Sem `vi.restoreAllMocks()` aqui, de propósito.
+//
+// Os hooks de `afterEach` correm na ordem inversa do registro, então o deste
+// arquivo corre ANTES do `cleanup` do setup — e nessa janela a Inbox ainda está
+// montada, com o intervalo de 2 s do polling vivo. `restoreAllMocks` zerava a
+// implementação de `api.syncStatus`, e o tique que caísse ali recebia `undefined`:
+//
+//   Cannot read properties of undefined (reading 'then')
+//
+// Não havia o que restaurar: os mocks deste arquivo são `vi.fn()` criados por
+// teste dentro de `api()`, e nenhum é `vi.spyOn`. A chamada só fazia mal.
 
 describe("a faixa de progresso da sincronização", () => {
   it("mostra o andamento real enquanto o job roda", async () => {
