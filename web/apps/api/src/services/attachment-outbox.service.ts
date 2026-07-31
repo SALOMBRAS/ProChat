@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RequestContext } from '@chatpro/contracts';
 import type { SqliteDatabase } from '../persistence/database.js';
 import { AppError } from '../errors.js';
+import { log } from '../logging.js';
 import type { InternalWorkerClient } from '../internal-worker-client.js';
 
 export const TEMPORARY_ATTACHMENT_BUCKET = 'chatpro-temporary-attachments';
@@ -94,7 +95,39 @@ export class AttachmentOutboxService {
 }
 function validateFile(file: UploadFile): AttachmentKind { const type = (Object.keys(policy) as AttachmentKind[]).find(kind => policy[kind].mimes.includes(file.mimetype)); if (!type) throw new AppError(415, 'VALIDATION_ERROR', 'Tipo de arquivo não permitido'); if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > policy[type].max) throw new AppError(413, 'VALIDATION_ERROR', 'Arquivo excede o limite permitido'); if (!magicMatches(file.buffer, file.mimetype)) throw new AppError(400, 'VALIDATION_ERROR', 'Arquivo inválido'); return type; }
 function magicMatches(data: Buffer, mime: string) { const start = data.subarray(0, 12); const zip = start[0] === 0x50 && start[1] === 0x4b; if (mime === 'image/jpeg') return start[0] === 0xff && start[1] === 0xd8 && start[2] === 0xff; if (mime === 'image/png') return start.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])); if (mime === 'image/webp') return start.subarray(0, 4).toString() === 'RIFF' && data.subarray(8, 12).toString() === 'WEBP'; if (mime === 'audio/ogg') return start.subarray(0, 4).toString() === 'OggS'; if (mime === 'audio/mpeg') return start.subarray(0, 3).toString() === 'ID3' || start[0] === 0xff; if (mime === 'audio/mp4' || mime === 'video/mp4') return data.subarray(4, 8).toString() === 'ftyp'; if (mime === 'audio/webm' || mime === 'video/webm') return start.subarray(0, 4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3])); if (mime === 'application/pdf') return start.subarray(0, 5).toString() === '%PDF-'; if (mime === 'application/zip' || mime === 'application/x-zip-compressed' || mime.includes('openxmlformats')) return zip; if (mime === 'text/plain') return !data.subarray(0, Math.min(data.length, 8_192)).includes(0); return false; }
-function sanitizeFilename(value: string) { const name = value.normalize('NFKD').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[._-]+|[._-]+$/g, '').slice(0, 180); return name || 'attachment'; }
+const FILENAME_MAX = 180;
+const FILENAME_FALLBACK = 'attachment';
+/** Only an ASCII extension means anything to the receiving device, and a long
+ *  tail is a name with dots in it, not an extension. */
+const EXTENSION = /^[A-Za-z0-9]{1,12}$/;
+
+/**
+ * The name is also the last segment of the storage object key, so it still has
+ * to survive the allowlist — that is what defuses `../../`. What it must not
+ * lose is the **extension**: the receiving device decides how to open the file
+ * by it, and both ways of losing it were silent.
+ *
+ * Cleaning the stem and the extension apart fixes the two. A stem written
+ * entirely outside the allowlist — any non-latin alphabet — used to collapse to
+ * a single separator, which promoted the dot to a border character so the trim
+ * ate the extension along with it: `日本語.pdf` arrived as `pdf`. Now the stem
+ * falls back and the extension stays. And truncating only the stem means a name
+ * past the cap loses its middle instead of its tail, where the extension lives.
+ */
+export function sanitizeFilename(value: string) {
+  const clean = (part: string) => part.normalize('NFKD').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[._-]+|[._-]+$/g, '');
+  const dot = value.lastIndexOf('.');
+  const candidate = dot > 0 && dot < value.length - 1 ? value.slice(dot + 1) : '';
+  const extension = EXTENSION.test(candidate) ? `.${candidate}` : '';
+  const base = clean(extension ? value.slice(0, dot) : value);
+  // The name itself never reaches the log: a document is named after what it is
+  // about, and that is the customer's data. Length and extension are enough to
+  // tell a collapsed alphabet from an empty upload.
+  if (!base) log('info', 'Attachment filename sanitized to nothing, falling back to the generic name', { originalLength: value.length, extension: extension || null });
+  // Trimmed again after the cut: the first trim ran before it, so a truncation
+  // landing on a separator would otherwise persist a name ending in `.` or `-`.
+  return (base || FILENAME_FALLBACK).slice(0, FILENAME_MAX - extension.length).replace(/[._-]+$/, '') + extension;
+}
 function workerStatus(code: string) { return ({ VALIDATION_ERROR: 400, NOT_FOUND: 404, CONFLICT: 409, TIMEOUT: 504, SERVICE_UNAVAILABLE: 503, PROVIDER_CONTRACT_ERROR: 502 }[code] ?? 503); }
 function safeError(error: unknown) { return error instanceof AppError ? error.status >= 500 ? 'Temporary delivery failure' : error.message.slice(0, 240) : 'Temporary delivery failure'; }
 function storageIntegrationError(error: { code?: string }, stage: 'outbox'): AppError { return new AppError(503, 'SERVICE_UNAVAILABLE', 'Attachment outbox is unavailable', { stage, ...(error.code ? { providerCode: error.code } : {}) }); }
