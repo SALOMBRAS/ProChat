@@ -24,7 +24,7 @@ const migrations = join(process.cwd(), 'migrations');
 const workspaceId = 'workspace-a';
 const live = 'chatpro-viva';
 const dead = 'chatpro-morta';
-const listed = [{ status: 'connected', wahaName: live }];
+const listed: Array<{ status: string; wahaName: string; aliases?: string[] }> = [{ status: 'connected', wahaName: live }];
 const activity = (sessions = listed) => ({ activeSessions: async () => activeSessionNames(sessions) });
 
 const sqlite = () => {
@@ -76,6 +76,24 @@ describe('Kanban — SQLite', () => {
       const [after] = await new KanbanService(database.sqlite, new RealtimeHub(), sla, undefined, activity()).boards(workspaceId);
       expect(stageCount(after, 'new')).toBe(1);
       expect(database.sqlite.prepare('SELECT count(*) total FROM conversation_kanban_state WHERE workspaceId=?').get(workspaceId)).toMatchObject({ total: 2 });
+    } finally { database.close(); }
+  });
+
+  // O worker roteia o nome do pareamento anterior para a sessão no ar. A
+  // conversa gravada com esse nome continua alcançável, então tem de continuar
+  // contando no quadro — 499 das 504 conversas ditas inativas em 31/07 eram
+  // exatamente este caso.
+  it('conta a conversa cuja sessão é alias da viva', async () => {
+    const database = sqlite();
+    try {
+      conversation(database, '00000000-0000-4000-8000-000000000007', live);
+      conversation(database, '00000000-0000-4000-8000-000000000008', dead);
+      const comAlias = activity([{ status: 'connected', wahaName: live, aliases: [dead] }]);
+      const service = new KanbanService(database.sqlite, new RealtimeHub(), sla, undefined, comAlias);
+      const reparo = await service.backfillStates(workspaceId);
+      expect(reparo).toMatchObject({ examined: 2, created: 2 });
+      const [board] = await service.boards(workspaceId);
+      expect(stageCount(board, 'new')).toBe(2);
     } finally { database.close(); }
   });
 
