@@ -227,9 +227,11 @@ describe('Inbox', () => {
     const syncJob = { id: 'job-a', jobId: 'job-a', wahaSession: 'session-a', status: 'running' as const, chatsProcessed: 1, messagesProcessed: 20, currentChat: '5511999999999@c.us', hasMore: true, progressLabel: 'Sincronizando histórico…', lastErrorSafe: null, updatedAt: '2026-07-16T18:00:00.000Z' };
     const api = { conversations: vi.fn().mockResolvedValue(page([a])), messages: vi.fn().mockResolvedValue(emptyMessages), sendMessage: vi.fn(), markRead: vi.fn(), syncStatus: vi.fn().mockResolvedValue(syncJob), startSync: vi.fn(), cancelSync: vi.fn() } as unknown as InboxApi;
     render(<Inbox api={api} />);
-    expect(await screen.findByText(/Sincronizando histórico/)).toBeInTheDocument();
-    act(() => realtime.handler?.({ eventType: 'conversation.sync.updated', payload: { wahaSession: 'session-b', status: 'completed', chatsProcessed: 99, messagesProcessed: 99, progressLabel: 'Histórico sincronizado.' } }));
-    expect(screen.getByText(/Sincronizando histórico/)).toBeInTheDocument();
+    // A faixa agora conta o andamento em vez de repetir `progressLabel`; o que
+    // este teste guarda continua sendo o escopo por sessão da WAHA.
+    expect(await screen.findByText('Sincronizando o histórico')).toBeInTheDocument();
+    act(() => realtime.handler?.({ workspaceId: 'default-workspace', eventType: 'conversation.sync.updated', payload: { wahaSession: 'session-b', status: 'completed', chatsProcessed: 99, messagesProcessed: 99, progressLabel: 'Histórico sincronizado.' } }));
+    expect(screen.getByText('Sincronizando o histórico')).toBeInTheDocument();
     expect(screen.queryByText(/99 conversas/)).not.toBeInTheDocument();
   });
 });

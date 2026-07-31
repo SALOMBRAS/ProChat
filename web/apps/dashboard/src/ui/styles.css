@@ -517,3 +517,23 @@
 .chat-inbox .composer-contact-actions .composer-contact-send { border-color: #d8b4fe88 !important; background: #a855f744 !important; color: #fff !important; }
 .chat-inbox .composer-contact-actions .composer-contact-send:disabled { opacity: .48; }
 @media (max-width: 760px) { .chat-inbox .composer-contact { width: 100%; } }
+
+/* A faixa de sincronização. O tom é a única coisa que muda entre estados; o texto
+   vem inteiro de syncProgress.ts, para a redação ficar testável sem DOM. */
+.chat-inbox .inbox-sync { display: flex; align-items: center; gap: 10px; margin: 10px 12px; padding: 9px 11px; border: 1px solid #ffffff14; border-radius: 10px; background: #ffffff07; }
+.chat-inbox .inbox-sync-copy { display: grid; gap: 2px; min-width: 0; }
+.chat-inbox .inbox-sync-copy strong { color: #e8e3ed; font-size: 11px; font-weight: 700; }
+.chat-inbox .inbox-sync-copy span { color: #aaa5b4; font-size: 10px; font-variant-numeric: tabular-nums; }
+.chat-inbox .inbox-sync-copy small { color: #827d8f; font-size: 9px; overflow-wrap: anywhere; }
+.chat-inbox .inbox-sync-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.chat-inbox .inbox-sync-actions button { padding: 6px 8px !important; font-size: 10px !important; white-space: nowrap; }
+/* Ativo pulsa de leve: é a diferença entre "está andando" e "parou assim". */
+.chat-inbox .inbox-sync.is-active { border-color: #a855f74d; background: #8b5cf614; }
+.chat-inbox .inbox-sync.is-active .inbox-sync-copy strong { color: #d9bdff; }
+.chat-inbox .inbox-sync.is-done { border-color: #25d3662e; background: #25d3660d; }
+.chat-inbox .inbox-sync.is-done .inbox-sync-copy strong { color: #83caa0; }
+.chat-inbox .inbox-sync.is-warn { border-color: #f59e0b3d; background: #f59e0b0f; }
+.chat-inbox .inbox-sync.is-warn .inbox-sync-copy strong { color: #f9cc5f; }
+.chat-inbox .inbox-sync.is-error { border-color: #ef6d823d; background: #4b17231f; }
+.chat-inbox .inbox-sync.is-error .inbox-sync-copy strong { color: #ffabb9; }
+@media (max-width: 760px) { .chat-inbox .inbox-sync { flex-wrap: wrap; } .chat-inbox .inbox-sync-actions { margin-left: 0; } }
