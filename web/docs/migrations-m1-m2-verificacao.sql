@@ -3,13 +3,35 @@
 -- =====================================================================
 -- Rode DEPOIS de aplicar M1 e M2 e DEPOIS de reiniciar a API.
 --
---   psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=0 -f web/docs/migrations-m1-m2-verificacao.sql
+--   psql "$SUPABASE_DB_URL" -f web/docs/migrations-m1-m2-verificacao.sql
+--
+-- ON_ERROR_STOP fica LIGADO: qualquer erro aborta. Os comandos que DEVEM falhar
+-- passam por pg_temp.espera_erro(), que afirma os dois lados — falhou pelo motivo
+-- certo, ou passou quando devia falhar. Antes disso a suite rodava com
+-- ON_ERROR_STOP off e era conferida a olho, e foi assim que o passo 10 ficou
+-- devolvendo (0 rows) por um mes sem ninguem notar.
 --
 -- Só escreve dentro do workspace '__verify_m1m2__' e apaga tudo no fim.
 -- Não toca em dado real. Procedimento em migrations-m1-m2-aplicacao.md.
 -- =====================================================================
 
-\set ON_ERROR_STOP off
+\set ON_ERROR_STOP on
+
+-- Afirma que um comando FALHA, e falha pelo motivo certo. Vive em `pg_temp`, que
+-- some com a sessao: esta suite roda contra producao e nao deixa objeto para tras.
+CREATE OR REPLACE FUNCTION pg_temp.espera_erro(comando text, trecho text, rotulo text)
+RETURNS void LANGUAGE plpgsql AS $espera$
+BEGIN
+  EXECUTE comando;
+  RAISE EXCEPTION 'VERIFICACAO_FALHOU: % deveria ter sido recusado, e passou', rotulo;
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM LIKE 'VERIFICACAO_FALHOU:%' THEN RAISE; END IF;
+  IF position(trecho in SQLERRM) > 0 THEN
+    RAISE NOTICE 'ok   % [%]', rotulo, SQLSTATE;
+  ELSE
+    RAISE EXCEPTION 'VERIFICACAO_FALHOU: % recusou com erro inesperado (%): %', rotulo, SQLSTATE, SQLERRM;
+  END IF;
+END $espera$;
 \pset pager off
 \timing off
 
@@ -80,14 +102,16 @@ VALUES (gen_random_uuid(),'__verify_m1m2__','verify','+000000000001@c.us','v1','
 
 -- ------------------------------------------------------------------- CHECKs
 \echo ''
-\echo '-- 5. CHECK de block_state recusa valor invalido (ERRO ESPERADO) --'
-UPDATE public.contacts SET block_state='invalido' WHERE workspace_id='__verify_m1m2__' AND id='v1';
-\echo '   esperado: ERROR ... contacts_block_state_check'
+\echo '-- 5. CHECK de block_state recusa valor invalido (DEVE FALHAR) --'
+SELECT pg_temp.espera_erro(
+  $q$UPDATE public.contacts SET block_state='invalido' WHERE workspace_id='__verify_m1m2__' AND id='v1'$q$,
+  'contacts_block_state_check', 'CHECK de block_state');
 
 \echo ''
-\echo '-- 6. CHECK de block_propagation idem (ERRO ESPERADO) --'
-UPDATE public.contacts SET block_propagation='invalido' WHERE workspace_id='__verify_m1m2__' AND id='v1';
-\echo '   esperado: ERROR ... contacts_block_propagation_check'
+\echo '-- 6. CHECK de block_propagation idem (DEVE FALHAR) --'
+SELECT pg_temp.espera_erro(
+  $q$UPDATE public.contacts SET block_propagation='invalido' WHERE workspace_id='__verify_m1m2__' AND id='v1'$q$,
+  'contacts_block_propagation_check', 'CHECK de block_propagation');
 
 \echo ''
 \echo '-- 7. Transicao valida de bloqueio --'
@@ -105,9 +129,10 @@ VALUES ('ev1','__verify_m1m2__','v1','block','requested',now(),now());
 SELECT action, outcome FROM public.contact_block_events WHERE workspace_id='__verify_m1m2__';
 \echo '   esperado: block / requested'
 
-INSERT INTO public.contact_block_events (id,workspace_id,contact_id,action,outcome,occurred_at,created_at)
-VALUES ('ev2','__verify_m1m2__','v1','block','banana',now(),now());
-\echo '   esperado acima: ERROR no CHECK de outcome'
+SELECT pg_temp.espera_erro(
+  $q$INSERT INTO public.contact_block_events (id,workspace_id,contact_id,action,outcome,occurred_at,created_at)
+     VALUES ('ev2','__verify_m1m2__','v1','block','banana',now(),now())$q$,
+  'outcome', 'CHECK de outcome na auditoria');
 
 -- ---------------------------------------------------------------- RPC: soft
 \echo ''
@@ -130,10 +155,11 @@ WHERE workspace_id='__verify_m1m2__' AND contact_id='v1' ORDER BY occurred_at DE
 \echo '   esperado: soft / verify-user'
 
 \echo ''
-\echo '-- 12. Telefone CONTINUA ocupado apos soft delete (ERRO ESPERADO) --'
-INSERT INTO public.contacts (id,workspace_id,display_name,phone_number,created_at,updated_at)
-VALUES ('v2','__verify_m1m2__','Recadastro','+000000000001',now(),now());
-\echo '   esperado: ERROR duplicate key ... contacts_workspace_id_phone_number_key'
+\echo '-- 12. Telefone CONTINUA ocupado apos soft delete (DEVE FALHAR) --'
+SELECT pg_temp.espera_erro(
+  $q$INSERT INTO public.contacts (id,workspace_id,display_name,phone_number,created_at,updated_at)
+     VALUES ('v2','__verify_m1m2__','Recadastro','+000000000001',now(),now())$q$,
+  'phone_number', 'telefone continua ocupado apos soft delete');
 \echo '   comportamento conhecido, ver "unicidade de telefone" na proposta'
 
 -- ------------------------------------------------------------- RPC: restore
@@ -146,29 +172,34 @@ SELECT deleted_at IS NULL AS restaurado FROM public.contacts WHERE workspace_id=
 -- ---------------------------------------------------------- contrato de erro
 \echo ''
 \echo '-- 14. purge REJEITADO (M3 nao aplicada) --'
-SELECT public.chatpro_delete_contact('__verify_m1m2__','v1','purge','verify-user');
-\echo '   esperado: ERROR invalid delete mode ''purge''; expected soft or restore'
+SELECT pg_temp.espera_erro(
+  $q$SELECT public.chatpro_delete_contact('__verify_m1m2__','v1','purge','verify-user')$q$,
+  'invalid delete mode', 'purge rejeitado enquanto M3 nao foi aplicada');
 \echo '   SE ISSO PASSAR, M3 ja foi aplicada — pare e confira'
 
 \echo ''
 \echo '-- 15. modo invalido --'
-SELECT public.chatpro_delete_contact('__verify_m1m2__','v1','banana','verify-user');
-\echo '   esperado: ERROR invalid delete mode'
+SELECT pg_temp.espera_erro(
+  $q$SELECT public.chatpro_delete_contact('__verify_m1m2__','v1','banana','verify-user')$q$,
+  'invalid delete mode', 'modo invalido');
 
 \echo ''
 \echo '-- 16. contato inexistente --'
-SELECT public.chatpro_delete_contact('__verify_m1m2__','nao-existe','soft','verify-user');
-\echo '   esperado: ERROR contact not found in workspace'
+SELECT pg_temp.espera_erro(
+  $q$SELECT public.chatpro_delete_contact('__verify_m1m2__','nao-existe','soft','verify-user')$q$,
+  'contact not found', 'contato inexistente');
 
 \echo ''
 \echo '-- 17. guarda de workspace --'
-SELECT public.chatpro_delete_contact('','v1','soft','verify-user');
-\echo '   esperado: ERROR workspace_id is required'
+SELECT pg_temp.espera_erro(
+  $q$SELECT public.chatpro_delete_contact('','v1','soft','verify-user')$q$,
+  'workspace_id', 'guarda de workspace');
 
 \echo ''
 \echo '-- 18. isolamento entre workspaces --'
-SELECT public.chatpro_delete_contact('outro-workspace','v1','soft','verify-user');
-\echo '   esperado: ERROR contact not found in workspace'
+SELECT pg_temp.espera_erro(
+  $q$SELECT public.chatpro_delete_contact('outro-workspace','v1','soft','verify-user')$q$,
+  'contact not found', 'isolamento entre workspaces');
 
 -- ----------------------------------------------------------------- limpeza
 \echo ''
@@ -182,6 +213,7 @@ SELECT count(*) AS sobrou FROM public.contacts WHERE workspace_id='__verify_m1m2
 
 \echo ''
 \echo '========================================================'
-\echo ' Fim. Os ERROR dos passos 5, 6, 8(ev2), 12, 14-18 sao'
-\echo ' ESPERADOS. Qualquer outro ERROR e falha real.'
+\echo ' Fim. Com ON_ERROR_STOP ligado, chegar ate aqui JA E o'
+\echo ' resultado: qualquer erro teria abortado a suite. As linhas'
+\echo ' NOTICE ok  sao os comandos que falharam pelo motivo certo.'
 \echo '========================================================'

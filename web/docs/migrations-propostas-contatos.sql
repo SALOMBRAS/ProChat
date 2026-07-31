@@ -326,7 +326,7 @@
 
 
 -- ---------------------------------------------------------------------
--- M1 / SQLite   (destino: apps/api/migrations/021_contact_block.sql)
+-- M1 / SQLite   (destino: apps/api/migrations/022_contact_block.sql)
 -- ---------------------------------------------------------------------
 
 -- Máquina de estados: active -> blocking -> blocked | block_failed
@@ -400,7 +400,7 @@ CREATE INDEX idx_contact_block_events_contact
 
 
 -- ---------------------------------------------------------------------
--- M1 / Supabase (destino: web/supabase/migrations/20260727000100_contact_block.sql)
+-- M1 / Supabase (destino: web/supabase/migrations/20260731000200_contact_block.sql)
 -- ---------------------------------------------------------------------
 
 ALTER TABLE public.contacts ADD COLUMN IF NOT EXISTS block_state text NOT NULL DEFAULT 'active';
@@ -563,7 +563,7 @@ ALTER TABLE contacts DROP COLUMN blockState;
 
 
 -- ---------------------------------------------------------------------
--- M2 / SQLite   (destino: apps/api/migrations/022_contact_soft_delete.sql)
+-- M2 / SQLite   (destino: apps/api/migrations/023_contact_soft_delete.sql)
 -- ---------------------------------------------------------------------
 
 ALTER TABLE contacts ADD COLUMN deletedAt TEXT;
@@ -611,7 +611,7 @@ CREATE INDEX idx_contact_deletion_log_contact
 
 
 -- ---------------------------------------------------------------------
--- M2 / Supabase (destino: web/supabase/migrations/20260727000200_contact_soft_delete.sql)
+-- M2 / Supabase (destino: web/supabase/migrations/20260731000300_contact_soft_delete.sql)
 -- ---------------------------------------------------------------------
 
 ALTER TABLE public.contacts ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
@@ -904,7 +904,7 @@ ALTER TABLE contacts DROP COLUMN deletedAt;
 
 
 -- ---------------------------------------------------------------------
--- M3 / SQLite   (destino: apps/api/migrations/023_contact_purge_lgpd.sql)
+-- M3 / SQLite   (destino: apps/api/migrations/024_contact_purge_lgpd.sql)
 -- ---------------------------------------------------------------------
 --
 -- O SQLite não altera coluna nem FK: é rebuild de tabela. opt_out_history é
@@ -960,7 +960,7 @@ CREATE INDEX idx_opt_out_history_identifier
 
 
 -- ---------------------------------------------------------------------
--- M3 / Supabase (destino: web/supabase/migrations/20260727000300_contact_purge_lgpd.sql)
+-- M3 / Supabase (destino: web/supabase/migrations/20260731000400_contact_purge_lgpd.sql)
 -- ---------------------------------------------------------------------
 
 ALTER TABLE public.opt_out_history ALTER COLUMN contact_id DROP NOT NULL;
