@@ -27,6 +27,38 @@ conversa vinculada — que é justamente o que o soft delete de M2 preserva.
 > 31/07; a base recebe mensagem continuamente. O BLOCO 1 é o pré-voo e responde
 > `SEGUIR` ou `PARE`.
 
+## Estado do pré-voo, executado em 31/07/2026 19:32 UTC
+
+Rodei o BLOCO 1 contra o remoto nessa hora. **Veredito: SEGUIR.**
+
+| verificação | resultado |
+| --- | --- |
+| `contacts.block_state` / `deleted_at` / `conversations.blocked_at` | `42703` — ainda não existem |
+| `contact_block_events` / `contact_deletion_log` | `PGRST205` — ausentes |
+| `contacts` | 82 (inalterado desde a medição anterior) |
+| `conversations` | 658 (inalterado) |
+| telefones duplicados no workspace | 0 |
+
+**Isso não dispensa rodar o BLOCO 1 de novo.** A base recebe mensagem
+continuamente; o valor acima descreve 19:32 UTC de 31/07 e nada além disso.
+
+## Backup, já feito
+
+Exportado por PostgREST, somente leitura, **fora do repositório**:
+
+```text
+~/chatpro-backups/m1-m2/2026-07-31T19-32-26-004Z__contacts.json       82 linhas
+~/chatpro-backups/m1-m2/2026-07-31T19-32-26-004Z__conversations.json  658 linhas
+~/chatpro-backups/m1-m2/2026-07-31T19-32-26-004Z__manifesto.json      contagens + sha256
+```
+
+As contagens de cada arquivo foram conferidas contra o banco, e o manifesto traz
+o `sha256` de cada um. Fica fora do repositório de propósito: é dado de cliente.
+
+> Isto **não substitui** o backup do painel (Database → Backups). É um export de
+> linhas, não um *point-in-time recovery*: não restaura schema, índice, função
+> nem as tabelas que M1/M2 criam.
+
 ## O que já foi validado antes de chegar aqui
 
 | etapa | resultado |
