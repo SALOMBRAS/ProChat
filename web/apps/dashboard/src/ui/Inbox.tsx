@@ -393,7 +393,6 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       if (activeConversationId.current === conversationId && request === slaRequest.current) setLoadingSla(false);
     }
   };
-  useEffect(() => { setCreatingContact(false); setContactError(""); }, [selected?.id]);
   // The conversation carries only the resolved identity; the editable ChatPro
   // contact behind it has to be read on its own.
   useEffect(() => {
@@ -642,6 +641,17 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     setNotes(draft ?? "");
     setNoteSaveState(draft === undefined ? "saved" : "editing");
     setTag("");
+    // Trocar de conversa fecha o formulário de contato meio preenchido, e isso
+    // acontece *aqui*, na mesma atualização que troca `selected` — não num
+    // efeito com dependência `[selected?.id]`.
+    //
+    // O efeito parecia equivalente e não era: ele corre depois da pintura, e a
+    // primeira conversa a abrir faz a dependência ir de `undefined` para um id.
+    // Nessa transição não há nada a limpar, mas o `setCreatingContact(false)`
+    // chegava depois de o painel já estar na tela — tempo suficiente para o
+    // operador clicar em "Criar contato" e ver o formulário fechar sozinho.
+    setCreatingContact(false);
+    setContactError("");
     setSelected(conversation);
     setMessages([]);
     setMessagePage(1);
