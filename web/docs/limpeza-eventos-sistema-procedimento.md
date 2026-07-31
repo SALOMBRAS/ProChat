@@ -6,6 +6,109 @@ Origem do problema: [`conversas-sem-resposta.md`](conversas-sem-resposta.md), se
 A correção de ingestão já está em `main` e impede novos casos. Este documento trata
 só do que ficou gravado antes dela.
 
+---
+
+## ⛔ Revalidação de 31/07/2026 — NÃO EXECUTE COMO ESTÁ
+
+Revalidado contra `origin/main` @ `c396487`. **Banco remoto não tocado**: só
+leitura de código, docs e git, mais um PostgreSQL 16 em contêiner descartável,
+criado e removido.
+
+**O procedimento está estruturalmente correto e uma consulta está errada.** Leia
+as quatro seções abaixo antes de qualquer coisa.
+
+### 1. O vocabulário NÃO mudou — e isso é boa notícia
+
+`biz_content_placeholder` entrou pela PR #46 em **28/07**, portanto **antes**
+deste procedimento ser escrito, e o `.sql` já o carrega desde a #52. As duas
+listas coincidem hoje, com **11 tipos**:
+
+```text
+ack, receipt, reaction, status, protocol, revoked,
+e2e_notification, notification_template, gp2, ciphertext, biz_content_placeholder
+```
+
+O último commit a tocar `conversation-identity.ts` é de 28/07. **Nenhum tipo
+técnico entrou depois de 29/07.** Nesse ponto o procedimento está certo.
+
+> **Mas o teste que prende SQL e código só prende um lado.**
+> `eventos-sistema-cleanup-sql.test.ts` garante que todo tipo do SQL é técnico
+> para o código, e que as listas do SQL são iguais entre si — **não** garante que
+> todo tipo do código está no SQL. Foi assim que `biz_content_placeholder` ficou
+> de fora por um dia. Se um 12º tipo entrar no código, a suíte passa e a limpeza
+> deixa mensagem técnica para trás. **Confira a lista à mão antes de aplicar.**
+
+### 2. A PR #73 reclassifica fantasma × mista — e uma consulta ficou perigosa
+
+A #73 fez passar a ser aceita a mensagem de grupo cujo único identificador de
+chat é o JID do grupo em `from`/`to`, com o autor em `participant`. Entre
+**20/07 e 31/07** essas mensagens morriam como `missing_chat_id`: **10.372
+descartes, 9.686 recuperáveis**, com o payload inteiro preservado em
+`waha_webhook_events`.
+
+**A #73 não acrescenta nenhuma mensagem técnica.** Os 21 `gp2` só trocaram o
+motivo do descarte, de `missing_chat_id` para `technical_message_type`, e
+continuam não persistidos. O que ela muda é o **outro lado** da classificação:
+
+> "Zero mensagem real" num chat de **grupo** deixou de ser evidência sobre o
+> chat e passou a ser evidência sobre o bug. Uma conversa de grupo que hoje
+> aparece como fantasma pode ser **um grupo vivo cujo histórico nunca foi
+> materializado**.
+
+As **150 fantasmas diretas não são afetadas**; as **21 de grupo** são a população
+suspeita.
+
+**A consequência é uma regressão real, não teórica.** A consulta que monta
+`backup_eventos_sistema.alvo` — a lista congelada que os passos D e E apagam —
+não olha para `waha_webhook_events`. Reproduzido em fixture local: com uma
+conversa de grupo cujo único evento real ficou por materializar, **a consulta
+original devolve 2 conversas e a corrigida devolve 1**.
+
+**Use a consulta C2 do arquivo `.sql`** (seção datada de 31/07), que acrescenta o
+guard `NOT EXISTS (evento bruto real para este chat)`. E a classe nova,
+`chat_real_com_historico_nao_materializado`, na consulta C1.
+
+Nenhum dos três critérios de parada do passo A olha para `waha_webhook_events` —
+por isso o passo A, sozinho, **não** detecta este caso.
+
+### 3. Três incoerências internas, restos da medição das 13h51
+
+| passo | diz | mas a seção 2 / o `.sql` dizem |
+| --- | --- | --- |
+| E | `linhas_de_sla` esperado **13** (54 − 41) | **19** (59 − 40) |
+| F | `UPDATE 2` | **3** — e o critério de parada logo abaixo usa 3 |
+| 7 | `call_log`: 197 mensagens em 30 conversas | seção 1: **259 em 31** |
+
+A primeira faz quem seguir o passo E ao pé da letra ver 19, concluir que algo
+vazou e **parar uma execução correta** — ou reverter por engano. A terceira
+importa porque a estimativa condicional da seção 7 (fantasmas 171→178, mistas
+12→33) está ancorada no número velho.
+
+### 4. Um risco de rollback que não existia
+
+O rollback foi testado num espelho **parado**. Hoje as conversas de grupo são
+**recriadas pela ingestão**: restaurar o backup pode colidir com a `UNIQUE
+(workspace_id, waha_session, chat_id)` de `conversations`. Antes de restaurar,
+confira se a conversa já voltou a existir — e, se voltou, restaure só as tabelas
+dependentes, não a conversa.
+
+### ⚠️ Todos os números deste documento envelheceram
+
+A medição é de **28/07 18h**, com ~6.811 mensagens. Hoje a base passa de
+**16.900 eventos brutos**. Nenhuma contagem citada aqui — mensagens, técnicas,
+conversas, fantasmas, mistas, linhas de SLA, `DELETE n` esperado — descreve a
+base atual. Elas continuam úteis como **forma** (proporções, relações entre os
+passos), não como valor.
+
+> **Reexecute a conferência do passo A imediatamente antes de aplicar, não antes
+> de revisar.** A sincronização de histórico escreve continuamente, e a #73
+> acabou de destravar 9.686 mensagens recuperáveis: a base muda em horas. Um
+> número conferido de manhã não descreve a base da tarde. Se o intervalo entre
+> conferir e aplicar passar de alguns minutos com sincronização ativa, confira de
+> novo — e compare **forma**, não valor.
+
+---
+
 Nada aqui foi executado no Supabase remoto. Tudo que segue foi validado num
 PostgreSQL 16.14 em contêiner, com o schema montado a partir de
 `web/supabase/migrations` e carregado com um espelho somente-leitura dos dados

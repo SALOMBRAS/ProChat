@@ -490,3 +490,101 @@ SELECT
        WHERE m.workspace_id = c.workspace_id AND m.waha_session = c.waha_session AND m.chat_id = c.chat_id
          AND m.occurred_at = s.waiting_since_at)) AS sla_com_ancora_inexistente,
   (SELECT count(*) FROM public.waha_webhook_events) AS eventos_brutos_preservados;
+
+-- #####################################################################
+-- #  REVALIDAÇÃO DE 2026-07-31 — CONSULTAS CORRIGIDAS                 #
+-- #  PROPOSTA — NÃO APLICAR. NÃO EXECUTADA em produção.               #
+-- #####################################################################
+--
+-- Motivo: a PR #73 passou a aceitar mensagem de grupo cujo único identificador
+-- de chat é o JID do grupo em from/to. Entre 20/07 e 31/07 essas mensagens
+-- morriam como `missing_chat_id` — 10.372 descartes, 9.686 recuperáveis, com o
+-- payload inteiro preservado em `waha_webhook_events`.
+--
+-- Consequência: "zero mensagem real" num chat de GRUPO deixou de ser evidência
+-- sobre o chat e passou a ser evidência sobre o bug. As consultas abaixo
+-- substituem as originais; as diretas não mudam de veredito.
+--
+-- Validado em PostgreSQL 16 descartável, com fixture de três conversas. NÃO foi
+-- executado contra o Supabase remoto.
+
+-- --------------------------------------------------------------- C1
+-- Substitui a CONSULTA 1. Acrescenta `waha_session` e a classe nova.
+--
+-- `chat_real_com_historico_nao_materializado`: a conversa não tem mensagem real
+-- em `whatsapp_messages`, MAS existe evento bruto não técnico para o mesmo chat.
+-- É grupo vivo esperando materialização — NÃO é fantasma e NÃO pode ser alvo.
+--
+-- SELECT
+--   c.id, c.waha_session, c.conversation_type, c.visibility_state,
+--   c.unread_count, c.last_message_at,
+--   count(m.external_message_id) AS mensagens_hoje,
+--   CASE
+--     WHEN count(m.external_message_id) = 0 THEN 'ja_vazia_antes'
+--     WHEN EXISTS (
+--       SELECT 1 FROM public.waha_webhook_events e
+--       WHERE e.workspace_id = c.workspace_id
+--         AND e.payload_json::text LIKE '%' || c.chat_id || '%'
+--         AND coalesce(e.payload_json ->> 'type', e.payload_json -> '_data' ->> 'type') NOT IN (
+--           'ack','receipt','reaction','status','protocol','revoked',
+--           'e2e_notification','notification_template','gp2','ciphertext','biz_content_placeholder')
+--     ) AND count(m.external_message_id) FILTER (WHERE m.external_message_id IS NOT NULL) = 0
+--       THEN 'chat_real_com_historico_nao_materializado'
+--     WHEN count(*) FILTER (WHERE <mensagem real>) = 0 THEN 'fantasma_desta_limpeza'
+--     ELSE 'mista'
+--   END AS classe
+-- FROM public.conversations c
+-- LEFT JOIN public.whatsapp_messages m
+--   ON m.workspace_id = c.workspace_id AND m.waha_session = c.waha_session AND m.chat_id = c.chat_id
+-- WHERE c.workspace_id = 'default-workspace'
+-- GROUP BY c.workspace_id, c.id, c.chat_id, c.waha_session, c.conversation_type,
+--          c.visibility_state, c.unread_count, c.last_message_at;
+--
+-- O GROUP BY precisa listar workspace_id e chat_id: a PK é (workspace_id, id) e
+-- o EXISTS correlaciona por chat_id. Sem isso o PostgreSQL recusa a consulta.
+
+-- --------------------------------------------------------------- C2
+-- Substitui a montagem de `backup_eventos_sistema.alvo` (passo 4).
+-- CORREÇÃO OBRIGATÓRIA: `alvo` é a lista congelada que os passos D e E apagam.
+-- Sem o NOT EXISTS, a limpeza remove conversas de grupos vivos cujo histórico a
+-- PR #73 acabou de destravar. Medido em fixture: a original devolve 2 conversas,
+-- esta devolve 1.
+--
+-- CREATE TABLE backup_eventos_sistema.alvo AS
+-- SELECT c.workspace_id, c.id AS conversation_id
+-- FROM public.conversations c
+-- JOIN public.whatsapp_messages m
+--   ON m.workspace_id = c.workspace_id AND m.waha_session = c.waha_session AND m.chat_id = c.chat_id
+-- WHERE c.workspace_id = 'default-workspace'
+--   -- ... demais condições originais ...
+--   AND NOT EXISTS (
+--     SELECT 1 FROM public.waha_webhook_events e
+--     WHERE e.workspace_id = c.workspace_id
+--       AND e.payload_json::text LIKE '%' || c.chat_id || '%'
+--       AND coalesce(e.payload_json ->> 'type', e.payload_json -> '_data' ->> 'type') NOT IN (
+--         'ack','receipt','reaction','status','protocol','revoked',
+--         'e2e_notification','notification_template','gp2','ciphertext','biz_content_placeholder')
+--   )
+-- GROUP BY c.workspace_id, c.id;
+
+-- --------------------------------------------------------------- C3
+-- Conferência nova, a rodar ANTES do passo B. Quantifica a população que a #73
+-- protege. Se vier > 0, a lista de alvo mudou e os números do procedimento não
+-- valem mais.
+--
+-- SELECT count(*) AS grupos_vivos_protegidos
+-- FROM public.conversations c
+-- WHERE c.workspace_id = 'default-workspace'
+--   AND c.conversation_type = 'group'
+--   AND NOT EXISTS (SELECT 1 FROM public.whatsapp_messages m
+--                   WHERE m.workspace_id = c.workspace_id AND m.chat_id = c.chat_id)
+--   AND EXISTS (SELECT 1 FROM public.waha_webhook_events e
+--               WHERE e.workspace_id = c.workspace_id
+--                 AND e.payload_json::text LIKE '%' || c.chat_id || '%');
+
+-- --------------------------------------------------------------- NOTA DE FRESCOR
+-- Todas as contagens deste arquivo são de 2026-07-28 18h, com ~6.811 mensagens.
+-- Hoje a base passa de 16.900 eventos brutos. Reexecute as consultas de
+-- conferência IMEDIATAMENTE ANTES de aplicar, não antes de revisar: a
+-- sincronização escreve continuamente e a #73 destravou 9.686 mensagens
+-- recuperáveis. Compare FORMA (proporções, relações entre passos), não valor.
