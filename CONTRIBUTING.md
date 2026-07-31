@@ -181,8 +181,11 @@ Quando a PR depende de um estado específico da main, ancore num SHA:
 ### PR empilhada
 
 Quando a etapa seguinte não pode esperar o merge da anterior, abra a PR com
-`--base` no branch da PR mãe. A mãe leva as duas para main no squash. Já
-aconteceu três vezes (#55 sobre #51, #36 sobre #32, #25 dentro de #24).
+`--base` no branch da PR mãe. A mãe leva as duas para main no squash **quando a
+filha já foi mergeada na branch da mãe antes**; se a mãe for para main primeiro,
+o squash descola a pilha — é a subseção seguinte. Já aconteceu cinco vezes: #55
+sobre #51, #36 sobre #32, #25 dentro de #24, e a pilha de dois níveis #62 sobre
+#60 com #64 sobre #62.
 
 Duas consequências reais, ambas já registradas em commit:
 
@@ -192,6 +195,67 @@ Duas consequências reais, ambas já registradas em commit:
 - A PR filha pode chegar **vazia** em main se seu conteúdo já subiu pela mãe.
   Foi o que houve com a #25, e a #30 documentou o fato: *"4f351e1, cited as PR
   #25, is an empty commit — the one-line tick fix shipped inside adc67c6."*
+
+### O squash descola a pilha
+
+Em 29/07/2026 a #60 foi squash-merged em `main`. O squash não move o commit da
+branch: ele **cria um commit novo** com o mesmo conteúdo. `a888f48` entrou em
+main; `f314e0e`, o commit original da branch, tem o mesmo `patch-id` e nunca foi
+ancestral de main.
+
+Sobre aquela branch havia uma pilha de dois níveis — a #62 com base
+`fix/inbox-colar-sem-editor` (branch da #60) e a #64 com base
+`feat/inbox-tela-anexo` (branch da #62). Com a base descolada, o merge das duas,
+1h22 depois, foi parar nas branches empilhadas e não em main: `5fed4e3` (#62)
+tem pai `f314e0e`, e `c76a783` (#64) tem pai `8b48ec0`. Nenhum dos dois é
+ancestral de `origin/main`; hoje, com as branches apagadas do origin, nenhum dos
+dois é sequer alcançável por ref alguma.
+
+**E o GitHub marcou as duas como merged.** É o que torna o caso perigoso: a
+interface não distingue "mergeada em main" de "mergeada na branch que a
+originou". Nada falha e nada avisa. Foram 30 minutos até a abertura da #66 —
+1h53 contadas do squash da #60.
+
+A recuperação foi a #66: `origin/main` com `8b48ec0` e `b76dd24` aplicados por
+cherry-pick e **sem** `f314e0e`. Soltar o commit duplicado é o passo que não se
+pode pular — o conteúdo dele já estava em main sob outro SHA, e mantê-lo faz o
+cherry-pick conflitar com ele mesmo.
+
+<sub>— `5dbba74`, PR #66</sub>
+
+**Regra: PR que tenha outra empilhada sobre ela merge com `--no-ff`, nunca com
+squash.** O merge commit preserva os commits da branch, então a base das filhas
+continua válida. PR isolada pode squash normalmente.
+
+Depois de mergear uma pilha, a conferência de que o conteúdo chegou é de
+ancestralidade — não do rótulo do GitHub:
+
+```bash
+git fetch origin && git merge-base --is-ancestor <sha-da-filha> origin/main
+```
+
+### Commit em branch de PR já mergeada
+
+A #63 foi squash-merged em 29/07/2026 às 13:14:33 (`-03`; na API do GitHub,
+`16:14:33Z`). O commit `2d77edb`, que corrigia uma atribuição errada no
+`CLAUDE.md`, é de 13:17:19 — **166 segundos depois**, com pai `59358ea`,
+exatamente o `head_sha` que a #63 tinha no instante do merge.
+
+O `git push` funcionou e não avisou nada, porque a branch continua existindo:
+`refs/heads/docs/navegador-conferencia-visual` ainda aponta para `2d77edb` no
+origin. O commit não é dangling nem está perdido — é a ponta de uma ref viva, e
+é por isso mesmo que passa despercebido: ele fica **fora de main** com tudo o
+mais parecendo normal. Quem revela é a checagem de ancestralidade, devolvendo 1.
+
+**Regra:** antes de commitar numa branch já enviada, confira o estado da PR
+dela.
+
+```bash
+gh pr view <N> --json state
+```
+
+A reaplicação virou PR própria, a #69, com o mesmo `patch-id` (`6c286ed`)
+aplicado sobre o topo de main.
 
 ### Trabalho paralelo por worktree
 
@@ -221,8 +285,9 @@ git fetch origin && git checkout -b <tipo>/<slug-kebab> origin/main
 - **Idioma:** subject em inglês; corpo na língua da sessão. As duas coexistem no
   histórico.
 - **Trailer:** `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`
-- **Merge:** squash-merge, desde a PR #15. Não faça merge da própria PR sem
-  revisão.
+- **Merge:** squash-merge, desde a PR #15 — **exceto** PR com outra empilhada
+  sobre ela, que vai de `--no-ff` pelo motivo descrito acima. Não faça merge da
+  própria PR sem revisão.
 
 ### Anatomia do corpo do commit
 
@@ -267,19 +332,20 @@ Também funciona `npx vitest run` **de dentro do diretório do workspace**.
 ### A armadilha
 
 `npx vitest run` a partir de `web/` **não** é equivalente. Ele encontra todos os
-arquivos e roda com o root errado, quebrando 16 deles. O sintoma parece bug de
+arquivos e roda com o root errado, quebrando 26 deles. O sintoma parece bug de
 código; é bug de CWD.
 
 | Onde | O que acontece |
 | --- | --- |
 | `npm test` na raiz do **repo** | `npm error Missing script: "test"` |
 | `npm run test -w @chatpro/api` na raiz do **repo** | `npm error No workspaces found` |
-| `npx vitest run` em `web/` ou na raiz | roda tudo, **16 arquivos falham** |
+| `npx vitest run` em `web/` ou na raiz | roda tudo, **26 arquivos falham** |
+| `npx vitest run --root apps/api` em `web/` | **10 arquivos falham** — `--root` não muda o CWD |
 | `npx vitest` na raiz do **repo** | baixa `vitest@latest` da rede — outra major que a 3.2.7 fixada em `web/` |
 
 As duas causas:
 
-- **api (9 arquivos):** os testes montam o banco com
+- **api (10 arquivos):** os testes montam o banco com
   `join(process.cwd(), 'migrations')`. Fora do CWD certo isso vira
   `web/migrations`, que não existe →
   `ENOENT: no such file or directory, scandir`. Pior,
@@ -287,9 +353,23 @@ As duas causas:
   'docs', ...)` e o caminho **escapa do repositório** inteiro.
   O código de produção é imune — ele resolve por `import.meta.url`; são os
   testes que reintroduzem a dependência de CWD ao passar o caminho explícito.
-- **dashboard (7 arquivos):** sem o `vite.config.ts` do workspace, o environment
-  cai para `node` e o `setupFiles` não carrega →
+- **dashboard (16 arquivos):** sem o `vite.config.ts` do workspace, o
+  environment cai para `node` e o `setupFiles` não carrega →
   `ReferenceError: document is not defined`.
+
+A variante que engana mais é `--root`, porque parece endereçar exatamente o
+problema e não endereça. `npx vitest run --root apps/api` a partir de `web/` faz
+o vitest anunciar `RUN v3.2.7 .../apps/api`, mas **não muda o `process.cwd()` do
+processo** — ele continua sendo `web/`. Falham 10 arquivos e 57 testes, todos
+com a mesma mensagem, `ENOENT ... scandir '<...>/web/migrations'`; nenhuma
+asserção de negócio quebra. São exatamente os mesmos 10 arquivos da api da linha
+acima — o dashboard só não aparece porque ficou fora da descoberta. Use
+`npm run test -w @chatpro/api`, que dá 27 arquivos e 242 testes verdes.
+
+Um detalhe da contagem, para não assustar: com `--root` aparecem 58 linhas
+`FAIL` para 57 testes falhando. A 58ª é `eventos-sistema-cleanup-sql.test.ts`,
+que estoura o `ENOENT` no topo do módulo e falha como *suite*, sem chegar a
+coletar seus 10 testes — daí o total cair de 242 para 232.
 
 ### Lendo a saída
 
@@ -453,3 +533,20 @@ pessoais. O `.gitignore` cobre esses casos — se algo assim aparecer no
 git push -u origin <branch>
 gh pr create --base main
 ```
+
+Para **atualizar o corpo de uma PR já aberta**, não use `gh pr edit
+--body-file`. Com o `gh` instalado aqui (2.45.0) ele consulta `projectCards`
+mesmo sem nenhuma flag de projeto e morre em `GraphQL: Projects (classic) is
+being deprecated ... (repository.pullRequest.projectCards)`. Ele **retorna erro
+e não grava nada** — o corpo fica exatamente como estava, e é fácil seguir em
+frente achando que gravou. Já aconteceu nas PRs #23, #26, #28 e #63. É a issue
+`cli/cli#11983`, corrigida no gh v2.73.0. O caminho confiável é a REST:
+
+```bash
+gh api -X PATCH repos/SALOMBRAS/ProChat/pulls/<N> -F body=@corpo.md
+```
+
+Cuidado ao ler os dois comandos: `-F` significa coisas diferentes em cada um. Em
+`gh pr edit` é o atalho de `--body-file`; em `gh api` é `--field`, e quem manda
+ler do arquivo é o `@`. Depois de qualquer um dos dois, confira o resultado com
+`gh pr view <N> --json body`.
