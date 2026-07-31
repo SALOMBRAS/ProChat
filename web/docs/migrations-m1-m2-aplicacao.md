@@ -11,6 +11,105 @@ M1 e M2 são independentes entre si. A ordem abaixo é a recomendada, não obrig
 
 ## Estado da validação
 
+> **Revalidado em 31/07/2026 contra `origin/main` @ `c396487`.** O banco remoto
+> **não foi tocado**: PostgreSQL 16.14 em contêiner descartável e SQLite pelo
+> runner real do repositório.
+>
+> **O SQL de M1 e M2 continua aplicando limpo e não precisou de ajuste.** Desde
+> o `98a984d` que a PR #42 ancorou passaram 51 commits, e
+> `git diff --stat 98a984d..origin/main -- web/apps/api/migrations web/supabase/migrations supabase/migrations`
+> volta **vazio**: nenhuma migration versionada mudou. As quatro mudanças
+> apontadas como risco não colidem:
+>
+> | mudança | veredito |
+> | --- | --- |
+> | INSERT nomeado em `contacts` (PR #32) | **não colide** — é código; o `catch` nu virou `conflictOn` |
+> | adoção de opt-out (PR #36) | **não colide com M1/M2** — alcança só `opt_out_history`, que é território de M3 |
+> | sanitização de nome de arquivo (PR #79) | **não colide** — toca `attachment-outbox.service.ts` e um teste, zero SQL |
+> | coluna `chatsTotal` (PR #91, aberta) | **não colide por objeto** — vai para `whatsapp_sync_jobs`. **Colide por numeração**, ver abaixo |
+>
+> A `020_contact_identity_aliases.sql` também não colide — e M1 **depende** dela.
+>
+> **Duas correções que esta revalidação obrigou**, e que a #42 não tinha como ver:
+
+### 1. A suíte de verificação Postgres não testava o que dizia testar
+
+`migrations-m1-m2-verificacao.sql` criava a conversa de teste **sem
+`last_status_change`**, que é `NOT NULL` no Supabase desde
+`20260719000200_multioperator_conversation_management.sql:11` — anterior ao SHA
+que a #42 ancorou. Medido agora, em PostgreSQL 16.14:
+
+```text
+INSERT antigo  -> ERROR: null value in column "last_status_change" ... violates not-null constraint
+passo 10       -> (0 rows)          esperado: v1
+
+INSERT corrigido -> ok
+passo 10         -> v1
+```
+
+O passo 10 é **a asserção central de M2** — "soft delete preserva o vínculo da
+conversa". Como a suíte roda com `\set ON_ERROR_STOP off` e é conferida a olho,
+`(0 rows)` no lugar de `v1` **lia como sucesso**. A validação Postgres da #42
+rodou sobre uma suíte que não afirmava nada nesse ponto.
+
+Corrigido neste commit. O `.mjs` do SQLite não pegava o defeito porque lá
+`lastStatusChange` é **nullable** (`011_multioperator_conversation_management.sql:8`)
+— uma assimetria SQLite × Supabase preexistente, registrada aqui e **não**
+corrigida, porque é assunto próprio e fora deste procedimento.
+
+### 2. A numeração `021` foi reivindicada por outra PR
+
+O arquivo de proposta manda M1 para `apps/api/migrations/021_contact_block.sql`.
+A **PR #91**, aberta, reivindica `apps/api/migrations/021_whatsapp_sync_chats_total.sql`.
+
+Não é falha — medido em banco descartável, os dois coexistem e ambos aplicam,
+porque `021_contact_block.sql` ordena antes de `021_whatsapp…` (`c` < `w`). Mas
+duas migrations com o mesmo número é dívida imediata. **Antes de aplicar,
+renumere M1 e M2 para os próximos livres**, conferindo o diretório na hora:
+
+```bash
+ls web/apps/api/migrations/ | tail -3
+ls web/supabase/migrations/ | tail -3
+```
+
+### 3. A armadilha do `.rollback.sql` **não** alcança M1/M2
+
+O runner do SQLite varria `*.sql` e trataria um `.rollback.sql` como migration.
+A #91 corrige com `!file.endsWith('.rollback.sql')`, e **o filtro é geral** —
+cobre qualquer arquivo futuro com esse sufixo, não só o dela.
+
+M1 e M2 não caem nessa armadilha **hoje**, porque os rollbacks delas são seções
+dentro do arquivo de proposta, para rodar à mão, e não arquivos no diretório
+varrido. Se alguém adotar a convenção da #91 e colar o rollback ao lado da
+migration, aí sim passa a valer — e o rollback de M1 é bem mais destrutivo que o
+de `chatsTotal`, porque derruba seis colunas de `contacts` e uma de
+`conversations` **sem `IF EXISTS`**.
+
+Uma correção ao que se dizia da armadilha, medida em SQLite descartável: o
+`.rollback.sql` ordena **antes** da migration, não depois — em
+`021_x.rollback.sql` contra `021_x.sql`, o caractere que difere é `r` (0x72)
+contra `s` (0x73). Os dois modos de falha:
+
+| estado do banco | o que acontecia |
+| --- | --- |
+| **novo** | o rollback roda primeiro e estoura `no such column`, **abortando o `migrate()` inteiro** — falha alta |
+| **já com a migration aplicada** | o rollback é o único pendente: derruba a coluna **em silêncio**, registra-se em `schema_migrations`, e a migration nunca reaplica |
+
+O desfecho é diferente do que se supunha; a correção é a mesma.
+
+### ⚠️ A conferência envelhece
+
+Tudo acima vale para o schema, que muda por PR. **As contagens de linha, não.**
+
+> **Reexecute a conferência do passo 1 imediatamente antes de aplicar, não antes
+> de revisar.** A sincronização de histórico escreve continuamente: um número
+> conferido de manhã não descreve a base da tarde. Se o intervalo entre conferir
+> e aplicar passar de alguns minutos com sincronização ativa, confira de novo.
+
+---
+
+## Estado da validação anterior
+
 Revalidado em 28/07/2026 contra `origin/main` @ `98a984d`, em **PostgreSQL 16.14**
 (contêiner descartável) e **SQLite 3.53.2** (runner real do repositório). O banco
 remoto não foi tocado.
