@@ -5,12 +5,13 @@ import type { ConversationStore, InboxMessage } from './waha-webhook.service.js'
 import type { RealtimeHub } from '../realtime.js';
 import type { KanbanAutomationCoordinator } from './kanban-automation.service.js';
 import type { SlaMessageCoordinator } from './sla-message-coordinator.service.js';
+import type { WhatsAppSessionActivityService } from './whatsapp-session-activity.service.js';
 import { log } from '../logging.js';
 
 const statusFor = (code: string): number => ({ VALIDATION_ERROR: 400, NOT_FOUND: 404, CONFLICT: 409, TIMEOUT: 504, SERVICE_UNAVAILABLE: 503, PROVIDER_CONTRACT_ERROR: 502 }[code] ?? 503);
 
 export class InternalInboxService {
-  constructor(private readonly worker: InternalWorkerClient, private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly automation?: KanbanAutomationCoordinator, private readonly sla?: SlaMessageCoordinator) {}
+  constructor(private readonly worker: InternalWorkerClient, private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly automation?: KanbanAutomationCoordinator, private readonly sla?: SlaMessageCoordinator, private readonly sessionActivity?: Pick<WhatsAppSessionActivityService, 'assertActive'>) {}
   /**
    * Same delivery, persistence and automation as a text send; only the worker
    * command and what gets stored differ. The message keeps `messageType`
@@ -51,6 +52,12 @@ export class InternalInboxService {
     const text = outbound.body;
     const conversation = await this.conversations.getConversation(context.workspaceId, conversationId);
     if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
+    // O worker reconcilia nomes de sessão por alias: quando a sessão gravada na
+    // conversa foi substituída por um novo pareamento, ele resolve para a sessão
+    // atual e a mensagem sai de verdade — mas fica gravada na conversa antiga,
+    // enquanto a resposta do cliente chega carimbada com a sessão nova e cai em
+    // outra conversa. A recusa aqui é o que impede a thread de partir.
+    await this.sessionActivity?.assertActive(context, conversation.whatsappSessionId);
     const deliveryChatId = conversation.deliveryChatId ?? conversation.chatId;
     log('info', 'Inbox message send started', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId });
     let response;

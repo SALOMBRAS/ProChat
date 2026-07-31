@@ -1,5 +1,11 @@
 # Conversas de sessões WhatsApp anteriores — investigação
 
+> **Corrigido em 29/07/2026 — a seção 5 está errada para 526 das 531 conversas.**
+> O envio nelas **não** falha: o worker reconcilia o nome da sessão por alias e a
+> mensagem sai pelo número atual, ficando gravada na conversa antiga enquanto a
+> resposta do cliente cai na conversa nova. Ver `conversas-sessao-inativa.md`,
+> que também traz o tratamento implementado.
+
 **28/07/2026. Somente leitura.** Nenhum código foi alterado, nada foi escrito no
 banco e nenhuma mensagem foi enviada. O acesso ao Supabase foi `GET` via PostgREST;
 o acesso à WAHA foi `GET` em `/api/sessions`.
@@ -197,6 +203,16 @@ desta tarefa. **Não identificado** para os demais widgets.
 ---
 
 ## 5. O envio funciona nelas?
+
+> **CORRIGIDO EM 29/07/2026. A conclusão abaixo vale só para as 5 conversas de
+> `chatpro-a14338b9…`.** Para as 526 de `chatpro-42217e8d…` o envio **funciona**:
+> o registro do worker guarda esse nome como *alias* da sessão viva
+> (`waha-provider.ts:107` casa por alias, `:57` envia com `stored.wahaName`), e a
+> cadeia abaixo nunca chega ao passo 3 — a WAHA não é consultada com o nome
+> morto. O passo 1 continua correto e é justamente o problema: a mensagem sai
+> pelo número atual mas é gravada na conversa antiga, e a resposta do cliente
+> volta carimbada com a sessão viva, em outra conversa. Ver
+> `conversas-sessao-inativa.md`.
 
 **Não. Falha com `404 NOT_FOUND` e mensagem explícita.** Não é falha silenciosa, e
 **não** cai para a sessão nova.
