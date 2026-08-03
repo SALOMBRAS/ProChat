@@ -7,9 +7,20 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3002:3000"
-    env_file:
-      - .env.local
+    # Sem `env_file`. Ele entregava o `.env.local` inteiro a uma imagem de
+    # terceiro que roda Chromium — inclusive `SUPABASE_SERVICE_ROLE_KEY` e
+    # `MEDIA_PROXY_TOKEN_SECRET`, que a WAHA não usa para nada. O que ela usa
+    # está declarado abaixo, nome por nome.
+    #
+    # As duas chaves entram por interpolação do compose, e não por dentro do
+    # contêiner: `${VAR}` é resolvido pelo próprio compose a partir do ambiente
+    # de quem o invoca. `npm run dev:waha` carrega o `.env.local` com
+    # `node --env-file`, então o `spawn` herda. Fora dele, passe
+    # `--env-file .env.local` na linha de comando.
     environment:
+      # `:?` para falhar alto. Sem ele, uma variável ausente viraria string
+      # vazia e a WAHA subiria **sem exigir chave nenhuma** na API dela.
+      WAHA_API_KEY: ${WAHA_API_KEY:?defina WAHA_API_KEY (use --env-file .env.local)}
       WHATSAPP_API_HOSTNAME: 0.0.0.0
       WHATSAPP_DEFAULT_ENGINE: WEBJS
       WAHA_PRINT_QR: "False"
@@ -22,7 +33,9 @@ services:
       WHATSAPP_SWAGGER_ENABLED: "false"
       WHATSAPP_HOOK_URL: http://host.docker.internal:3000/api/v1/webhooks/waha
       WHATSAPP_HOOK_EVENTS: message,message.any,session.status
-      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_HMAC_KEY}
+      # Vazia, a WAHA assinaria o webhook com nada e a API recusaria com 401 —
+      # a ingestão morreria em silêncio, porque a recusa fica do lado dela.
+      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_HMAC_KEY:?defina WAHA_WEBHOOK_HMAC_KEY (use --env-file .env.local)}
     volumes:
       - ./.waha-sessions:/app/.sessions
     healthcheck:
