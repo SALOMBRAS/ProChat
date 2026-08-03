@@ -526,3 +526,44 @@ describe('localização recebida', () => {
     expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType FROM whatsapp_messages').get()).toMatchObject({ messageType: 'image' });
   });
 });
+
+/** O anexo importado pela sincronização de histórico não traz o objeto `media` da
+ *  raiz — só o webhook ao vivo traz. Como a classificação é por mime e o mime só
+ *  era lido da raiz, todo anexo histórico caía em `document`: medido, 2.524 das
+ *  2.545 linhas gravadas como `document` estão com `media_mime_type` nulo, e
+ *  `_data.mimetype` está preenchido em 5.377 de 5.377 linhas de mídia. */
+describe('mime do anexo histórico', () => {
+  const chatId = '5511999990000@c.us';
+  const send = (app: any, body: unknown) => { const signedBody = signed(body); return request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedBody.timestamp).send(signedBody.raw); };
+  const event = (id: string, payload: unknown) => ({ id, timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload });
+  // Sem `media` na raiz: é assim que o histórico chega.
+  const historic = (id: string, type: string, mimetype: string) => ({
+    id, from: chatId, to: '5511777770000@c.us', body: '', fromMe: false, hasMedia: true,
+    timestamp: Math.floor(Date.now() / 1000), _data: { type, mimetype },
+  });
+
+  it('lê o mime de _data quando a raiz não traz media, em vez de chamar tudo de documento', async () => {
+    const app = await appFor();
+    await send(app, event('evt-h-img', historic('hist-image', 'image', 'image/jpeg'))).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType, mediaMimeType FROM whatsapp_messages').get()).toMatchObject({ messageType: 'image', mediaMimeType: 'image/jpeg' });
+  });
+
+  it('mantém a nota de voz distinguível do arquivo de música também no histórico', async () => {
+    const app = await appFor();
+    await send(app, event('evt-h-ptt', historic('hist-ptt', 'ptt', 'audio/ogg; codecs=opus'))).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType FROM whatsapp_messages').get()).toMatchObject({ messageType: 'ptt' });
+  });
+
+  it('a raiz continua tendo precedência, para o tráfego ao vivo não mudar', async () => {
+    const app = await appFor();
+    // Raiz diz vídeo, _data diz imagem: quem manda é a raiz, como antes.
+    await send(app, event('evt-h-prec', { ...historic('hist-prec', 'image', 'image/jpeg'), media: { mimetype: 'video/mp4' } })).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType, mediaMimeType FROM whatsapp_messages').get()).toMatchObject({ messageType: 'video', mediaMimeType: 'video/mp4' });
+  });
+
+  it('sem mime em lugar nenhum continua caindo em documento, não inventa tipo', async () => {
+    const app = await appFor();
+    await send(app, event('evt-h-nomime', { id: 'hist-nomime', from: chatId, to: '5511777770000@c.us', body: '', fromMe: false, hasMedia: true, timestamp: Math.floor(Date.now() / 1000), _data: { type: 'document' } })).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType FROM whatsapp_messages').get()).toMatchObject({ messageType: 'document' });
+  });
+});
