@@ -34,6 +34,10 @@ não eram vazamento entre arquivos. Cada arquivo roda em processo próprio
 aqui), e nos três casos o arquivo **passava sozinho** e só falhava sob a suíte
 completa.
 
+Em 03/08/2026 veio um quarto, e ele **não** segue esse padrão — por isso ganhou
+seção própria. Não havia nada rodando depois da hora: o teste era lento, e só
+isso. Ver §8.
+
 ---
 
 ## 2. Relógio de parede — PR #68
@@ -554,9 +558,121 @@ Os dois passam hoje. Registrado como preferência, não como defeito.
 
 ---
 
+## 8. Montar cenário no SQLite custa `fsync` por linha — PR #129
+
+**A regra: lote de escrita de cenário vai dentro de uma transação, e o
+`prepare()` fica fora do laço.**
+
+```ts
+const insert = database.sqlite.prepare('INSERT INTO conversations (...) VALUES (...)');
+database.sqlite.transaction(() => {
+  for (let index = 0; index < total; index += 1) insert.run(/* ... */);
+})();
+```
+
+### 8.1 O incidente
+
+O caso `sla-config-reads.test.ts > lê a configuração uma vez por workspace num
+tick` estourou o timeout padrão de 5 s do Vitest com **6176 ms** na execução
+30830804324 do CI. A PR em curso mexia só em arquivos do dashboard.
+
+Duas coisas descartaram a hipótese de defeito:
+
+- a mesma execução foi re-disparada e ficou **verde no código idêntico**
+  (`run_attempt: 2`) — é a assinatura de tempo, não de lógica;
+- os outros **394 testes passaram na mesma execução**, dois deles mais pesados
+  que esse quando medidos aqui, então não era a máquina inteira mais lenta.
+
+### 8.2 Por que `.run()` solto é caro
+
+O banco de teste roda no padrão do SQLite. Conferido:
+
+```text
+journal_mode = delete | synchronous = FULL
+```
+
+Nesse modo, cada `.run()` fora de transação é uma **transação implícita**: cria o
+arquivo de journal, escreve, dá `fsync`, comita, dá `fsync` de novo e apaga o
+journal. O cenário daquele teste são 60 conversas com dois inserts cada — 120
+dessas rodadas completas.
+
+Medido nesta máquina, mesmas 120 linhas:
+
+| forma | tempo |
+| --- | --- |
+| `.run()` soltos | **388 ms** |
+| um `transaction()` no lote | **5 ms** |
+
+São ~78×, e o que sai são 119 pares de `fsync`. Isso importa porque `fsync` é
+espera de disco: é a parcela de **maior variância** num runner de CI com disco
+disputado, enquanto trabalho de CPU degrada de forma mais previsível. Um cenário
+que custa 388 ms de I/O aqui não custa 388 ms lá — custa o que o disco alheio
+deixar.
+
+### 8.3 O que mudou
+
+| teste | antes | depois |
+| --- | --- | --- |
+| `sla-config-reads` › uma leitura por workspace | 826 ms | **373 ms** |
+| `kanban-ensure-cost` › abrir o quadro com 5 e com 80 | 600 ms | **246 ms** |
+| `kanban-ensure-cost` › ingerir mensagem com 5 e com 80 | 569 ms | **278 ms** |
+
+<sub>Medições isoladas por arquivo. Sob a suíte completa os dois do
+`kanban-ensure-cost` caíram de 1521 ms e 1418 ms para 715 ms e 643 ms.</sub>
+
+Nenhuma asserção mudou, e nenhum cenário encolheu: continuam as mesmas 60
+conversas em dois workspaces, os mesmos 5 + 80 cartões. O que saiu foi espera de
+disco, não cobertura.
+
+### 8.4 Quando a regra não se aplica
+
+**Se o laço é o que o teste mede, ele fica como está.** Em
+`sla.service.test.ts > caps the critical sample` o cenário é construído por 117
+chamadas a `service.message()` — código de produção, assíncrono. Uma transação do
+`better-sqlite3` é síncrona e não pode envolver `await`; e substituir as chamadas
+por `INSERT` diretos apagaria justamente o que o teste prova, que é o serviço
+produzindo aquela população. Esse caso já carrega `timeout` explícito de 30 s,
+que é a saída correta para trabalho legitimamente demorado.
+
+A distinção é essa: **montar o cenário não é o que se mede.** O que se mede fica.
+
+### 8.5 A varredura de 03/08/2026
+
+Os 18 arquivos de teste da API que escrevem no SQLite, classificados pelo maior
+lote de `.run()` que uma única execução dispara montando cenário:
+
+| arquivo | lote | situação |
+| --- | --- | --- |
+| `sla-config-reads` | 120 | **corrigido** |
+| `sla.service` | 117 | é o comportamento medido — §8.4 |
+| `kanban-ensure-cost` | 85 | **corrigido** |
+| `kanban-order-tiebreaker` | 48 | `prepare()` dentro do laço; 824–920 ms, abaixo da régua |
+| `reprocess-discarded` | 5 | `prepare()` dentro do laço; lote pequeno |
+| `kanban-new-card-position` | 3 | lote pequeno |
+| outros 12 | 0 | sem laço de montagem |
+
+Nos que ficaram, o lote é pequeno demais para pagar a mudança hoje. O sinal para
+voltar a eles é o mesmo: um caso passando de 1 s sob a suíte completa.
+
+### 8.6 Achado de produção, registrado e não corrigido
+
+Ao medir isto apareceu uma coisa que **não é de teste**: cada método de
+`SqliteSlaStore` chama `this.db.prepare(...)` na própria invocação
+(`src/services/sla.service.ts`), então `save()` recompila o `INSERT ... ON
+CONFLICT` a cada linha. O tick de SLA grava uma vez por conversa vencida, de
+modo que o custo acompanha a população a cada 60 s — recompilação mais o mesmo
+par de `fsync` por linha descrito acima.
+
+Não foi tocado: é `apps/api/src`. Fica registrado para quem for medir o tick.
+
+---
+
 ## Referências
 
 - `CONTRIBUTING.md` §1 (prova por reversão) e §3 (rodar os testes, CWD)
+- `web/apps/api/test/sla-config-reads.test.ts` — §8, o incidente
+- `web/apps/api/test/kanban-ensure-cost.test.ts` — §8.3
+- `web/apps/api/test/sla.service.test.ts` — §8.4, a exceção
 - `web/apps/worker/test/request-deadline.test.ts` — §2, PR #68
 - `web/apps/dashboard/src/ui/Inbox.tsx` — §3, PR #72
 - `web/apps/dashboard/src/ui/InboxSyncProgress.test.tsx` — §4, PR #84

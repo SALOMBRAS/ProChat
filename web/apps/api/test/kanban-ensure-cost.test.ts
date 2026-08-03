@@ -40,12 +40,24 @@ function setup(conversations: number) {
   const database = new SqlitePersistenceDatabase(join(directory, 'db.sqlite'), migrations); database.migrate();
   const stamp = new Date().toISOString();
   const insert = database.sqlite.prepare('INSERT INTO conversations (id,workspaceId,wahaSession,chatId,contactId,status,lastMessage,lastMessageAt,unreadCount,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
-  const ids: string[] = [];
-  for (let index = 0; index < conversations; index += 1) {
-    const id = `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
-    ids.push(id);
-    insert.run(id, workspaceId, 'primary', `551199999${String(index).padStart(4, '0')}@c.us`, null, 'open', 'Olá', stamp, 0, stamp, stamp);
-  }
+  // O lote inteiro numa transação: no padrão do SQLite (`journal_mode = delete`,
+  // `synchronous = FULL`) cada `.run()` solto é uma transação implícita com dois
+  // `fsync` e um arquivo de journal criado e apagado. Os dois casos mais pesados
+  // daqui montam 5 + 80 conversas na mesma execução, e o arquivo passa de 300
+  // linhas somando as chamadas — espera de disco que nada tem a ver com o custo
+  // que estes testes trancam. Ver `web/docs/testing.md`.
+  const ids = database.sqlite.transaction(() => {
+    const criadas: string[] = [];
+    for (let index = 0; index < conversations; index += 1) {
+      const id = `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+      criadas.push(id);
+      insert.run(id, workspaceId, 'primary', `551199999${String(index).padStart(4, '0')}@c.us`, null, 'open', 'Olá', stamp, 0, stamp, stamp);
+    }
+    return criadas;
+  })();
+  // A transação é montada aqui de propósito, antes de `counting()` trocar o
+  // `prepare` do banco: o medidor conta consultas do serviço, e o cenário não
+  // pode aparecer na conta.
   return { database, ids, service: new KanbanService(database.sqlite, new RealtimeHub(), sla) };
 }
 
