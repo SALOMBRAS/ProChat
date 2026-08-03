@@ -37,6 +37,66 @@ paginada até o fim dentro do deadline: o job encerra a conversa, registra o
 as demais. Ao concluir, o rótulo informa que conversas muito longas foram
 truncadas.
 
+## Página menor não resolve o timeout
+
+A saída óbvia para o corte é reduzir a página: se 100 mensagens não cabem no
+deadline, talvez 25 caibam. **Foi medido em 03/08/2026 contra a conta real, e
+não cabem.** O custo mora na caminhada até o offset, não no tamanho da página.
+
+Medianas de três amostras por tamanho, no offset 1200 da conversa que o job
+havia cortado:
+
+| página | mediana | mensagens por segundo |
+| -----: | ------: | --------------------: |
+|     25 |  22,6 s |                   1,1 |
+|     50 |  25,3 s |                   2,0 |
+|    100 |  23,4 s |                   4,3 |
+
+O custo é praticamente o mesmo para 25 ou para 100 mensagens — o `limit 100`
+teve até a **menor** mediana das três, carregando quatro vezes mais. Reduzir a
+página multiplica o número de caminhadas caras sem baratear nenhuma delas: numa
+conversa de 1.800 mensagens seriam 72 requisições em vez de 18, cada uma
+pagando o mesmo pedágio. Cerca de quatro vezes mais lento, para o mesmo
+resultado.
+
+### A primeira rodada dessa medição não vale
+
+A primeira tentativa mediu 100, depois 50, depois 25, **nessa ordem**, e
+concluiu que a página menor era pior — 30,3 s contra 23,3 s. A conclusão estava
+certa por acaso e o método estava errado: os tempos subiram ao longo de *toda* a
+sequência, inclusive entre amostras idênticas, porque a WAHA degrada sob
+leituras fundas repetidas. Requisições iguais foram de 17 s a 26 s dentro de uma
+mesma sessão de medição.
+
+Ou seja, a ordem e o tamanho estavam confundidos, e o que parecia efeito do
+tamanho era deriva do provedor. A tabela acima vem da repetição **intercalada**
+(25, 50, 100, 25, 50, 100, …), onde a deriva cai igualmente sobre os três
+tamanhos. Qualquer medição futura contra este provedor precisa do mesmo cuidado:
+uma bateria sequencial mede a fadiga da WAHA, não a variável em teste.
+
+### Uma segunda passada também não resolve
+
+Guardar o offset da conversa cortada e voltar nela depois é a outra saída
+intuitiva, e falha pelo motivo já registrado acima: um timeout fundo é
+determinístico, não transitório. A segunda passada pede o mesmo offset, paga o
+mesmo deadline e falha igual — só que mais tarde, e disputando o provedor com o
+resto da corrida. Uma segunda passada só muda alguma coisa se vier acompanhada
+de um orçamento maior, que é outra decisão.
+
+### O que foi decidido
+
+Aceitar o histórico parcial. As duas alternativas medidas custam caro: página
+maior de fato melhora a vazão (`limit 500` entregou 11,3 mensagens por segundo,
+contra 4,3), mas levou 44 s, acima do teto de 30 s — que é validado em
+`config.ts` **e** no contrato, então subir exige mexer nos dois e segurar
+conexões por mais tempo. Trocar o motor da WAHA é a única fuga estrutural da
+curva, e é mudança operacional grande, sem medição.
+
+Também foi verificado que a WAHA aceita `filter.timestamp.lte`, e que ele **não**
+escapa da caminhada: paginação encadeada por timestamp custou 3,6 / 11,0 / 30,8 /
+31,9 s em páginas sucessivas, subindo igual ao offset. Não há paginação barata
+neste motor.
+
 ## Orçamento de tempo
 
 Veja `docs/worker-command-budget.md`. Em resumo: a API anuncia um orçamento por
