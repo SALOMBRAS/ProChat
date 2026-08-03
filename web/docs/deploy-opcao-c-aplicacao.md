@@ -126,6 +126,11 @@ Regras que acompanham:
 1. **Permissão `600`, dono do usuário que roda o compose.** O arquivo tem as
    quatro chaves que dão acesso total: `SUPABASE_SERVICE_ROLE_KEY`,
    `WAHA_API_KEY`, `WAHA_WEBHOOK_HMAC_KEY`, `MEDIA_PROXY_TOKEN_SECRET`.
+   **`env_file` só para `api` e `worker`.** A WAHA é imagem de terceiro rodando
+   Chromium e recebe as duas chaves dela por interpolação, nome por nome — o
+   arquivo inteiro nunca entra naquele contêiner. Corrigido em 03/08/2026 depois
+   de `docker inspect` mostrar `SUPABASE_SERVICE_ROLE_KEY` lá dentro; ver
+   `vazamento-de-credenciais.md`.
 2. **Fora de qualquer backup automático que saia do host** sem cifra.
 3. **Rotação:** trocar `SUPABASE_SERVICE_ROLE_KEY` exige reiniciar `api` e
    `worker`. Trocar `MEDIA_PROXY_TOKEN_SECRET` invalida os links de mídia em

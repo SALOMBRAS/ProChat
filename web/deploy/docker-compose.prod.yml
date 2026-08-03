@@ -75,8 +75,16 @@ services:
   waha:
     image: devlikeapro/waha:latest-2026.7.1
     restart: unless-stopped
-    env_file: [.env.prod]
+    # Sem `env_file`, ao contrário de `api` e `worker`. Aqueles dois precisam do
+    # arquivo inteiro; a WAHA é imagem de terceiro rodando Chromium, e receber
+    # `SUPABASE_SERVICE_ROLE_KEY` e `MEDIA_PROXY_TOKEN_SECRET` — que ela não usa
+    # — só amplia o estrago de qualquer comprometimento dela.
+    #
+    # As duas chaves entram por interpolação, resolvida pelo `--env-file
+    # deploy/.env.prod` da linha de comando (seção 6 do deploy-opcao-c).
     environment:
+      # `:?` para falhar alto: sem a chave, a WAHA subiria com a API dela aberta.
+      WAHA_API_KEY: ${WAHA_API_KEY:?defina WAHA_API_KEY em deploy/.env.prod}
       WHATSAPP_API_HOSTNAME: 0.0.0.0
       WHATSAPP_DEFAULT_ENGINE: WEBJS
       WAHA_PRINT_QR: "False"
@@ -88,7 +96,9 @@ services:
       # HMAC. `host.docker.internal` era do arranjo local e não vale aqui.
       WHATSAPP_HOOK_URL: http://api:3000/api/v1/webhooks/waha
       WHATSAPP_HOOK_EVENTS: message,message.any,session.status
-      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_HMAC_KEY}
+      # Vazia, a WAHA assinaria com nada e a API recusaria com 401: a ingestão
+      # morreria em silêncio, porque a recusa fica registrada do lado dela.
+      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_HMAC_KEY:?defina WAHA_WEBHOOK_HMAC_KEY em deploy/.env.prod}
       # O padrão é 180 s e foi o que apagou a mídia dos eventos descartados.
       # Uma janela maior dá folga para a persistência tentar de novo.
       WHATSAPP_FILES_LIFETIME: ${WHATSAPP_FILES_LIFETIME:-3600}
