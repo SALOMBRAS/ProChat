@@ -654,16 +654,29 @@ lote de `.run()` que uma única execução dispara montando cenário:
 Nos que ficaram, o lote é pequeno demais para pagar a mudança hoje. O sinal para
 voltar a eles é o mesmo: um caso passando de 1 s sob a suíte completa.
 
-### 8.6 Achado de produção, registrado e não corrigido
+### 8.6 O achado de produção que a medição desmentiu
 
-Ao medir isto apareceu uma coisa que **não é de teste**: cada método de
-`SqliteSlaStore` chama `this.db.prepare(...)` na própria invocação
-(`src/services/sla.service.ts`), então `save()` recompila o `INSERT ... ON
-CONFLICT` a cada linha. O tick de SLA grava uma vez por conversa vencida, de
-modo que o custo acompanha a população a cada 60 s — recompilação mais o mesmo
-par de `fsync` por linha descrito acima.
+Esta seção afirmava que o `prepare()` por invocação do `SqliteSlaStore` fazia o
+tick de SLA recompilar o `INSERT` **uma vez por conversa vencida**, com o custo
+acompanhando a população a cada 60 s. **Medido em produção em 03/08/2026, está
+errado**, por dois motivos independentes:
 
-Não foi tocado: é `apps/api/src`. Fica registrado para quem for medir o tick.
+- `save()` só é chamado na **transição** `waiting_operator` → `expired`
+  (`sla.service.ts:143`), não uma vez por linha percorrida. Das 72 linhas que o
+  tick lê hoje, 62 já estão `expired` e 9 são `waiting_customer`: **uma** pode
+  gerar escrita;
+- produção roda `DATABASE_PROVIDER=supabase`, e `app.ts:92` escolhe
+  `SupabaseSlaStore` nesse caso. A classe com `prepare()` é do caminho SQLite —
+  `dev:local` e os testes.
+
+Fica como está para não apagar o erro: a extrapolação de "há `prepare()` no
+laço" para "custa caro em produção" pulou duas medições, e o número desfez as
+duas. O que a medição encontrou de verdade está em
+[`leituras-caras-audit.md`](leituras-caras-audit.md), candidato 3, com o critério
+que dispara o trabalho.
+
+A regra da §8 continua valendo onde foi medida: **montagem de cenário em teste**,
+que é laço de escrita de verdade.
 
 ---
 
