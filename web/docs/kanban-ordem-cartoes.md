@@ -103,6 +103,52 @@ nenhum evento `manual` —, mas desliga em silêncio um recurso que existe.
 
 ---
 
+## Decisão de 03/08/2026
+
+| item | decisão |
+| --- | --- |
+| desempate na leitura | **feito** — PR #113, `position DESC, last_message_at DESC, conversation_id ASC` nos dois provedores |
+| cartão novo no topo do estágio | **feito** — PR #116, `max(position) + 1` por estágio nos dois provedores |
+| renormalizar os 627 já posicionados | **não** — o SQL abaixo fica escrito e **não executado** |
+
+**Por que o UPDATE não roda.** Depois do incidente dos 504 cards, escrita em
+massa em produção só com necessidade. O que ela conserta é o retrato de hoje, e
+o retrato incomoda menos agora que cartão novo nasce no lugar certo: o topo de
+"Novo" para de piorar sozinho, e a coluna se corrige aos poucos conforme as
+conversas antigas recebem mensagem e são movidas.
+
+**Reavaliar em 17/08/2026.** Se o topo continuar inútil — a medida é a mesma
+desta análise: quantos dos 30 da primeira página estão entre as 30 conversas
+mais recentes —, o UPDATE é aplicado.
+
+### O que os dois merges já mudaram
+
+- Nenhum cartão aparece em duas páginas nem some entre elas, que era defeito de
+  correção e não de gosto.
+- Conversa nova entra no alto da sua coluna, e não no rodapé de 627.
+- Empates continuam existindo — `max + 1` pode ser lido em paralelo por duas
+  mensagens — e são inofensivos, porque a leitura desempata.
+
+### Não existe arrasto para reordenar dentro da coluna
+
+Conferido no dashboard em 03/08/2026, e isto muda a decisão futura:
+
+- a única superfície de arrasto do Kanban é `InboxKanban.tsx`; o `onDrop` de
+  `Inbox.tsx` é a zona de anexo;
+- o alvo do arrasto é a **coluna**, não um espaço entre cartões — não há
+  indicador de inserção;
+- `move()` recusa quando o estágio de destino é o de origem, então **arrastar um
+  cartão dentro da própria coluna não faz nada**;
+- ao trocar de coluna, a UI manda sempre `afterConversationId: destination[0]`,
+  isto é, "põe no topo da coluna de destino". Nunca uma posição escolhida.
+
+Ou seja, `position` registra **uma** coisa visível ao operador: um cartão movido
+para outra coluna vai para o topo dela. Ordenar direto por `last_message_at`
+custaria só isso — e dispensaria uma coluna que nada mais lê. É uma mudança bem
+menor do que parecia enquanto se supunha que o arrasto reordenava.
+
+---
+
 ## O SQL — proposto, não executado
 
 Renormaliza todos os estágios do quadro, cada um na sua faixa, com posições
