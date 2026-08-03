@@ -23,7 +23,7 @@
 > O SQLite guarda `new Date().toISOString()`, que termina em `Z` e passava — mais
 > uma divergência entre provedores que a suíte não via, porque a suíte é SQLite.
 >
-> Corrigido na PR #129, junto com a regra de desempate que o documento abaixo já
+> Corrigido na PR #132, junto com a regra de desempate que o documento abaixo já
 > pedia sem nomear: **a movimentação manual ganha da automação**, e o 409 só
 > aparece quando quem moveu foi outra pessoa — aí com o nome da etapa.
 
