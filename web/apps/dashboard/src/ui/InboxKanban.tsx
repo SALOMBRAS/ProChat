@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { WorkspaceUser } from "@chatpro/contracts";
 import { ApiError } from "../api/client.js";
 import { InboxApi, type KanbanBoard, type KanbanCard } from "../api/inbox.js";
@@ -54,7 +54,7 @@ function timeLabel(value: string) {
   return Number.isNaN(date.getTime()) ? "Agora" : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function InboxKanban() {
+export function InboxKanban({ onOpenConversation }: { onOpenConversation?: (conversationId: string) => void } = {}) {
   const [board, setBoard] = useState<KanbanBoard>();
   const [cards, setCards] = useState<CardsByStage>({});
   const [users, setUsers] = useState<Record<string, WorkspaceUser>>({});
@@ -165,7 +165,14 @@ export function InboxKanban() {
           <div className="local-kanban-cards">
             {stageCards.map((card) => {
               const assignee = card.assignedUserId ? users[card.assignedUserId] : undefined;
-              return <article className="local-kanban-card" key={card.conversationId} draggable={movingId === undefined} aria-grabbed={draggedCard?.conversationId === card.conversationId} onDragStart={() => setDraggedCard(card)} onDragEnd={() => setDraggedCard(undefined)}>
+              // Duplo clique abre a conversa por cima do quadro. Continua sendo
+              // `article` arrastável, então o teclado precisa de um caminho
+              // próprio: `Enter` faz o mesmo, e `tabIndex` põe o card na ordem
+              // de foco — arrastar com o mouse já era inacessível, abrir não
+              // precisa ser.
+              const open = () => onOpenConversation?.(card.conversationId);
+              return <article className="local-kanban-card" key={card.conversationId} draggable={movingId === undefined} aria-grabbed={draggedCard?.conversationId === card.conversationId} onDragStart={() => setDraggedCard(card)} onDragEnd={() => setDraggedCard(undefined)}
+                {...(onOpenConversation ? { onDoubleClick: open, onKeyDown: (event: KeyboardEvent<HTMLElement>) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } }, tabIndex: 0, role: "button", "aria-label": `Abrir conversa ${cardName(card)}` } : {})}>
                 <div className="local-kanban-card-head"><span className="local-kanban-avatar">{initials(card)}</span><div><strong title={cardName(card)}>{cardName(card)}</strong><time>{timeLabel(card.lastMessageAt)}</time></div><i className={`local-sla ${slaClass(card)}`} title={slaLabel(card, clock)} /></div>
                 <p>{card.lastMessage || "Sem mensagem de texto"}</p>
                 <small className={`local-kanban-sla-copy ${slaClass(card)}`}>{slaLabel(card, clock)}</small>
