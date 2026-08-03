@@ -55,6 +55,48 @@ export const mediaFilename = (message: Pick<InboxMessage, "mediaFilename" | "met
   return name && !PLACEHOLDER_NAME.test(name) ? name : undefined;
 };
 
+/* ---------- Mídia que não existe mais ---------- */
+
+/** Por que o carregamento falhou, do ponto de vista do operador.
+ *
+ *  `gone` é o arquivo que não volta: a WAHA guarda o arquivo por 180 s e o
+ *  descarta, e a mensagem que não foi persistida nessa janela fica com registro,
+ *  legenda e metadados — sem arquivo. O reprocessamento do histórico traz milhares
+ *  assim. `transient` é todo o resto: rede caída, proxy fora do ar, formato que
+ *  este navegador não toca. A diferença importa porque uma pede "tente de novo" e
+ *  a outra não pede nada — insistir é perder tempo. */
+export type MediaFailure = "gone" | "transient";
+/** O proxy de mídia responde 404 `Media file not found` quando o arquivo não está
+ *  no armazenamento nem na WAHA — medido na base de produção em 03/08/2026, com a
+ *  resposta chegando em 0,1 s. Qualquer outro status é problema de agora. */
+export const MEDIA_GONE_STATUS = 404;
+export const mediaFailureFrom = (status?: number): MediaFailure => (status === MEDIA_GONE_STATUS ? "gone" : "transient");
+
+/** Uma requisição `HEAD`, e só depois de o elemento já ter falhado: no caminho
+ *  feliz não custa nada, e mesmo na falha não transfere o arquivo. Medido: 404 em
+ *  0,1 s no que sumiu, 200 com zero byte no que está guardado.
+ *
+ *  Erro de rede conta como `transient`. Chamar de `gone` o que não se conseguiu
+ *  nem perguntar seria afirmar uma perda que talvez não exista. */
+export const probeMedia = async (url: string, fetchImpl: typeof fetch = fetch): Promise<MediaFailure> => {
+  try {
+    return mediaFailureFrom((await fetchImpl(url, { method: "HEAD" })).status);
+  } catch {
+    return "transient";
+  }
+};
+
+/** Como chamar o que sumiu, na frase do operador. Figurinha não é "imagem" e nota
+ *  de voz não é "arquivo de áudio" — o cartão fica errado se generalizar. */
+export const mediaKindLabel = (message: Pick<InboxMessage, "messageType" | "metadata" | "mediaMimeType">): string => {
+  if (message.messageType === "sticker") return "Figurinha";
+  if (message.messageType === "image") return "Imagem";
+  if (message.messageType === "video") return "Vídeo";
+  if (isVoiceNote(message)) return "Mensagem de voz";
+  if (message.messageType === "audio" || message.messageType === "ptt" || message.mediaMimeType?.startsWith("audio/")) return "Áudio";
+  return "Documento";
+};
+
 export const WAVEFORM_BARS = 64;
 /** As 64 amplitudes da nota de voz, normalizadas para 0–1.
  *

@@ -1,35 +1,28 @@
-# API: processo persistente — relógio de SLA a cada 60 s, limpeza de anexos a
-# cada hora e o WebSocketServer de /ws (ver docs/deploy-avaliacao.md).
-#
-# Roda por `tsx`, e não por `node dist/`, porque este repositório é source-first:
-# `@chatpro/contracts` declara `"exports": "./src/index.ts"`, um arquivo
-# TypeScript que o `node` não executa. Compilar sem mudar esse contrato produz
-# um `dist` que não resolve o pacote — foi o que o primeiro build desta imagem
-# fez. Trocar o contrato afeta o desenvolvimento inteiro e não cabe num
-# Dockerfile; a saída correta, quando alguém quiser, é fazer os contracts
-# emitirem JS e apontar `exports` para ele.
-#
-# Custo aceito: transpilação no arranque e devDependencies na imagem.
-FROM node:22-bookworm-slim
-ENV NODE_ENV=production
+# API: build em TypeScript, execução como processo persistente.
+# Persistente por três motivos, todos em app.ts: o relógio de SLA a cada 60 s, a
+# limpeza de anexos a cada hora, e o WebSocketServer de /ws. Nada disso sobrevive
+# a um modelo de função — ver docs/deploy-avaliacao.md.
+FROM node:22-bookworm-slim AS build
 WORKDIR /repo
 COPY package.json package-lock.json ./
 COPY packages/contracts/package.json packages/contracts/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY apps/dashboard/package.json apps/dashboard/
-# `--include=dev` é obrigatório: `tsx` é devDependency e é o interpretador.
-RUN npm ci --include=dev
-COPY packages ./packages
-COPY apps/api ./apps/api
-# Sem typecheck aqui de propósito: `tsconfig` inclui `test/**`, e os testes da
-# API importam do worker. Exigi-lo obrigaria cada imagem a carregar o código da
-# outra. O portão é do CI e do `npm run typecheck` local, onde o repositório
-# inteiro está presente.
-# Só é usado com DATABASE_PROVIDER=sqlite; com supabase fica vazio. Existe para
-# que os dois provedores subam pela mesma imagem, sem rebuild.
-RUN mkdir -p /data && chown node:node /data
+RUN npm ci
+COPY . .
+RUN npm run build -w @chatpro/contracts && npm run build -w @chatpro/api
+
+FROM node:22-bookworm-slim AS runtime
+ENV NODE_ENV=production
+WORKDIR /repo
+COPY --from=build /repo/node_modules ./node_modules
+COPY --from=build /repo/package.json ./package.json
+COPY --from=build /repo/packages ./packages
+COPY --from=build /repo/apps/api ./apps/api
+# Migrations do SQLite acompanham a imagem: com DATABASE_PROVIDER=supabase elas
+# não são usadas, mas a imagem serve os dois provedores sem rebuild.
 WORKDIR /repo/apps/api
 USER node
 EXPOSE 3000
-CMD ["npx", "tsx", "src/server.ts"]
+CMD ["node", "dist/server.js"]
