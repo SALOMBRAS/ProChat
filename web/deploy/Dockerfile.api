@@ -1,0 +1,28 @@
+# API: build em TypeScript, execução como processo persistente.
+# Persistente por três motivos, todos em app.ts: o relógio de SLA a cada 60 s, a
+# limpeza de anexos a cada hora, e o WebSocketServer de /ws. Nada disso sobrevive
+# a um modelo de função — ver docs/deploy-avaliacao.md.
+FROM node:22-bookworm-slim AS build
+WORKDIR /repo
+COPY package.json package-lock.json ./
+COPY packages/contracts/package.json packages/contracts/
+COPY apps/api/package.json apps/api/
+COPY apps/worker/package.json apps/worker/
+COPY apps/dashboard/package.json apps/dashboard/
+RUN npm ci
+COPY . .
+RUN npm run build -w @chatpro/contracts && npm run build -w @chatpro/api
+
+FROM node:22-bookworm-slim AS runtime
+ENV NODE_ENV=production
+WORKDIR /repo
+COPY --from=build /repo/node_modules ./node_modules
+COPY --from=build /repo/package.json ./package.json
+COPY --from=build /repo/packages ./packages
+COPY --from=build /repo/apps/api ./apps/api
+# Migrations do SQLite acompanham a imagem: com DATABASE_PROVIDER=supabase elas
+# não são usadas, mas a imagem serve os dois provedores sem rebuild.
+WORKDIR /repo/apps/api
+USER node
+EXPOSE 3000
+CMD ["node", "dist/server.js"]

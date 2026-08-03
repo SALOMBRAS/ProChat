@@ -5,6 +5,11 @@ export type DatabaseProvider = 'sqlite' | 'supabase';
 // development actor instead of treating it as an unknown, inactive user.
 export const defaultDevelopmentUserId = '00000000-0000-4000-8000-000000000001';
 
+/** O dashboard do Vite em desenvolvimento. Fica aqui, e não em `app.ts`, para
+ *  que o padrão de quem não configura nada e o de quem monta a config à mão
+ *  sejam o mesmo — divergir os dois é como um deploy passa a recusar o próprio
+ *  front sem ninguém notar. */
+export const defaultCorsAllowedOrigins: readonly string[] = ['http://127.0.0.1:5173', 'http://localhost:5173'];
 export interface ApiConfig {
   port: number;
   nodeEnv: string;
@@ -20,6 +25,7 @@ export interface ApiConfig {
   wahaApiKey?: string;
   mediaProxyTokenSecret?: string;
   developmentUserId?: string;
+  corsAllowedOrigins?: readonly string[];
   ownWhatsappNumbers?: string[];
   whatsappHistorySyncBatchChats?: number;
   whatsappHistorySyncBatchMessages?: number;
@@ -46,6 +52,11 @@ export function loadConfig(env = process.env): ApiConfig {
   const developmentUserId = nodeEnv === 'development' || nodeEnv === 'test' ? configuredDevelopmentUserId ?? defaultDevelopmentUserId : undefined;
   if (developmentUserId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(developmentUserId)) throw new Error('CHATPRO_DEVELOPMENT_USER_ID must be a UUID');
   const positiveInteger = (name: string, fallback: number, maximum: number) => { const value = Number(env[name] ?? fallback); if (!Number.isInteger(value) || value < 1 || value > maximum) throw new Error(`${name} must be a positive integer up to ${maximum}`); return value; };
+  // Origens que podem falar com a API pelo navegador. O padrão é o dashboard em
+  // desenvolvimento; em produção ele nunca serve, porque a origem passa a ser o
+  // domínio real — e uma lista vazia bloquearia tudo em silêncio, então a
+  // variável é o único jeito de o deploy declarar quem é o front.
+  const corsAllowedOrigins = (env.CORS_ALLOWED_ORIGINS ?? defaultCorsAllowedOrigins.join(',')).split(',').map(value => value.trim().replace(/\/+$/, '')).filter(Boolean);
   const ownWhatsappNumbers = (env.WHATSAPP_OWN_NUMBERS ?? '').split(',').map(value => value.replace(/\D/g, '')).filter(value => value.length >= 8 && value.length <= 15);
-  return { port, nodeEnv, workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, wahaWebhookHmacKey: env.WAHA_WEBHOOK_HMAC_KEY?.trim() || undefined, wahaWebhookWorkspaceId, wahaBaseUrl: env.WAHA_BASE_URL?.trim().replace(/\/+$/, '') || undefined, wahaApiKey: env.WAHA_API_KEY?.trim() || undefined, mediaProxyTokenSecret: env.MEDIA_PROXY_TOKEN_SECRET?.trim() || undefined, developmentUserId, ownWhatsappNumbers, whatsappHistorySyncBatchChats: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_CHATS', 25, 100), whatsappHistorySyncBatchMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_MESSAGES', 100, 5_000), whatsappHistorySyncEmergencyMaxMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_EMERGENCY_MAX_MESSAGES', 100_000, 1_000_000) };
+  return { port, nodeEnv, workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, wahaWebhookHmacKey: env.WAHA_WEBHOOK_HMAC_KEY?.trim() || undefined, wahaWebhookWorkspaceId, wahaBaseUrl: env.WAHA_BASE_URL?.trim().replace(/\/+$/, '') || undefined, wahaApiKey: env.WAHA_API_KEY?.trim() || undefined, mediaProxyTokenSecret: env.MEDIA_PROXY_TOKEN_SECRET?.trim() || undefined, developmentUserId, corsAllowedOrigins, ownWhatsappNumbers, whatsappHistorySyncBatchChats: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_CHATS', 25, 100), whatsappHistorySyncBatchMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_MESSAGES', 100, 5_000), whatsappHistorySyncEmergencyMaxMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_EMERGENCY_MAX_MESSAGES', 100_000, 1_000_000) };
 }

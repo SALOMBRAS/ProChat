@@ -1,0 +1,104 @@
+# Opção C do levantamento (docs/deploy-avaliacao.md): tudo num host, rede
+# fechada. NÃO expõe a API à internet — só o dashboard, e mesmo ele só na
+# interface que você escolher em DASHBOARD_BIND.
+#
+# Enquanto não houver autenticação, `x-workspace-id` continua vindo cru do
+# header. Publicar isto num IP público entrega a operação inteira a quem
+# descobrir o nome do workspace. Ver seção 4.3 do levantamento.
+#
+# Uso:
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod config
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.prod up -d --build
+
+name: chatpro
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    env_file: [.env.prod]
+    environment:
+      NODE_ENV: production
+      API_PORT: "3000"
+      # Nomes de serviço da rede interna. Nada aqui atravessa a internet.
+      WORKER_TRANSPORT_URL: http://worker:3101/internal/transport
+      WAHA_BASE_URL: http://waha:3000
+      # A origem é a do dashboard. Com o nginx encaminhando /api e /ws, o
+      # navegador vê uma origem só — mas a variável precisa existir para o caso
+      # de o dashboard ser servido de outro domínio.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+    depends_on:
+      worker: {condition: service_started}
+      waha: {condition: service_healthy}
+    expose: ["3000"]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.worker
+    restart: unless-stopped
+    env_file: [.env.prod]
+    environment:
+      NODE_ENV: production
+      WORKER_TRANSPORT_PORT: "3101"
+      WAHA_BASE_URL: http://waha:3000
+      CHATPRO_DATA_DIR: /data
+    volumes:
+      # Estado 1 de 2: waha-sessions.json (única fonte dos aliases) e as
+      # credenciais do provider. Perder isto repete o incidente de 31/07.
+      - worker-data:/data
+    expose: ["3101"]
+
+  waha:
+    image: devlikeapro/waha:latest-2026.7.1
+    restart: unless-stopped
+    env_file: [.env.prod]
+    environment:
+      WHATSAPP_API_HOSTNAME: 0.0.0.0
+      WHATSAPP_DEFAULT_ENGINE: WEBJS
+      WAHA_PRINT_QR: "False"
+      WHATSAPP_DOWNLOAD_MEDIA: "true"
+      WHATSAPP_API_KEY_EXCLUDE_PATH: health
+      WAHA_DASHBOARD_ENABLED: "false"
+      WHATSAPP_SWAGGER_ENABLED: "false"
+      # Pela rede interna: o webhook não sai do host, e continua assinado por
+      # HMAC. `host.docker.internal` era do arranjo local e não vale aqui.
+      WHATSAPP_HOOK_URL: http://api:3000/api/v1/webhooks/waha
+      WHATSAPP_HOOK_EVENTS: message,message.any,session.status
+      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_HMAC_KEY}
+      # O padrão é 180 s e foi o que apagou a mídia dos eventos descartados.
+      # Uma janela maior dá folga para a persistência tentar de novo.
+      WHATSAPP_FILES_LIFETIME: ${WHATSAPP_FILES_LIFETIME:-3600}
+    volumes:
+      # Estado 2 de 2: a credencial da sessão WhatsApp. Sem isto, QR novo.
+      - waha-sessions:/app/.sessions
+    expose: ["3000"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:3000/health >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dashboard
+      args:
+        # Vazio = mesma origem, e o nginx encaminha /api e /ws para a API.
+        VITE_API_URL: ${VITE_API_URL:-}
+    restart: unless-stopped
+    depends_on:
+      api: {condition: service_healthy}
+    # Só na interface escolhida. O padrão é loopback: rede fechada.
+    ports: ["${DASHBOARD_BIND:-127.0.0.1}:${DASHBOARD_PORT:-8080}:80"]
+
+volumes:
+  worker-data:
+  waha-sessions:

@@ -5,7 +5,7 @@ import { errorHandler } from './middleware/errors.js';
 import { createV1Router } from './routes/v1.js';
 import { UnavailableContactService, UnavailableSessionService, UnavailableTemplateService } from './services/unavailable-catalog.service.js';
 import { InternalWorkerClient } from './internal-worker-client.js';
-import { loadConfig, type ApiConfig } from './config.js';
+import { defaultCorsAllowedOrigins, loadConfig, type ApiConfig } from './config.js';
 import { InternalSessionService } from './services/internal-session.service.js';
 import { createDevelopmentDatabase } from './persistence/database.js';
 import { DomainService } from './services/domain.service.js';
@@ -42,11 +42,14 @@ import { log } from './logging.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
   const realtimeHub = new RealtimeHub(); app.locals.realtimeHub = realtimeHub;
-  const allowedOrigins = new Set(['http://127.0.0.1:5173', 'http://localhost:5173']);
+  // A lista vem da configuração: em desenvolvimento é o dashboard do Vite, em
+  // produção é o domínio que serve o front. Sem isto o dashboard publicado não
+  // fala com a API — o navegador recusa antes de a requisição sair.
+  const allowedOrigins = new Set(config.corsAllowedOrigins ?? defaultCorsAllowedOrigins);
   app.use((req, res, next) => {
     const origin = req.header('origin');
     if (!origin) return next();
-    if (!allowedOrigins.has(origin)) return res.status(403).json({ error: { code: 'CORS_ORIGIN_DENIED', message: 'Origin is not allowed for the local API.' } });
+    if (!allowedOrigins.has(origin)) return res.status(403).json({ error: { code: 'CORS_ORIGIN_DENIED', message: 'Origin is not allowed for this API.' } });
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'content-type, x-workspace-id, x-user-id, x-correlation-id');
