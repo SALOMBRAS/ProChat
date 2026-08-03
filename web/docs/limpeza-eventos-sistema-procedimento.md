@@ -8,7 +8,228 @@ só do que ficou gravado antes dela.
 
 ---
 
-## ⛔ Revalidação de 31/07/2026 — NÃO EXECUTE COMO ESTÁ
+## ✅ Revalidação de 2026-08-03, 18h05Z — ESTA é a versão a executar
+
+**SQL pronto para colar: [`limpeza-fantasmas-20260803.sql`](limpeza-fantasmas-20260803.sql).**
+Não use `migrations-propostas-eventos-sistema.sql`: o vocabulário dele tem 11
+tipos e o do código tem 14. Motivo de o arquivo antigo não ter sido corrigido no
+lugar: [ver §0.6](#06-uma-mudança-de-código-que-eu-não-fiz).
+
+Método: espelho somente-leitura das 8 tabelas, baixado por `GET` via PostgREST
+às **18h05Z**, carregado num PostgreSQL **16.14** em contêiner descartável sobre
+o schema das migrations do repositório. **O remoto não foi escrito em momento
+algum.** Todas as colunas do remoto têm par local, conferido na carga — a carga
+aborta se faltar.
+
+### 0.1 Os números de hoje
+
+| | 03/08 16h01Z (registro anterior) | **03/08 18h05Z (agora)** |
+|---|---|---|
+| mensagens | 17 009 | **22 074** |
+| mensagens técnicas | — | **308** (14 tipos) / 280 (11 tipos) |
+| conversas | 673 | **1 056** |
+| conversas fantasma | 134 (113 diretas + 21 grupo) | **165** (144 + 21) |
+| — protegidas pela #73 | não medido | **2** (1 direta + 1 grupo) |
+| **= alvo da limpeza** | 134 | **163** |
+| conversas mistas (preservar) | 21 | **31** |
+| já vazias antes (não são alvo) | 29 | **29** |
+| linhas de SLA | — | **72** |
+| — ancoradas em evento técnico | — | **41** |
+| — somem por cascata | — | **37** |
+| — sobrevivem e são ajustadas | 3 (medição das 18h de 28/07) | **4** |
+| eventos brutos (intocados) | — | **39 175** |
+
+### 0.2 De onde vem cada diferença
+
+**Conversas 673 → 1 056 (+383).** A sincronização terminou. É a maior parte de
+tudo que mudou.
+
+**Fantasmas 134 → 165 (+31).** As **+31 são todas diretas** (113 → 144). O total
+de grupo é **21 pela quarta medição seguida** — não se moveu em nenhuma das
+quatro, o que é a evidência mais forte de que a classe de grupo é estável e o que
+cresce é a cauda de conversa direta sem conteúdo.
+
+**Já vazias 29 → 29.** Terceira medição consecutiva no mesmo número. Não são alvo
+e continuam não sendo.
+
+**Mistas 21 → 31 (+10).** Mais conversa recebeu técnica e real ao mesmo tempo.
+Mista é o que a limpeza **preserva**.
+
+**SLA a ajustar 3 → 4.** Uma linha a mais ficou ancorada em evento técnico numa
+conversa que sobrevive. **As quatro têm acumulador zerado** — a condição que
+torna o passo F determinável — e as 37 da cascata também.
+
+### 0.3 O vocabulário: 14 tipos, e o efeito medido
+
+O código tem **14** em `technicalMessageTypes` (`conversation-identity.ts`); o
+`.sql` antigo tem **11**. A #127 acrescentou `album`, `pinned_message` e
+`group-history`. A #119 não mexe nesta limpeza: ela reclassificou `location` e o
+uso de mime para `message_type`, e esta limpeza **não usa `message_type`** — usa
+o tipo real do payload. Confirmado que o SQL lê o tipo na mesma ordem que o
+código (`type` na raiz, `_data.type` como fallback).
+
+Medido nas duas listas, sobre a base de hoje:
+
+| | 11 tipos | 14 tipos |
+|---|---|---|
+| mensagens técnicas | 280 | **308** |
+| conversas fantasma | 165 | **165** |
+| conversas mistas | 19 | **31** |
+
+**A população-alvo não muda** — nenhuma conversa é 100 % dos três tipos novos, o
+que reproduz o achado de 31/07. O que muda são as 28 mensagens a mais que saem
+(20+6 `album`, 1 `group-history`, 1 `pinned_message`) e 12 conversas que passam a
+contar como mistas.
+
+### 0.4 As três travas continuam valendo — e a terceira ficou pior
+
+| trava | veredito hoje |
+|---|---|
+| FKs não-CASCADE bloqueiam o DELETE | **confirmada**, sem mudança |
+| `HAVING count(*)` esconde as já vazias | **confirmada**, sem mudança |
+| UPDATE de SLA sem guard | **confirmada**, e o dano é maior em proporção |
+
+**FKs.** `inbox_outbox_jobs` é `RESTRICT`; `conversation_kanban_state` e
+`kanban_automation_deliveries` são `NO ACTION`. As outras cinco FKs para
+`conversations` são `CASCADE`. Do alvo, **161 de 163 estão no Kanban**; em
+`deliveries` e `outbox`, zero. Sem o passo D o passo E aborta inteiro.
+
+**`HAVING`.** Medido nas duas formas sobre a base de hoje: `count(*) FILTER`
+devolve **165** linhas (só as fantasmas, escondendo as vazias) e
+`count(m.external_message_id) FILTER` devolve **194** = 165 + 29. O defeito é o
+mesmo de 31/07 e a correção é a mesma.
+
+**UPDATE de SLA.** Executado sem o guard sobre o estado pós-limpeza: `UPDATE 35`,
+e o resultado tem **zero `expired`**. Ou seja, **25 violações reais de SLA
+apagadas para consertar 4**. A proporção piorou: em 28/07 eram 54 para 3 (18:1),
+hoje são 25 para 4 (6:1), mas o que importa é que continua destruindo violações
+verdadeiras. Com o guard: `UPDATE 4`, e sobram 21 `expired`.
+
+### 0.5 A trava da #73 estava certa no princípio e errada na consulta
+
+O princípio: conversa sem mensagem real pode ser **chat vivo cujo histórico nunca
+materializou**, e essa não pode ser apagada. Confirmado — e a população existe:
+
+| conversa | eventos brutos reais | mensagens persistidas |
+|---|---|---|
+| `120363305261884309@g.us` (grupo) | 62 (56 `chat`, 2 imagem, 2 figurinha, 1 ptt, 1 documento) | 1, técnica |
+| `558592012483@c.us` (direta) | 19 (16 `chat`, 2 imagem, 1 desconhecido) | 3, técnicas |
+
+**Mas a consulta C2 do `.sql` erra.** Ela testa
+`payload_json::text LIKE '%' || c.chat_id || '%'`, que casa o JID em qualquer
+lugar do payload. Medido: o `LIKE` protege **25** conversas; o teste por campo de
+identificação protege **2**. As **23 de diferença são todas diretas**, e o JID
+delas aparece em:
+
+- `_data.mentionedJidList` — a pessoa foi **mencionada** numa mensagem de grupo;
+- `_data.quotedParticipant` / `replyTo` — a mensagem dela foi **citada**.
+
+Ser mencionado ou citado em outra conversa não é evento daquele chat. O guard
+correto compara o `chat_id` com os campos que identificam o chat: `from`, `to`,
+`_data.from`, `_data.to`, `_data.id.remote`, `participant`, `_data.author`. É o
+que o SQL novo faz.
+
+O erro é conservador — protege demais, não apaga demais —, então **nada foi
+apagado indevidamente por causa dele**. Mas manteria 23 conversas fantasma na
+Inbox achando que eram chats vivos.
+
+**A consulta C3 também não serve como conferência.** Ela exige
+`NOT EXISTS (mensagem alguma)`, e as duas conversas realmente protegidas **têm**
+mensagem técnica — então C3 devolve **0** e não enxerga nenhuma das duas. Além
+disso casa por `chat_id` ignorando `waha_session`, contra a regra do resto do
+documento. A conferência que substitui C3 é a coluna `classe` da consulta A2 do
+SQL novo.
+
+Testado também o guard **com** `waha_session`: dos 163 alvos, **zero** teria
+evento real na própria sessão. O alvo é o mesmo com ou sem sessão — não há
+ambiguidade a resolver aqui.
+
+### 0.6 Uma mudança de código que eu não fiz
+
+Atualizar o vocabulário dentro de `migrations-propostas-eventos-sistema.sql`
+**quebra** `apps/api/test/eventos-sistema-cleanup-sql.test.ts`. Medido: o teste
+extrai as listas com a classe `[a-z0-9_]`, que não aceita hífen, e
+`group-history` tem um. Com os 14 tipos, `typeLists()` devolve zero listas e o
+teste falha em `nenhuma lista de tipos encontrada no SQL`.
+
+Falha alto, e isso é mérito do teste: a asserção `lists.length > 0` existe
+exatamente para isso.
+
+A correção é uma classe de caracteres, em `apps/api/test/`:
+
+```diff
+-  [...sql.matchAll(/(?:NOT\s+)?IN\s*\(\s*((?:'[a-z0-9_]+'\s*,\s*)+'[a-z0-9_]+')\s*\)/gi)]
++  [...sql.matchAll(/(?:NOT\s+)?IN\s*\(\s*((?:'[a-z0-9_-]+'\s*,\s*)+'[a-z0-9_-]+')\s*\)/gi)]
+```
+
+Não apliquei: é código, e o combinado era avisar antes. Por isso o SQL executável
+saiu em arquivo novo — que o teste não cobre. **Enquanto isso não for decidido, o
+`.sql` novo não está preso ao vocabulário do código por teste nenhum.** Confira a
+lista à mão antes de aplicar.
+
+### 0.7 Backup em arquivo, fora do banco
+
+Gerado antes de qualquer coisa, a partir do espelho de 18h05Z:
+
+```text
+~/Área de trabalho/Salomão/Chatpro/backup-limpeza-fantasmas-20260803/
+  alvo.ndjson                          163 linhas
+  conversations.ndjson                 163 linhas    140 KB
+  whatsapp_messages.ndjson             308 linhas    1,1 MB
+  conversation_kanban_state.ndjson     161 linhas     72 KB
+  conversation_sla_metrics.ndjson       37 linhas     20 KB
+  sla_ajustadas.ndjson                   4 linhas    4,0 KB
+  kanban_automation_deliveries.ndjson    0 linhas
+  inbox_outbox_jobs.ndjson               0 linhas
+  MANIFESTO.sha256
+```
+
+Fica **fora do repositório**, de propósito: são dados de produção.
+
+O que ele é e o que não é: é o registro do que foi medido, linha inteira, para
+conferir depois que a limpeza rodou. **Não é o instrumento de rollback** — esse é
+o schema `backup_eventos_sistema`, criado no passo B contra a base viva no
+instante da execução. A base escreve continuamente (entre 18h05Z e 18h29Z
+entraram 17 mensagens e 34 eventos), então o arquivo e o passo B podem divergir;
+quem manda é o passo B.
+
+### 0.8 A sequência inteira roda e termina
+
+O arquivo `limpeza-fantasmas-20260803.sql` foi executado **literalmente**, do
+começo ao fim, sobre o espelho recarregado. Saída 0, sem erro em nenhum passo:
+
+| passo | resultado |
+|---|---|
+| A2 | 862 mista_ou_real + 163 fantasma_alvo + 29 ja_vazia_antes + 2 protegida_73 = **1 056** |
+| B | alvo 163, mensagens 308, conversas 163, sla_cascata 37, kanban 161, deliveries 0, outbox 0, sla_ajustadas 4 |
+| C | `DELETE 308`; técnicas restantes 0; eventos brutos 39 175 intactos |
+| D | `DELETE 161` / `DELETE 0` / `DELETE 0` |
+| E | `DELETE 163`; sobram 893 conversas e 35 linhas de SLA |
+| F | `UPDATE 4`, as quatro de `expired` para `waiting_operator` |
+| G | 0 técnicas / 31 sem mensagem / 893 conversas / 35 SLA / 0 âncora inexistente / 39 175 eventos |
+
+**Por que `conversas_sem_mensagem` é 31 e não 29.** São as 29 que já estavam
+assim **mais as 2 protegidas pela #73**, cujas únicas mensagens eram técnicas e
+saíram no passo C. Elas continuam existindo de propósito: têm histórico por
+materializar. Se este número vier 29, o guard não prendeu — pare.
+
+Status de SLA ao final: `expired` 21, `waiting_customer` 10, `waiting_operator` 4.
+
+### 0.9 O que reconferir na hora
+
+A base escreve continuamente. **Rode o passo A imediatamente antes do B** e
+compare **forma**, não valor. Pare se:
+
+- `fantasma_alvo` do A2 não bater com `alvo` do B;
+- alguma conversa do A3 vier com `reais_preservadas = 0`;
+- alguma linha do A4 vier com `acumuladores_zerados = false`;
+- `protegida_73` vier **0** — significa que o guard não está prendendo;
+- o A2 listar como `fantasma_alvo` alguma conversa que você reconhece como
+  atendimento real.
+
+---
+
+## ⛔ Revalidação de 31/07/2026 — histórico, NÃO EXECUTE COMO ESTÁ
 
 Revalidado contra `origin/main` @ `c396487`. **Banco remoto não tocado**: só
 leitura de código, docs e git, mais um PostgreSQL 16 em contêiner descartável,
@@ -80,8 +301,10 @@ suspeita.
 > conversa a conversa — **não identificado** qual parcela é isso e qual é
 > diferença de método.
 >
-> Use 113 / 21 / 134 ao retomar a limpeza, e remeça antes de congelar o alvo: a
-> tabela abaixo é um registro histórico de dois instantes, não o estado de hoje.
+> ~~Use 113 / 21 / 134 ao retomar a limpeza~~ — **substituído pela §0**, medido
+> em 03/08 18h05Z: 144 diretas + 21 de grupo = 165 fantasmas, menos 2 protegidas
+> pela #73 = **163 de alvo**. A tabela abaixo é registro histórico de dois
+> instantes, não o estado de hoje.
 
 **A consequência é uma regressão real, não teórica.** A consulta que monta
 `backup_eventos_sistema.alvo` — a lista congelada que os passos D e E apagam —
