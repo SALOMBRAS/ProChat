@@ -325,8 +325,15 @@ Três propriedades, e as três são de propósito:
 O tipo declarado é `readonly string[]` e não `readonly AttachmentKind[]`
 (`Inbox.tsx:104`), o que desliga a única checagem que o compilador poderia dar de
 graça: `["image", "vídeo"]` com acento passa no `typecheck` e a tela
-silenciosamente para de abrir para vídeo. Uma linha, e o teste de vídeo (§3.4)
-pegaria — mas o tipo certo pegaria antes.
+silenciosamente para de abrir para vídeo. O teste de vídeo (§3.4) pegaria; o tipo
+pegaria antes.
+
+Mas a anotação **não é uma escolha solta** — ela é imposta pelo idioma da
+chamada. Como a lista é consultada com `.includes(attachmentKind(…) ?? "")`, o
+argumento tem tipo `AttachmentKind | ""`, e uma lista tipada como
+`readonly AttachmentKind[]` recusaria o `""`. Apertar o tipo exige mexer no ponto
+de chamada, não só na declaração — que é o que a implementação de referência de
+§5.1 faz, testando o `kind` antes em vez de coagi-lo a uma string vazia.
 
 **O caso que revela o desenho, e que é um defeito de borda.** `attachmentKind`
 devolve `undefined` para qualquer coisa fora da allowlist, e `undefined ?? ""`
@@ -752,9 +759,8 @@ proteção.
 
 **O defeito: com algo a perder, o Esc nunca fecha.** Os degraus 1 e 3 se
 alimentam. Esc → não há pergunta → `ask("close")` → está sujo → abre a pergunta.
-Esc → há pergunta → fecha a pergunta. Esc → abre de novo. Não existe ramo que
-chame `run()` a partir do teclado, então a confirmação só pode ser aceita com o
-ponteiro. Executado sobre o componente real:
+Esc → há pergunta → fecha a pergunta. Esc → abre de novo. Executado sobre o
+componente real:
 
 ```console
 ✓ sem nada a perder, um Esc fecha
@@ -773,16 +779,25 @@ a pergunta *"Descartar o anexo?"* no ar, um Enter na legenda envia o anexo:
   onSubmit com a pergunta no ar: 1 vez(es)
 ```
 
-Os dois saem da mesma raiz: a confirmação foi tratada como um bloco de marcação
-condicional, e não como um estado que suspende a tela. Ao portar, o conserto é o
-mesmo para os dois — a pergunta desabilita a legenda e o envio, e o teclado ganha
-um caminho de aceitar (Enter no botão de descarte, com foco levado para ele ao
-abrir).
+**O tamanho exato do primeiro defeito, para não exagerá-lo:** a tela não fica
+inalcançável pelo teclado. Os dois botões da confirmação são `<button>` comuns,
+sem `disabled` (`AttachmentComposer.tsx:104-105`), então Tab até "Descartar
+anexo" e Enter fecham a tela normalmente. O que está quebrado é mais estreito e
+mais irritante: **o Esc, que é a tecla que se aperta para sair, nunca sai** — e
+como o foco não é levado para o diálogo quando ele abre, o operador precisa
+descobrir sozinho que a saída é tabular até um botão que acabou de aparecer.
+
+Os dois defeitos saem da mesma raiz: a confirmação foi tratada como um bloco de
+marcação condicional, e não como um estado que suspende a tela. Ao portar, o
+conserto é o mesmo para os dois — a pergunta desabilita a legenda e o envio, e o
+foco vai para o botão de descarte ao abrir.
 
 **Uma sutileza de implementação** que é fácil de errar: o efeito **não tem lista
 de dependências** (`AttachmentComposer.tsx:66`) e por isso religa o `keydown` a
-cada render. Isso é intencional — o manipulador fecha sobre `pending` e `editor`,
-e uma lista errada o congelaria numa versão velha do estado. O custo é um par
+cada render. Isso funciona porque o manipulador fecha sobre `pending` e `editor`,
+e uma lista errada o congelaria numa versão velha do estado — mas **não há
+comentário dizendo que a omissão foi deliberada**, então trate como sorte, não
+como decisão registrada. O custo é um par
 `addEventListener`/`removeEventListener` por render, irrelevante nesta escala.
 
 **Uma terceira consequência, do foco.** O `autoFocus` está na legenda
@@ -983,19 +998,31 @@ mídia: object-fit → fill       523   162×487    0       523  120×90      52
 
 Sete leituras que a medição original não dava:
 
-1. **Quem conserta é a declaração das LINHAS.** Trocar só as colunas por `1fr` não
-   muda nada, em nenhuma das três fotos. O comentário do código diz que
-   `minmax(0, 1fr)` *"nas duas direções"* é o que dá área definida à célula
-   (`styles.css:408-410`) — para o bug observado, isso **superestima** a metade
-   das colunas. Ela não custa nada e protege o caso simétrico se a largura do
-   container um dia deixar de ser definida; mas não é ela que conserta o que foi
-   visto na tela.
-2. **O bug só morde foto alta.** A imagem larga e a panorâmica nunca estouram,
-   porque a largura do container é definida pelo *stretch* da coluna flex e a
-   porcentagem sempre resolve. É por isso que esse defeito atravessa uma revisão:
-   se a foto de teste for larga, tudo parece certo — exatamente o mesmo formato
-   de armadilha que `spec-editor-imagem.md` §3.11 descreve para o ponteiro da
-   caneta.
+1. **Para o bug observado, quem conserta é a declaração das LINHAS.** Trocar só as
+   colunas por `1fr` não muda nada, em nenhuma das três fotos.
+   **Mas isso não torna a metade das colunas decorativa** — e a primeira versão
+   deste documento errou ao dizer que o comentário do código *"nas duas direções"*
+   (`styles.css:408-410`) superestimava. Ele está certo: a declaração das colunas
+   é o **mesmo conserto no outro eixo**, e o efeito dela fica mascarado porque
+   `max-width: 100%` já resolve o eixo horizontal sozinho. Tirando o `max-width`
+   para desmascarar, com a panorâmica de 6000 px:
+
+   ```text
+   colunas                     estouro horizontal da célula
+   minmax(0, 1fr)  (a regra)              2550 px
+   1fr                                    5136 px
+   auto                                   5136 px
+   ```
+
+   Com trilha de mínimo automático a coluna cresce até o conteúdo e o estouro
+   **dobra**. As duas declarações são simétricas; o que é assimétrico é que só o
+   eixo de bloco fica sem uma porcentagem que resolva.
+2. **O bug só morde foto alta.** A imagem larga e a panorâmica nunca estouram
+   **enquanto `max-width: 100%` estiver lá**: a largura do container é definida
+   pelo *stretch* da coluna flex, a porcentagem resolve, e o eixo horizontal fica
+   coberto. É por isso que esse defeito atravessa uma revisão: se a foto de teste
+   for larga, tudo parece certo — exatamente o mesmo formato de armadilha que
+   `spec-editor-imagem.md` §3.11 descreve para o ponteiro da caneta.
 3. **`min-height: 0` e `overflow: hidden` na célula são redundantes entre si.**
    Qualquer um dos dois zera o mínimo automático do item flex; só removendo **os
    dois** a célula cresce para 1236 px. Já o `min-height: 0` do **pai**
@@ -1004,8 +1031,12 @@ Sete leituras que a medição original não dava:
 4. **`max-height: 100%` na mídia é indispensável**, mesmo com a célula consertada:
    sem ele a foto alta volta ao natural e vaza 677 px.
 5. **`max-width: 100%` também morde** — só que num caso que ninguém testa: a
-   panorâmica de 6000 px sai em tamanho natural e é cortada pelo `overflow`. É a
-   contraparte horizontal do item 4.
+   panorâmica de 6000 px sai em tamanho natural e é cortada pelo `overflow`
+   (2550 px de estouro horizontal). É a contraparte do item 4, e é ela que
+   mascara a declaração das colunas do item 1. **`max-width` e
+   `grid-template-columns: minmax(0, 1fr)` são o par que governa o eixo
+   horizontal**, exatamente como `max-height` e `grid-template-rows` governam o
+   vertical.
 6. **`place-items: center` não é cosmético.** Trocado por `stretch`, a caixa da
    mídia é esticada a 864×487 em todos os casos. A imagem continua parecendo
    certa — e é aí que **`object-fit: contain` finalmente serve para alguma
@@ -1452,13 +1483,14 @@ removê-la mudou um número medido.
   min-height: 0;          /* redundante com o overflow abaixo — um dos dois basta */
   display: grid;          /* é o grid que CRIA o problema; block não teria */
   grid-template-rows: minmax(0, 1fr);     /* LOAD-BEARING: é este que conserta */
-  grid-template-columns: minmax(0, 1fr);  /* sem efeito medido; seguro barato */
+  grid-template-columns: minmax(0, 1fr);  /* o mesmo, no outro eixo — o efeito só
+                                             aparece se o max-width sair */
   place-items: center;    /* LOAD-BEARING: `stretch` deforma a caixa da mídia */
   overflow: hidden;       /* redundante com o min-height acima — um dos dois basta */
 }
 .attachment-stage-media {
-  max-width: 100%;        /* LOAD-BEARING para imagem mais larga que a célula */
-  max-height: 100%;       /* LOAD-BEARING: sem ele a foto alta volta ao natural */
+  max-width: 100%;        /* LOAD-BEARING: par das colunas, governa o eixo horizontal */
+  max-height: 100%;       /* LOAD-BEARING: par das linhas, governa o vertical */
   object-fit: contain;    /* seguro do place-items: só age se a centralização sair */
 }
 
@@ -1584,10 +1616,12 @@ jsdom não faz layout. Se você "simplificar" `minmax(0, 1fr)` para `1fr` numa
 limpeza de CSS, ele volta inteiro — e o teste que existe pega **essa** mutação e
 deixa passar outras três igualmente fatais.
 
-**O Esc que nunca fecha.** §3.9. Com legenda escrita ou traço feito, Esc oscila
-entre abrir e fechar a confirmação, para sempre. A escada parece certa lendo — o
-defeito só aparece apertando a tecla **duas vezes** com a tela suja, que é a
-sequência que ninguém escreve por acaso. Verificado executando.
+**O Esc que nunca fecha.** §3.9. Com legenda escrita, traço feito ou a foto
+apenas girada, Esc oscila entre abrir e fechar a confirmação, para sempre. A
+escada parece certa lendo — o defeito só aparece apertando a tecla **duas vezes**
+com a tela suja, que é a sequência que ninguém escreve por acaso. Verificado
+executando. A tela continua alcançável por Tab até o botão de descarte; o que se
+perde é a tecla que todo mundo aperta para sair.
 
 **A confirmação que não suspende nada.** §3.9. `role="alertdialog"` é semântica,
 não comportamento: com a pergunta *"Descartar o anexo?"* no ar, um Enter na
@@ -1698,11 +1732,14 @@ tamanho para baixo e o limite para cima, ou mostre bytes na fronteira.
 `onChange`, ele sobrevive quando o operador **cancela** o diálogo — e o clique
 seguinte em "Documento", que não o limpa, abre a câmera no celular.
 
-**O comentário que superestima a correção.** §3.13. `styles.css:408-410` afirma
-que `minmax(0, 1fr)` "nas duas direções" é o que dá área definida à célula; a
-medição mostra que só a declaração das **linhas** muda o resultado observado. Não
-é defeito de comportamento — o CSS está certo —, mas quem ler o comentário ao
-portar vai procurar no lugar errado se mexer nelas.
+**A propriedade que parece inerte porque outra a mascara.** §3.13. Medir uma
+propriedade de cada vez com todas as outras no lugar diz o que **muda hoje**, não
+o que **sustenta o quê**: `grid-template-columns: minmax(0, 1fr)` não altera
+nenhum número enquanto `max-width: 100%` estiver lá, e dobra o estouro horizontal
+assim que ele sai. Foi assim que a primeira versão desta especificação concluiu,
+erradamente, que o comentário do código exagerava. Ao isolar CSS, **remova aos
+pares**, não um por vez — senão você marca como decorativo o que é redundante, e
+apaga a redundância no refactor seguinte.
 
 **O teste que casa texto de CSS.** §3.13. Ele quebra com `minmax(0,1fr)` sem
 espaço e com `minmax(0px, 1fr)`, que são a mesma coisa; e não quebra quando alguém
