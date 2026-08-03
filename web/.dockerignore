@@ -1,0 +1,25 @@
+# O contexto de build é `web/`. Sem esta lista ele leva 287 MB, e o `COPY . .`
+# de cada Dockerfile sobrescreveria o `node_modules` instalado pelo `npm ci`
+# dentro da imagem — inclusive `better-sqlite3`, que é compilado para o host e
+# quebraria no container.
+node_modules
+**/node_modules
+**/dist
+**/.vite
+**/coverage
+
+# Estado local: sessão WhatsApp, credenciais do worker, banco SQLite.
+.waha-sessions
+.chatpro-data
+*.sqlite
+*.sqlite-journal
+
+# Segredos e sobras.
+.env
+.env.local
+.env.*.local
+deploy/.env.prod
+*.save
+*.bak
+
+.git
