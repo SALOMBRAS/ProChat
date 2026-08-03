@@ -1,52 +1,87 @@
 # Mídia com origem `0.0.0.0:3000`, que o proxy recusa
 
-Achado por acidente em 03/08/2026, verificando outra coisa: parte das mensagens
-guarda uma `media_url` que o proxy de mídia se recusa a servir. Este documento
-registra **o que foi medido**, separa isso do que ainda é hipótese, e aponta
-onde a correção provavelmente mora. Nada foi corrigido.
+**Toda mídia que chega ao vivo hoje é gravada com uma URL que o proxy se recusa
+a servir.** Não é histórico: está acontecendo agora, a cada mensagem com
+arquivo que entra por webhook.
+
+A primeira versão deste documento descreveu o defeito como uma janela fechada de
+91 minutos afetando 2% da mídia. Estava errado nos dois números, e a seção
+[Como a primeira leitura errou](#como-a-primeira-leitura-errou) explica por quê,
+porque o erro é instrutivo.
 
 ## O sintoma
 
 `GET /api/v1/inbox/messages/:id/media` responde **400** com
-`"Media URL is not a WAHA file URL"`. Para o operador isso é uma mídia que não
-abre.
+`"Media URL is not a WAHA file URL"`. Para o operador é uma mídia que não abre.
 
 O 400 vem de `WahaMediaProxyService.stream`, que compara a origem da URL
-guardada com a da `WAHA_BASE_URL` configurada e rejeita o que não bater:
+guardada com a da `WAHA_BASE_URL` e rejeita o que não bater:
 
 ```ts
 if (target.origin !== base.origin || !target.pathname.startsWith('/api/files/'))
   throw new AppError(400, 'VALIDATION_ERROR', 'Media URL is not a WAHA file URL');
 ```
 
-O caminho está certo (`/api/files/…`). O que não bate é a origem:
+O caminho (`/api/files/…`) está certo. A origem não:
 
 | | valor |
 | --- | --- |
 | origem guardada nas afetadas | `http://0.0.0.0:3000` |
 | `WAHA_BASE_URL` configurada | `http://127.0.0.1:3002` |
 
-Vale notar que a recusa acontece **depois** da verificação do token de acesso.
-Um 400 aqui não é problema de autenticação.
+A recusa acontece **depois** da verificação do token de acesso. Um 400 aqui não
+é problema de autenticação.
 
-## O que foi medido
+## A regra, medida
 
-Contagem exata contra a base, em 03/08/2026:
+O que separa as boas das ruins é **por onde a mensagem entrou**:
 
-| | mensagens | |
+| origem da ingestão | URL gravada | resultado |
+| --- | --- | --- |
+| sincronização de histórico (o worker pergunta à WAHA em `127.0.0.1:3002`) | `http://127.0.0.1:3002/api/files/…` | abre |
+| webhook ao vivo (a WAHA empurra, sem requisição de onde tirar a origem) | `http://0.0.0.0:3000/api/files/…` | **400** |
+
+Medido em 03/08/2026, cortando pela data da mensagem — o histórico sincronizado
+tem `occurred_at` antigo, o que chega ao vivo tem `occurred_at` de hoje:
+
+| recorte | com mídia | com `0.0.0.0` |
 | --- | ---: | ---: |
-| com `media_url` preenchida | 2.238 | 100% |
-| origem `http://127.0.0.1:3002` | 2.193 | 98,0% |
-| origem `http://0.0.0.0:3000` | **45** | **2,0%** |
-| qualquer outra origem | 0 | 0% |
+| anterior a hoje (veio da sincronização) | 1.886 | **0** |
+| de hoje | 366 | **59** |
 
-Das 45 afetadas:
+Zero em 1.886 de um lado. Do outro, todas as que chegaram depois que a
+sincronização passou pela conversa.
 
-- **janela**: de `2026-08-03T16:36:24` a `2026-08-03T18:07:21` — 91 minutos, tudo
-  no mesmo dia. Não é um problema difuso ao longo do histórico.
-- **conversas distintas**: 7
-- **tipos**: 33 `image/jpeg`, 9 `audio/ogg; codecs=opus`, 2 `video/mp4`,
-  1 `image/webp`
+E é **contínuo**. A contagem de afetadas durante uma única sessão de trabalho:
+
+```
+45  ->  50  ->  59
+```
+
+As 25 mídias mais recentes por `received_at` são todas ruins, e a última
+observada tinha acabado de chegar. Não há janela: o número cresce com o tráfego.
+
+## Como a primeira leitura errou
+
+Vale registrar, porque as duas armadilhas se repetem.
+
+**A porcentagem estava diluída.** «2% da mídia» é verdade e não significa nada:
+o denominador inclui as 21 mil mensagens que a sincronização de histórico
+acabara de trazer. Medindo só o que a ingestão ao vivo produz, o defeito atinge
+**100%**. Uma taxa sobre um corpo dominado por uma carga em lote não descreve o
+comportamento corrente.
+
+**O instrumento estava errado.** A hipótese certa — webhook contra sincronização
+— foi testada e dada como refutada, usando a marca `_history` do payload. Os
+dois grupos vieram 100% não-históricos, e a hipótese foi descartada. O erro é
+que `_history` não distingue o que se queria: a sincronização também traz
+mensagens recentes, e não é isso que a marca registra. O corte que funciona é
+`occurred_at`, que separa o que já existia do que chegou depois.
+
+**E a «janela de 91 minutos» era o relógio da medição, não do defeito.** Ela ia
+do fim da sincronização até a última mensagem existente naquele instante. Meia
+hora depois já eram 106 minutos. Um intervalo cujo fim é «agora» não é um
+intervalo — é um começo.
 
 ## Onde a URL nasce
 
@@ -57,9 +92,9 @@ veio no payload, sem reescrever:
 mediaUrl: safeUrl(text(media?.url) ?? text(value.mediaUrl)),
 ```
 
-Não há normalização contra `WAHA_BASE_URL` em ponto nenhum do caminho de
-ingestão. Ou seja: **o que a WAHA disser é o que fica gravado**, e o proxy
-descobre a incompatibilidade só na hora de servir, muito depois.
+Não há normalização contra `WAHA_BASE_URL` em ponto nenhum da ingestão. O que a
+WAHA disser é o que fica gravado, e o proxy só descobre a incompatibilidade na
+hora de servir.
 
 Do lado da WAHA, o contêiner anuncia:
 
@@ -67,50 +102,28 @@ Do lado da WAHA, o contêiner anuncia:
 WHATSAPP_API_HOSTNAME=0.0.0.0
 ```
 
-`0.0.0.0` é endereço de escuta, não endereço alcançável. Uma URL construída a
-partir dele nunca vai bater com a `WAHA_BASE_URL` do host.
-
-## Uma hipótese que foi testada e NÃO se sustentou
-
-A explicação natural seria: as mensagens que chegam por **webhook** (a WAHA
-empurra, sem requisição de entrada de onde tirar o `Host`) cairiam no hostname
-configurado, enquanto as lidas pela **sincronização de histórico** (o worker
-pergunta em `127.0.0.1:3002`) herdariam a origem certa.
-
-Medido, e não é isso. Classificando pelo `_history` do payload:
-
-| grupo | histórico | ao vivo |
-| --- | ---: | ---: |
-| as 45 com `0.0.0.0` | 0 | 45 |
-| 300 corretas, para comparar | 0 | 300 |
-
-Os dois grupos são inteiramente não-históricos, então essa divisão não separa
-nada. A hipótese fica **em aberto**.
-
-O que decidiria: comparar, para duas mensagens vizinhas no tempo — uma de cada
-grupo —, o `payload_json` bruto, procurando o que difere na forma como a WAHA
-montou a URL. A amostra de 300 usada acima também não foi ordenada, então pode
-não representar o corpo todo das corretas; uma repetição vale ordenar por
-`occurred_at` e cobrir a mesma janela de 91 minutos.
+`0.0.0.0` é endereço de escuta, não endereço alcançável. Quando a WAHA monta a
+URL a partir dele — que é o que sobra quando ela empurra um webhook, sem
+requisição de entrada de onde herdar o `Host` — o resultado nunca vai bater com
+a `WAHA_BASE_URL` do host.
 
 ## Correção candidata
 
-Normalizar na ingestão, num lugar só: em `messageFrom`, reescrever a origem da
-`media_url` para a `WAHA_BASE_URL` configurada quando o caminho for de arquivo
-da WAHA. Isso resolve as futuras e mantém o proxy como está.
+Normalizar a origem contra a `WAHA_BASE_URL` configurada, quando o caminho for
+de arquivo da WAHA. Dois lugares possíveis, e a escolha não é óbvia:
 
-Duas ressalvas para quem for fazer:
+- **na escrita**, em `messageFrom`: grava já corrigido, e o proxy não muda. Mas
+  congela no dado um endereço que é de ambiente, e uma `WAHA_BASE_URL` diferente
+  amanhã volta a não bater.
+- **na leitura**, em `WahaMediaProxyService`: grava o que veio e resolve a
+  origem ao servir, o que sobrevive a mudança de ambiente e conserta as já
+  gravadas de graça. Em troca, guarda no banco uma URL que nunca foi válida.
 
-- as 45 já gravadas não se consertam sozinhas; precisam de correção de dado à
-  parte, e a janela estreita torna isso barato;
-- a `WAHA_BASE_URL` pode mudar entre ambientes, então normalizar na **leitura**
-  (no proxy) em vez de na escrita é a alternativa a considerar — grava o que
-  veio, resolve a origem na hora de servir. As duas são defensáveis; a escolha
-  depende de a URL gravada valer como registro histórico ou como ponteiro.
+A segunda parece melhor justamente porque as 59 já gravadas passam a funcionar
+sem correção de dado — e esse número cresce enquanto isto não for resolvido.
 
 ## Alcance
 
-2% da mídia, numa janela de 91 minutos de um dia. Não bloqueia a operação e não
-perde mensagem: o texto, o remetente e o horário estão gravados; só o arquivo
-não abre. Foi registrado em vez de corrigido porque apareceu no meio de uma
-rotação de credenciais, e misturar as duas coisas ia atrapalhar as duas.
+Enquanto durar, **nenhuma mídia recebida ao vivo abre**. Texto, remetente e
+horário são gravados normalmente; o que quebra é o arquivo. O histórico
+sincronizado não é afetado.
