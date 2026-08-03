@@ -392,16 +392,43 @@ O `reset --soft` é o culpado silencioso: ele move o `HEAD` e **não toca na
 com `add -A` ele transforma "não sei dessas mudanças" em "apague essas
 mudanças".
 
+#### O que fazer no lugar, quando o que se quer é juntar os commits de wip
+
+O erro de fundo é que `git reset --soft origin/main` faz **duas** coisas ao
+mesmo tempo, e só uma delas era desejada:
+
+1. juntar os commits da branch num só — o que se queria;
+2. mudar a base para uma main mais nova — o que ninguém pediu, e o que traz o
+   estrago, porque `--soft` move o `HEAD` **sem** mexer na árvore.
+
+Junte contra a **base da sua própria branch**, que não se move:
+
+```bash
+git reset --soft "$(git merge-base origin/main HEAD)"
+git commit                      # sem add: o índice já é o seu trabalho inteiro
+```
+
+O `merge-base` é o ponto de bifurcação, e a árvore já corresponde a ele mais o
+seu trabalho — não há divergência para o `add` interpretar. E não precisa de
+`add -A` nenhum: depois do `--soft`, o índice **já contém** tudo o que os
+commits juntados traziam.
+
+Se quiser também trocar de base, isso é **rebase**, nunca reset:
+
+```bash
+git rebase origin/main          # atualiza a ÁRVORE, e é essa a diferença
+git reset --soft "$(git merge-base origin/main HEAD)"
+git commit
+```
+
+Ou, para quem prefere fazer os dois num passo, `git rebase -i --autosquash` com
+os wip marcados como `fixup!`.
+
 #### A regra
 
 **Depois de `reset --soft` para uma `origin/main` que andou, nunca `git add -A`.**
-Três saídas, em ordem de preferência:
-
-1. `git rebase origin/main` em vez de `reset --soft` — o rebase **atualiza a
-   árvore**, então não há divergência para o `-A` interpretar errado.
-2. `git add <caminhos>` explícitos, listando o que a PR realmente mexe.
-3. Se usar `add -A` mesmo assim, **leia o `git status` antes de commitar**. Uma
-   deleção que você não pediu aparece ali, e é a única chance de vê-la.
+E, se o `add -A` for inevitável, **leia o `git status` antes de commitar**: uma
+deleção que você não pediu aparece ali, e é a única chance de vê-la.
 
 E antes de abrir a PR, olhe o que ela toca:
 
@@ -443,7 +470,9 @@ criação são os dois "sem blob".
 > "sem blob" se comparam iguais como devem.
 
 <sub>— varredura de 03/08/2026 sobre 18 merges; 15 ocorrências, 2 delas
-deleções intencionais e declaradas no corpo do commit (#103)</sub>
+deleções intencionais e declaradas no corpo do commit (#103). Recuperação nas
+PRs #122 (a #112), #124 (a #109), #125 (a #114) e #117 (a #111), cada uma
+reconstruída a partir do commit de merge da própria vítima</sub>
 
 ### Trabalho paralelo por worktree
 
