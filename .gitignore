@@ -34,6 +34,15 @@ web/temp/
 creds.json
 *.qr
 
+# Cópias e rascunhos de arquivo de configuração. Varredura de 03/08/2026
+# encontrou `web/.env.local.save` solto no worktree principal, com quatro
+# segredos dentro (chave de serviço do Supabase, chave da WAHA, HMAC do webhook
+# e o segredo do proxy de mídia) e fora de todo padrão existente: `.env.local`
+# está coberto, `.env.local.save` não estava. Um `git add -A` o teria posto no
+# índice.
+*.save
+*.bak
+
 .DS_Store
 Thumbs.db
 .vscode/
