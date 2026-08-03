@@ -347,6 +347,133 @@ não órfão.
 <sub>— varredura verificada na PR #85, e reproduzida aqui: 3 candidatos por data,
 2 órfãos reais confirmados por conteúdo</sub>
 
+### `git add -A` com árvore velha apaga o que a main ganhou
+
+**Não é a armadilha do squash acima.** Lá o conteúdo nunca chega em main e o
+GitHub mente no rótulo. Aqui é o contrário: tudo é mergeado certo, o commit é
+ordinário, o squash é fiel — e mesmo assim três PRs somem de `main`, porque a
+PR seguinte carregou uma árvore de trabalho velha.
+
+Medido em 03/08/2026, varrendo os 18 merges das 48 h anteriores: **13 arquivos
+perdidos, de 3 PRs inteiras**, e nenhum aviso em lugar nenhum.
+
+| desfeita por | vítima | efeito |
+| --- | --- | --- |
+| #110 | #109 `fix(deploy): make the compose actually build and run` | 5 arquivos, PR inteira |
+| #113 | #112 `fix(api): stop publishing an unauthenticated API` | 6 arquivos, PR inteira |
+| #113 | #111 `docs(kanban): measure the card order` | 1 arquivo |
+| #116 | #114 `docs: evaluate free hosting` | 1 arquivo |
+
+A #112 é o caso que assusta: era correção de segurança — a API deixava de
+escutar em todas as interfaces — e voltou inteira ao estado anterior, com
+`listen.ts` e o teste apagados e `server.ts` de volta ao `server.listen(port)`
+sem host. Ninguém percebeu porque nada quebra: o código revertido compila,
+passa nos testes e sobe.
+
+#### A sequência que causa
+
+```bash
+git checkout -b minha-branch origin/main   # árvore materializada AQUI
+# ... trabalho, commits de wip ...
+git fetch origin                            # origin/main AVANÇOU: outra PR mergeou
+git reset --soft origin/main                # HEAD pula para a main nova
+git reset                                   # índice = main nova
+git add -A                                  # ← aqui
+git commit
+```
+
+`git add -A` compara a árvore de trabalho com o índice. O índice agora é a main
+**nova**; a árvore é de antes do `fetch`. Todo arquivo que a main ganhou nesse
+intervalo existe no índice e não na árvore, e o `-A` grava isso como **deleção**.
+Todo arquivo que a main modificou volta ao conteúdo antigo, como **reversão**.
+
+O `reset --soft` é o culpado silencioso: ele move o `HEAD` e **não toca na
+árvore de trabalho**. É exatamente para isso que ele serve — só que combinado
+com `add -A` ele transforma "não sei dessas mudanças" em "apague essas
+mudanças".
+
+#### O que fazer no lugar, quando o que se quer é juntar os commits de wip
+
+O erro de fundo é que `git reset --soft origin/main` faz **duas** coisas ao
+mesmo tempo, e só uma delas era desejada:
+
+1. juntar os commits da branch num só — o que se queria;
+2. mudar a base para uma main mais nova — o que ninguém pediu, e o que traz o
+   estrago, porque `--soft` move o `HEAD` **sem** mexer na árvore.
+
+Junte contra a **base da sua própria branch**, que não se move:
+
+```bash
+git reset --soft "$(git merge-base origin/main HEAD)"
+git commit                      # sem add: o índice já é o seu trabalho inteiro
+```
+
+O `merge-base` é o ponto de bifurcação, e a árvore já corresponde a ele mais o
+seu trabalho — não há divergência para o `add` interpretar. E não precisa de
+`add -A` nenhum: depois do `--soft`, o índice **já contém** tudo o que os
+commits juntados traziam.
+
+Se quiser também trocar de base, isso é **rebase**, nunca reset:
+
+```bash
+git rebase origin/main          # atualiza a ÁRVORE, e é essa a diferença
+git reset --soft "$(git merge-base origin/main HEAD)"
+git commit
+```
+
+Ou, para quem prefere fazer os dois num passo, `git rebase -i --autosquash` com
+os wip marcados como `fixup!`.
+
+#### A regra
+
+**Depois de `reset --soft` para uma `origin/main` que andou, nunca `git add -A`.**
+E, se o `add -A` for inevitável, **leia o `git status` antes de commitar**: uma
+deleção que você não pediu aparece ali, e é a única chance de vê-la.
+
+E antes de abrir a PR, olhe o que ela toca:
+
+```bash
+git diff --stat origin/main...HEAD
+```
+
+Arquivo que a PR não tem por que tocar é o sinal. Uma PR de Kanban não mexe em
+`Dockerfile.api`.
+
+#### Como varrer o que já aconteceu
+
+O rótulo do GitHub não ajuda: as PRs vítimas continuam marcadas como merged, e
+estavam mesmo. O que denuncia é o merge que devolve um arquivo ao estado
+**anterior à última mudança dele**:
+
+```bash
+git fetch origin
+# para cada merge da janela, os arquivos que ele desfaz
+for sha in $(git rev-list --first-parent --since='48 hours ago' origin/main); do
+  git diff --name-only "$sha~1" "$sha" | while read -r f; do
+    anterior=$(git log -1 --format=%H "$sha~1" -- "$f")
+    [ -z "$anterior" ] && continue
+    atual=$(git rev-parse --verify --quiet "$sha:$f")
+    antes=$(git rev-parse --verify --quiet "$anterior~1:$f")
+    [ "$atual" = "$antes" ] && echo "$(git log -1 --format=%h "$sha") desfaz $(git log -1 --format=%h "$anterior") em $f"
+  done
+done
+```
+
+Compara **blob**, não texto: é exato e não depende de diff bonito. Deleção cai
+no mesmo teste, porque o arquivo apagado e o arquivo inexistente antes da
+criação são os dois "sem blob".
+
+> **`--verify --quiet` não é enfeite.** `git rev-parse "sha:caminho"` para um
+> caminho que não existe **imprime a própria entrada e sai com 0** — a primeira
+> versão desta varredura usava isso e perdeu exatamente as deleções, que são o
+> pior caso. Com `--verify --quiet` a saída é vazia e o código é 1, e aí os dois
+> "sem blob" se comparam iguais como devem.
+
+<sub>— varredura de 03/08/2026 sobre 18 merges; 15 ocorrências, 2 delas
+deleções intencionais e declaradas no corpo do commit (#103). Recuperação nas
+PRs #122 (a #112), #124 (a #109), #125 (a #114) e #117 (a #111), cada uma
+reconstruída a partir do commit de merge da própria vítima</sub>
+
 ### Trabalho paralelo por worktree
 
 O desenvolvimento roda em várias worktrees do mesmo repositório ao mesmo tempo,
