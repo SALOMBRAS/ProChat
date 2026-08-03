@@ -83,7 +83,25 @@ export class SupabaseKanbanService {
    *  substitui, na ingestão, a varredura de todas as conversas. Não cobre origem
    *  que `automated()` recusa antes de chegar aqui; essas dependem do reparo.
    */
-  protected async ensureState(workspaceId: string, conversationId: string, board: { id: string; stages: Array<{ id: string; key: string }> }) { const { data, error } = await this.client.from('conversations').select('status').eq('workspace_id', workspaceId).eq('id', conversationId).eq('visibility_state', 'visible').maybeSingle(); if (error) fail(error); if (!data) return false; const stage = board.stages.find(item => item.key === (mapped[data.status] ?? 'new')); if (!stage) return false; const now = new Date().toISOString(); const inserted = await this.client.from('conversation_kanban_state').upsert([{ workspace_id: workspaceId, conversation_id: conversationId, board_id: board.id, stage_id: stage.id, position: 1, manual_override: false, last_transition_source: 'system', last_transition_by: null, last_transition_at: now, created_at: now, updated_at: now }], { onConflict: 'conversation_id,board_id', ignoreDuplicates: true }); if (inserted.error) fail(inserted.error); return true; }
+  protected async ensureState(workspaceId: string, conversationId: string, board: { id: string; stages: Array<{ id: string; key: string }> }) { const { data, error } = await this.client.from('conversations').select('status').eq('workspace_id', workspaceId).eq('id', conversationId).eq('visibility_state', 'visible').maybeSingle(); if (error) fail(error); if (!data) return false; const stage = board.stages.find(item => item.key === (mapped[data.status] ?? 'new')); if (!stage) return false; const now = new Date().toISOString();
+    // O cartão nasce NO TOPO do seu estágio, não em `position = 1`.
+    //
+    // A leitura ordena `position DESC`, então 1 é o fim da fila: gravar 1 punha
+    // toda conversa nova no rodapé da coluna. Medido na produção em 03/08/2026,
+    // antes desta correção — os cartões em `position = 1` eram os de 01/08, 02/08
+    // e 03/08, isto é, as conversas mais recentes da base estavam no fim de 627.
+    //
+    // O PostgREST não expõe `max()`, então o topo é `order desc limit 1`. É uma
+    // leitura a mais e ela só acontece aqui, no caminho que já sabe que a linha
+    // não existe (`!data` no chamador): cartão que já tem estado não paga nada.
+    //
+    // Duas mensagens simultâneas podem ler o mesmo topo e gravar a mesma posição.
+    // O empate é inofensivo desde a #113: a leitura desempata por última mensagem
+    // e por id, então a ordem continua total.
+    const highest = await this.client.from('conversation_kanban_state').select('position').eq('workspace_id', workspaceId).eq('board_id', board.id).eq('stage_id', stage.id).order('position', { ascending: false }).limit(1).maybeSingle();
+    if (highest.error) fail(highest.error);
+    const position = Number(highest.data?.position ?? 0) + 1;
+    const inserted = await this.client.from('conversation_kanban_state').upsert([{ workspace_id: workspaceId, conversation_id: conversationId, board_id: board.id, stage_id: stage.id, position, manual_override: false, last_transition_source: 'system', last_transition_by: null, last_transition_at: now, created_at: now, updated_at: now }], { onConflict: 'conversation_id,board_id', ignoreDuplicates: true }); if (inserted.error) fail(inserted.error); return true; }
   private async board(workspaceId: string, id: string) { const { data, error } = await this.client.from('kanban_boards').select('*,kanban_stages(*)').eq('workspace_id', workspaceId).eq('id', id).maybeSingle(); if (error) fail(error); if (!data) return undefined; const active = await this.activeSessions(workspaceId); const stages = await Promise.all((data.kanban_stages ?? []).sort((a: any, b: any) => Number(a.position) - Number(b.position)).map(async (stage: any) => { let query = this.client.from('conversation_kanban_state').select('conversation_id,conversations!inner(visibility_state,waha_session)', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('board_id', id).eq('stage_id', stage.id).eq('conversations.visibility_state', 'visible'); if (active) query = query.in('conversations.waha_session', [...active]); const result = await query; if (result.error) fail(result.error); return { ...this.stage(stage), count: result.count ?? 0 }; })); return { id: data.id, workspaceId: data.workspace_id, name: data.name, isDefault: data.is_default, createdAt: data.created_at, updatedAt: data.updated_at, stages }; }
   private async requireStage(workspaceId: string, id: string) { const { data, error } = await this.client.from('kanban_stages').select('*,kanban_boards!inner(workspace_id)').eq('id', id).maybeSingle(); if (error) fail(error); if (!data || (data.kanban_boards as any).workspace_id !== workspaceId) throw new AppError(404, 'NOT_FOUND', 'Stage not found'); return this.stage(data); }
   private stage(value: any) { return { id: value.id, boardId: value.board_id, key: value.key, name: value.name, position: Number(value.position), isTerminal: !!value.is_terminal, isArchivedStage: !!value.is_archived_stage, createdAt: value.created_at, updatedAt: value.updated_at }; }

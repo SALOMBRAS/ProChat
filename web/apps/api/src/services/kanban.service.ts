@@ -127,7 +127,11 @@ export class KanbanService {
     const stage=this.db.prepare('SELECT id FROM kanban_stages WHERE boardId=? AND key=?').get(boardId,statusStage[conversation.status]??'new') as {id:string}|undefined;
     if(!stage) return false;
     const now=new Date().toISOString();
-    const position=Number((this.db.prepare('SELECT MAX(position) max FROM conversation_kanban_state WHERE workspaceId=? AND boardId=?').get(workspaceId,boardId) as any).max??0)+1;
+    // O topo é do ESTÁGIO, não do quadro: `position` só é comparado dentro do
+    // estágio (a leitura filtra por `stageId`), e o máximo do quadro fazia a
+    // numeração de uma coluna empurrar a das outras sem motivo. É também o que
+    // põe os dois provedores na mesma regra — o Supabase gravava 1 fixo.
+    const position=Number((this.db.prepare('SELECT MAX(position) max FROM conversation_kanban_state WHERE workspaceId=? AND boardId=? AND stageId=?').get(workspaceId,boardId,stage.id) as any).max??0)+1;
     return this.db.prepare('INSERT OR IGNORE INTO conversation_kanban_state (workspaceId,conversationId,boardId,stageId,position,manualOverride,lastTransitionSource,lastTransitionBy,lastTransitionAt,createdAt,updatedAt) VALUES (?,?,?,?,?,0,\'system\',NULL,?,?,?)').run(workspaceId,conversationId,boardId,stage.id,position,now,now,now).changes>0;
   }
   private board(id:string, active?:ReadonlySet<string>) { const board=this.db.prepare('SELECT * FROM kanban_boards WHERE id=?').get(id) as any; const stages=this.db.prepare('SELECT * FROM kanban_stages WHERE boardId=? ORDER BY position').all(id) as any[]; const scope=sessionClause('c',active); return {...this.mapBoard(board),stages:stages.map(s=>({...this.mapStage(s),count:Number((this.db.prepare(`SELECT count(*) total FROM conversation_kanban_state ks JOIN conversations c ON c.id=ks.conversationId AND c.workspaceId=ks.workspaceId WHERE ks.boardId=? AND ks.stageId=? AND c.visibilityState='visible'${scope.sql}`).get(id,s.id,...scope.values) as any).total)}))}; }
