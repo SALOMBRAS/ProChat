@@ -3,6 +3,14 @@
 Primeiro consumidor de `message.sendContent` — ver
 `docs/transporte-interno-conteudo.md` para o contrato.
 
+> **Este documento descreve só o ENVIO, e a seção de interface envelheceu.** A
+> linha 66 ainda fala em `window.prompt` para informar coordenadas; a PR #55
+> substituiu o prompt por um painel com validação de faixa, e a #51 tinha dois
+> itens no menu onde hoje há um.
+>
+> O ciclo completo — envio e recepção, com a armadilha raiz × `_data` que causou
+> quatro incidentes — está em [`spec-localizacao.md`](spec-localizacao.md).
+
 ## Caminho
 
 ```text
