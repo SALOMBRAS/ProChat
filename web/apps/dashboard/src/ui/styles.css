@@ -589,3 +589,34 @@
 .kanban-conversation-close:hover { background: #ffffff1f !important; color: #fff !important; }
 .kanban-conversation-window > .alert, .kanban-conversation-window > .inbox-loading { margin: auto; }
 @media (max-width: 760px) { .kanban-conversation-backdrop { padding: 0; }.kanban-conversation-window { width: 100%; height: 100%; border: 0; border-radius: 0; } }
+
+/* Portão de permissão do microfone. Reaproveita `.modal-backdrop` e `.modal` do
+   tema — mesma moldura, mesmo desfoque, mesma sombra — e só acrescenta o que é
+   próprio: a ilustração, a hierarquia dos dois botões e o seletor.
+   Escala da #47: título 17, corpo 13, apoio 11. Nenhum hex novo: todos os
+   valores abaixo já existem noutro ponto desta folha. */
+.chat-inbox .mic-gate { display: grid; justify-items: center; gap: 11px; }
+.chat-inbox .mic-gate-art { width: 74px; height: 74px; color: #c084fc;
+  /* O tema pinta `.modal svg` de branco com moldura, para o QR code da
+     sessão ficar legível. Aqui isso vira uma caixa branca atrás do ícone. */
+  margin: 0; padding: 0; background: transparent; border-radius: 0; }
+.chat-inbox .mic-gate h2 { margin: 0; font-size: 17px; letter-spacing: -.5px; }
+.chat-inbox .mic-gate-copy { margin: 0; color: #a697b4; font-size: 13px; line-height: 1.5; }
+.chat-inbox .mic-gate-error { margin: 0; width: 100%; padding: 9px 11px; border: 1px solid #ef6d823d; border-radius: 9px; background: #4b17231f; color: #ffabb9; font-size: 11px; line-height: 1.45; }
+.chat-inbox .mic-gate-device { display: grid; gap: 5px; width: 100%; text-align: left; color: #beb9c9; font-size: 11px; font-weight: 650; }
+.chat-inbox .mic-gate-device select { font-size: 13px; }
+.chat-inbox .mic-gate-actions { display: grid; justify-items: center; gap: 7px; width: 100%; margin-top: 4px; }
+/* O primário ocupa a largura e é o caminho esperado; negar é um link discreto.
+   A diferença de peso é a mensagem: seguir é um alvo grande, sair é uma escolha
+   deliberada. */
+.chat-inbox .mic-gate-actions .mic-gate-allow { width: 100%; padding: 12px 14px !important; border-radius: 10px !important; font-size: 13px !important; font-weight: 800; }
+.chat-inbox .mic-gate-actions .mic-gate-dismiss { padding: 4px 6px !important; border: 0 !important; background: transparent !important; color: #a697b4 !important; font-size: 11px !important; font-weight: 650; text-decoration: underline; }
+.chat-inbox .mic-gate-actions .mic-gate-dismiss:hover:not(:disabled) { color: #e8dcea !important; }
+.chat-inbox .mic-gate-actions button:disabled { opacity: .58; }
+
+/* Medidor de sinal na barra de gravação: sem ele, gravar mudo e gravar falando
+   têm a mesma aparência. */
+.chat-inbox .composer-recording-level { overflow: hidden; width: 46px; height: 5px; border-radius: 999px; background: #ffffff12; }
+.chat-inbox .composer-recording-level i { display: block; width: 100%; height: 100%; border-radius: 999px; background: #25d366; transform-origin: left center; transform: scaleX(0); transition: transform .09s linear; }
+.chat-inbox .composer-recording-silent { order: -2; width: min(430px, 100%); margin: 0; padding: 9px 11px; border: 1px solid #ef6d823d; border-radius: 9px; background: #4b17231f; color: #ffabb9; font-size: 11px; line-height: 1.45; }
+@media (max-width: 760px) { .chat-inbox .composer-recording-silent { width: 100%; } .chat-inbox .composer-recording-level { width: 32px; } }
