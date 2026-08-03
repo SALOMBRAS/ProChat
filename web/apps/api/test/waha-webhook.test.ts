@@ -440,3 +440,89 @@ describe('WAHA system events are not conversation', () => {
     expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS total FROM whatsapp_messages').get()).toEqual({ total: 1 });
   });
 });
+
+/** Uma localização recebida chega SEM `type` na raiz — como todo payload do
+ *  WEBJS —, e com um agravante que nenhum outro tipo tem: o `body` da raiz é a
+ *  MINIATURA do mapa em base64, o mesmo blob de `location.thumbnail`.
+ *
+ *  Sem classificar pelo `_data.type`, a mensagem caía em `text` e o blob ia para
+ *  a coluna `body` e para `conversations.lastMessage`. Foi assim que 4 KB de
+ *  `/9j/4AAQ…` apareceram no lugar de uma mensagem na conversa.
+ *
+ *  `locationMessage` reproduz um payload real da base: as coordenadas e o nome do
+ *  lugar vêm na RAIZ, em `location`; `_data` só repete em `lat`/`lng`/`loc`. Esta
+ *  distinção entre raiz e `_data` é a que este repositório já errou mais de uma
+ *  vez, então os testes abaixo afirmam de onde cada campo veio. */
+const THUMBNAIL = `/9j/4AAQSkZJRgABAQAASABIAAD${'A'.repeat(4000)}`;
+const locationMessage = (id: string, chatId: string, location: Record<string, unknown>) => ({
+  id, to: '5511777770000@c.us', body: THUMBNAIL, from: chatId, fromMe: false, source: 'app', vCards: [],
+  ackName: 'SERVER', hasMedia: false, media: null, timestamp: Math.floor(Date.now() / 1000),
+  location, _data: { type: 'location', lat: location.latitude, lng: location.longitude, loc: location.description ?? null },
+});
+
+describe('localização recebida', () => {
+  const chatId = '5511999990000@c.us';
+  const send = (app: any, body: unknown) => { const signedBody = signed(body); return request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedBody.timestamp).send(signedBody.raw); };
+  const event = (id: string, payload: unknown) => ({ id, timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload });
+  const point = { live: false, latitude: -3.7784414291381836, longitude: -38.48479080200195, thumbnail: THUMBNAIL, description: '' };
+
+  it('classifica pelo _data.type e NÃO deixa a miniatura virar texto', async () => {
+    const app = await appFor();
+    await send(app, event('evt-loc', locationMessage('loc-message', chatId, point))).expect(202);
+    const row = app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType, body FROM whatsapp_messages').get() as { messageType: string; body: string | null };
+    expect(row.messageType).toBe('location');
+    // O que o defeito produzia: 4 KB de base64 na coluna de texto.
+    expect(row.body ?? '').not.toContain('/9j/');
+    expect(row.body).toBeNull();
+  });
+
+  it('não põe a miniatura na prévia da conversa', async () => {
+    const app = await appFor();
+    await send(app, event('evt-loc-preview', locationMessage('loc-preview', chatId, point))).expect(202);
+    const conversation = app.locals.persistenceDatabase.sqlite.prepare('SELECT lastMessage FROM conversations WHERE chatId=?').get(chatId) as { lastMessage: string };
+    expect(conversation.lastMessage).toBe('Localização');
+  });
+
+  it('guarda o nome do lugar quando o remetente escolheu um ponto nomeado', async () => {
+    const app = await appFor();
+    const named = { ...point, name: 'Planeta Animal', address: 'Av Dr Silas Munguba 1299 Parangaba', description: 'Planeta Animal\nAv Dr Silas Munguba 1299 Parangaba' };
+    await send(app, event('evt-loc-named', locationMessage('loc-named', chatId, named))).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType, body FROM whatsapp_messages').get()).toMatchObject({ messageType: 'location', body: 'Planeta Animal' });
+  });
+
+  it('preserva as coordenadas no payload, que é de onde o cartão do mapa as lê', async () => {
+    const app = await appFor();
+    await send(app, event('evt-loc-payload', locationMessage('loc-payload', chatId, point))).expect(202);
+    const row = app.locals.persistenceDatabase.sqlite.prepare('SELECT payloadJson FROM whatsapp_messages').get() as { payloadJson: string };
+    const payload = JSON.parse(row.payloadJson) as { location?: Record<string, unknown> };
+    // Na RAIZ, não em `_data`: é de lá que `locationOf` lê (messageMedia.ts:145).
+    expect(payload.location).toMatchObject({ latitude: point.latitude, longitude: point.longitude });
+  });
+
+  /** Um cartão de contato tem o mesmo formato de problema: o tipo só existe em
+   *  `_data.type`, e o renderizador (MessageMedia.tsx:332) desenha a partir do
+   *  payload — bastava a classificação. */
+  it('classifica o cartão de contato, que tinha o mesmo defeito', async () => {
+    const app = await appFor();
+    await send(app, event('evt-vcard', { ...systemNotification('vcard-message', chatId, 'vcard'), body: 'Fulano', vCards: ['BEGIN:VCARD\nVERSION:3.0\nFN:Fulano\nEND:VCARD'] })).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType FROM whatsapp_messages').get()).toMatchObject({ messageType: 'contact' });
+  });
+
+  /** A trava contra o precedente da #57: `chat` é como o WEBJS chama uma mensagem
+   *  de texto comum, e são 7.296 das 12.851 linhas da base. Se a tradução virar um
+   *  repasse do tipo cru, esta asserção cai junto com 83% da tabela. */
+  it('mantém `chat` do WEBJS traduzido para `text`, e não adota o vocabulário cru', async () => {
+    const app = await appFor();
+    await send(app, event('evt-chat-guard', { ...systemNotification('chat-guard', chatId, 'chat'), body: 'Oi' })).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType FROM whatsapp_messages').get()).toMatchObject({ messageType: 'text' });
+  });
+
+  /** Um tipo que o mapa não conhece não pode ser traduzido: tem de continuar
+   *  caindo na classificação por mime, senão o primeiro tipo novo do WhatsApp
+   *  vira um rótulo que nenhum renderizador entende. */
+  it('não traduz tipo desconhecido: continua classificando por mime', async () => {
+    const app = await appFor();
+    await send(app, event('evt-novo', { ...systemNotification('tipo-novo', chatId, 'holograma_4d'), hasMedia: true, media: { mimetype: 'image/jpeg' } })).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType FROM whatsapp_messages').get()).toMatchObject({ messageType: 'image' });
+  });
+});
