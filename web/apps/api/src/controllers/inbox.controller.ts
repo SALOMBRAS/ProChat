@@ -32,7 +32,16 @@ const assignmentRequest = z.object({ userId: z.string().uuid().nullable().option
 const statusRequest = z.object({ status: z.enum(['open', 'in_progress', 'waiting_customer', 'resolved', 'archived']) });
 const priorityRequest = z.object({ priority: z.enum(['low', 'normal', 'high', 'urgent']) });
 const slaConfigRequest = z.object({ firstResponseThresholdMs: z.number().int().positive().optional(), operatorWaitingThresholdMs: z.number().int().positive().optional(), customerWaitingThresholdMs: z.number().int().positive().optional(), warningRatio: z.number().positive().lt(1).optional() }).refine(value => Object.keys(value).length > 0);
-const kanbanMove = z.object({ boardId:z.string().uuid(),stageId:z.string().uuid(),beforeConversationId:z.string().uuid().optional(),afterConversationId:z.string().uuid().optional(),source:z.enum(['manual','automation','inbound','outbound','system']).default('manual'),expectedUpdatedAt:z.string().datetime().optional() });
+/** A versão do cartão que o operador viu, para o controle otimista do `move`.
+ *
+ *  `z.string().datetime()` sem argumento **recusa deslocamento de fuso** — só
+ *  aceita o `Z` — e o PostgREST devolve `+00:00`. O SQLite guarda o
+ *  `toISOString()` do JS, que termina em `Z` e passava; então o arrastar-e-soltar
+ *  funcionava em desenvolvimento e devolvia 400 contra o Supabase, em toda
+ *  tentativa, desde sempre. Medido em 03/08/2026: nenhum evento `manual` em
+ *  `conversation_kanban_events`, e 627 dos 630 cartões ainda em `system`. */
+const kanbanTimestamp = z.string().datetime({ offset: true });
+const kanbanMove = z.object({ boardId:z.string().uuid(),stageId:z.string().uuid(),beforeConversationId:z.string().uuid().optional(),afterConversationId:z.string().uuid().optional(),source:z.enum(['manual','automation','inbound','outbound','system']).default('manual'),expectedUpdatedAt:kanbanTimestamp.optional() });
 const kanbanStage = z.object({ key:z.string().trim().regex(/^[a-z0-9_]+$/).max(64),name:z.string().trim().min(1).max(80),isTerminal:z.boolean().optional(),isArchivedStage:z.boolean().optional() });
 const kanbanFilters = z.object({ page:z.coerce.number().int().positive().default(1),pageSize:z.coerce.number().int().positive().max(100).default(30),stageId:z.string().uuid(),assignedUserId:z.string().uuid().optional(),assignedTeamId:z.string().uuid().optional(),queueId:z.string().uuid().optional(),tag:z.string().max(64).optional(),sla:z.string().max(32).optional(),unread:z.coerce.boolean().optional(),type:z.enum(['direct','group']).optional(),search:z.string().max(100).optional(),from:z.string().datetime().optional(),to:z.string().datetime().optional() });
 /**

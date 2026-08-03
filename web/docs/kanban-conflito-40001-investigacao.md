@@ -1,5 +1,33 @@
 # Conflito 40001 em `chatpro_kanban_move` — investigação
 
+> **03/08/2026 — o arrastar-e-soltar não chegava a conflitar.** Um relato de que
+> toda movimentação manual mostrava "A movimentação conflitou ou falhou" levou a
+> medir na base, e o resultado desmente a leitura mais natural do documento
+> abaixo: **nunca houve um conflito manual**, porque a requisição nunca chegou à
+> RPC.
+>
+> `expectedUpdatedAt` era validado com `z.string().datetime()` sem argumento, que
+> **recusa deslocamento de fuso** e só aceita o `Z`. O PostgREST devolve
+> `+00:00`. Toda tentativa manual contra o Supabase morria em **400**, e a tela
+> chamava isso de conflito porque o `catch` era único.
+>
+> Medido em 03/08/2026, somente leitura:
+>
+> | | |
+> |---|---|
+> | eventos `manual` em `conversation_kanban_events` | **0**, desde sempre |
+> | eventos em 24 h | 0 |
+> | eventos em 7 dias | 6, todos `inbound`/`outbound` |
+> | cartões por última transição | **627 `system`**, 3 `inbound`, 0 `manual` |
+>
+> O SQLite guarda `new Date().toISOString()`, que termina em `Z` e passava — mais
+> uma divergência entre provedores que a suíte não via, porque a suíte é SQLite.
+>
+> Corrigido na PR #132, junto com a regra de desempate que o documento abaixo já
+> pedia sem nomear: **a movimentação manual ganha da automação**, e o 409 só
+> aparece quando quem moveu foi outra pessoa — aí com o nome da etapa.
+
+
 **31/07/2026. Somente leitura.** Nenhuma migration foi criada ou aplicada, o banco
 remoto não foi consultado nem escrito, nenhuma mensagem foi enviada e o runtime
 completo não foi iniciado. Toda a análise é leitura de código no repositório, mais
