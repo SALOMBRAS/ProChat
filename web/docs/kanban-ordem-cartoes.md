@@ -82,10 +82,24 @@ escopo desta análise:
   `.order('last_message_at',{ascending:false})` na conversa juntada; ou
 - **posição de entrada** — cartão novo nascer no topo em vez de em `1`.
 
-A primeira é a mais barata e sozinha já resolveria os dois problemas medidos,
-inclusive sem renormalizar coisa alguma. **Vale decidir isso antes de rodar o
-UPDATE**: se a leitura ganhar desempate por `last_message_at`, o UPDATE abaixo
-vira desnecessário.
+> **Correção de 03/08/2026.** A primeira versão deste parágrafo dizia que o
+> desempate na leitura "sozinho já resolveria os dois problemas medidos". **Está
+> errado**, e a decisão foi tomada com base nisso. O desempate — implementado na
+> PR #113 como `position DESC, last_message_at DESC, conversation_id ASC` —
+> conserta o empate e a paginação, e **não mexe no topo velho**: `position`
+> continua mandando, então o cartão de 639 dias em `position = 626` ainda ganha
+> do de hoje em `position = 1`, e a primeira página de "Novo" segue com 2 dos 30
+> mais recentes.
+
+Para o topo, restam dois caminhos, e os dois são decisão de produto:
+
+| caminho | conserta o topo | custo |
+| --- | --- | --- |
+| rodar o UPDATE abaixo | sim, para os cartões de hoje | escrita em massa; e volta a degradar enquanto `ensureState` gravar `1` |
+| ordenar por `last_message_at` **acima** de `position` | sim, e continua valendo | arrastar cartão vira enfeite: o card sobe de volta na próxima mensagem |
+
+O segundo custa zero hoje — `manual_override` é `false` nas 630 linhas e não há
+nenhum evento `manual` —, mas desliga em silêncio um recurso que existe.
 
 ---
 
