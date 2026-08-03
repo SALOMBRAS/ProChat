@@ -68,9 +68,12 @@ beforeEach(() => {
   define(window, "MediaRecorder", class {
     static isTypeSupported = () => true;
     state = "inactive"; mimeType = "audio/webm";
+    ondataavailable?: (event: { data: { size: number } }) => void;
+    onstop?: () => void;
     start = vi.fn(() => { this.state = "recording"; });
-    stop = vi.fn();
-    ondataavailable: unknown; onstop: unknown;
+    // O real dispara `onstop` ao parar; um `vi.fn()` seco deixava `isRecording`
+    // preso em true e mascarava o fim da gravação.
+    stop = vi.fn(() => { this.state = "inactive"; this.onstop?.(); });
   });
   permissions("prompt");
   media();
@@ -98,12 +101,16 @@ describe("o portão antes de o navegador perguntar", () => {
     expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("não atrapalha quem já concedeu: grava direto, sem diálogo", async () => {
+  /** Mudou com a correção da #137, de propósito: `granted` responde "dá para
+   *  gravar?", não "o operador quer?". Quem nunca passou pelo portão nesta sessão
+   *  passa uma vez — para escolher o microfone, não para pedir o que já foi
+   *  dado. Depois disso não é mais interrogado (teste em "recusar no portão"). */
+  it("com permissão já concedida, o portão pergunta o dispositivo em vez de gravar direto", async () => {
     permissions("granted");
     await abrir();
     await gravar();
-    await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled());
-    expect(portao()).toBeNull();
+    await screen.findByRole("alertdialog");
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
   });
 
   /** Depois de negar, `getUserMedia` rejeita na hora e sem diálogo: dizer só
@@ -146,13 +153,17 @@ describe("o portão antes de o navegador perguntar", () => {
     expect(document.querySelector(".alert")).toBeNull();
   });
 
-  it("sem a API de Permissions o diálogo não aparece: o desconhecido não vira suspeita", async () => {
-    // Firefox e Safari não respondem a query({name:'microphone'}).
+  /** Firefox e Safari não respondem a query({name:'microphone'}). Antes da
+   *  correção da #137 isso gravava direto, para não incomodar. Deixou de gravar:
+   *  o consentimento é do operador e não pode depender de o navegador saber
+   *  responder — e era justamente por a entrada confiar só no navegador que a
+   *  recusa era esquecida. */
+  it("sem a API de Permissions o portão aparece: o consentimento não depende do navegador", async () => {
     permissions(undefined);
     await abrir();
     await gravar();
-    await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled());
-    expect(portao()).toBeNull();
+    await screen.findByRole("alertdialog");
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
   });
 });
 
@@ -181,7 +192,7 @@ describe("causa 2: o dispositivo errado", () => {
     await gravar();
     fireEvent.click(await screen.findByText("Permitir microfone"));
     fireEvent.change(await screen.findByLabelText("Escolher microfone"), { target: { value: "mic-1" } });
-    fireEvent.click(screen.getByText("Permitir microfone"));
+    fireEvent.click(screen.getByText("Começar a gravar"));
     await waitFor(() => expect(getUserMedia).toHaveBeenLastCalledWith({ audio: { deviceId: { exact: "mic-1" } } }));
   });
 });
@@ -284,6 +295,16 @@ describe("estilo", () => {
     expect(bloco).not.toMatch(/\.chat-inbox\s+\.composer-recording-(level|silent)/);
   });
 
+  /** O tema pinta `.modal svg` de branco (0-1-1) para o QR code da sessão. Uma
+   *  classe só (0-1-0) perde dessa regra e a caixa branca volta atrás do ícone.
+   *  Aconteceu quando o prefixo `.chat-inbox` saiu na resolução do rebase, e
+   *  nenhum teste de DOM pegou — só a conferência em tela. */
+  it("a ilustração vence a regra de QR code do tema, por especificidade", () => {
+    expect(stylesheet).toMatch(/\.mic-gate\s+\.mic-gate-art\s*\{[^}]*background:\s*transparent/);
+    // A forma frágil: uma classe só, que perde para `.modal svg`.
+    expect(stylesheet).not.toMatch(/(^|[},])\s*\.mic-gate-art\s*\{/m);
+  });
+
   it("fica acima da janela de conversa do Kanban, não atrás dela", () => {
     const kanban = /\.kanban-conversation-backdrop\s*\{[^}]*z-index:\s*(\d+)/.exec(stylesheet);
     const gate = /\.mic-gate-backdrop\s*\{[^}]*z-index:\s*(\d+)/.exec(stylesheet);
@@ -294,4 +315,108 @@ describe("estilo", () => {
     expect(Number(gate![1])).toBeGreaterThan(Number(kanban![1]));
   });
 
+});
+
+/** Regressão da #137, medida antes de corrigir.
+ *
+ *  O defeito: quem recusava no portão voltava a gravar no clique seguinte, e a
+ *  nota saía muda. A causa não era o navegador negar — era o contrário. O
+ *  operador CONCEDIA ao navegador, o portão reabria para escolher entre dois
+ *  microfones, ele clicava "Agora não", e no clique seguinte a entrada só
+ *  consultava `permissions.query`, que já respondia `granted`. Gravava direto,
+ *  do dispositivo que o navegador calhou de devolver primeiro.
+ *
+ *  As duas perguntas são diferentes: o navegador responde "dá para gravar?" e o
+ *  portão responde "o operador quer, e com qual microfone?". Só a primeira estava
+ *  sendo consultada. */
+describe("recusar no portão impede a gravação", () => {
+  /** O mock fixo não reproduzia o defeito porque o navegador REAL muda de estado:
+   *  depois de um getUserMedia bem-sucedido, `permissions.query` passa a
+   *  responder `granted`. Sem isso, o teste passava e o produto quebrava. */
+  const navegadorReal = (labels = ["Webcam desligada", "Headset USB"]) => {
+    let estado: PermissionState = "prompt";
+    const getUserMedia = vi.fn().mockImplementation(async () => {
+      estado = "granted";
+      return { getTracks: () => [{ stop: vi.fn() }] };
+    });
+    define(navigator, "permissions", { query: vi.fn().mockImplementation(async () => ({ get state() { return estado; } })) });
+    media({ getUserMedia, enumerateDevices: vi.fn().mockResolvedValue(microphones(labels)) } as never);
+    return getUserMedia;
+  };
+  const gravando = () => Boolean(document.querySelector(".composer-recording"));
+
+  it("recusar depois de conceder ao navegador NÃO deixa gravar no clique seguinte", async () => {
+    const getUserMedia = navegadorReal();
+    await abrir();
+    await gravar();
+    fireEvent.click(await screen.findByText("Permitir microfone"));
+    await screen.findByLabelText("Escolher microfone");
+    fireEvent.click(screen.getByText("Agora não"));
+    await waitFor(() => expect(portao()).toBeNull());
+
+    await gravar();
+    // O portão volta, em vez de gravar do dispositivo que ninguém escolheu.
+    await screen.findByRole("alertdialog");
+    expect(gravando()).toBe(false);
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it("recusar no estado `prompt` também não deixa gravar", async () => {
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] });
+    media({ getUserMedia } as never);
+    await abrir();
+    await gravar();
+    fireEvent.click(await screen.findByText("Agora não"));
+    await waitFor(() => expect(portao()).toBeNull());
+
+    await gravar();
+    await screen.findByRole("alertdialog");
+    expect(gravando()).toBe(false);
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("quem passa pelo portão até o fim grava — e não vê o portão de novo", async () => {
+    const getUserMedia = navegadorReal();
+    await abrir();
+    await gravar();
+    fireEvent.click(await screen.findByText("Permitir microfone"));
+    fireEvent.click(await screen.findByText("Começar a gravar"));
+    await waitFor(() => expect(gravando()).toBe(true));
+
+    fireEvent.click(screen.getByLabelText("Cancelar gravação"));
+    await waitFor(() => expect(gravando()).toBe(false));
+    await gravar();
+    // Consentiu uma vez nesta sessão: não é interrogado de novo.
+    await waitFor(() => expect(gravando()).toBe(true));
+    expect(portao()).toBeNull();
+  });
+
+  /** A permissão do navegador responde "dá para gravar?"; o portão responde "o
+   *  operador quer?". Quando as duas divergem, manda o portão. */
+  it("permissão já concedida antes ainda passa pelo portão, para escolher o microfone", async () => {
+    permissions("granted");
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] });
+    media({ getUserMedia } as never);
+    await abrir();
+    await gravar();
+    const dialogo = await screen.findByRole("alertdialog");
+    // Não pede o que já foi dado: pergunta de qual dispositivo gravar.
+    expect(within(dialogo).getByText("De qual microfone gravar?")).toBeTruthy();
+    expect(within(dialogo).getByText("Começar a gravar")).toBeTruthy();
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("recusar com a permissão já concedida também não grava", async () => {
+    permissions("granted");
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] });
+    media({ getUserMedia } as never);
+    await abrir();
+    await gravar();
+    fireEvent.click(await screen.findByText("Agora não"));
+    await waitFor(() => expect(portao()).toBeNull());
+    await gravar();
+    await screen.findByRole("alertdialog");
+    expect(gravando()).toBe(false);
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
 });
