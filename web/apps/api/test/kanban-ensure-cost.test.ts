@@ -143,7 +143,7 @@ describe('Kanban board bootstrap cost', () => {
     const board = { id: 'board-1', stages: [{ id: 'stage-new', key: 'new' }, { id: 'stage-waiting-customer', key: 'waiting_customer' }, { id: 'stage-waiting-operator', key: 'waiting_operator' }] };
     const upserts: Array<Record<string, unknown>> = [];
     let stateTableCalls = 0;
-    const answer = (value: unknown) => { const chain: any = { then: (resolve: any) => Promise.resolve(value).then(resolve), maybeSingle: () => Promise.resolve(value) }; for (const method of ['select', 'eq']) chain[method] = () => chain; return chain; };
+    const answer = (value: unknown) => { const chain: any = { then: (resolve: any) => Promise.resolve(value).then(resolve), maybeSingle: () => Promise.resolve(value) }; for (const method of ['select', 'eq', 'order', 'limit']) chain[method] = () => chain; return chain; };
     const client = { from: (table: string) => {
       if (table === 'conversations') return answer({ data: { status: 'waiting_customer' }, error: null });
       if (table === 'conversation_kanban_state') {
@@ -162,8 +162,12 @@ describe('Kanban board bootstrap cost', () => {
     expect(await service.automated({ workspaceId, conversationId: '00000000-0000-4000-8000-000000000902', direction: 'inbound', messageId: 'remote-live', visible: true })).toEqual({ status: 'moved' });
     expect(upserts).toHaveLength(1);
     expect(upserts[0]).toMatchObject({ conversation_id: '00000000-0000-4000-8000-000000000902', board_id: 'board-1', stage_id: 'stage-waiting-customer' });
-    // leitura vazia, upsert da linha, releitura: o `continue` do laço é o do meio.
-    expect(stateTableCalls).toBe(3);
+    // Leitura vazia, leitura do topo do estágio, upsert da linha, releitura: o
+    // `continue` do laço é o do upsert. A leitura do topo é a que faz o cartão
+    // nascer no alto da coluna em vez de em `position = 1`, e ela só acontece
+    // aqui — no caminho que já sabe que a linha não existe. Cartão que já tem
+    // estado não paga nenhuma delas.
+    expect(stateTableCalls).toBe(4);
     expect(service.moved).toBe(1);
   });
 
