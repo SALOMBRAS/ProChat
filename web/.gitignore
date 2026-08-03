@@ -12,3 +12,6 @@ backups/
 .waha-sessions/
 runtime/
 temp/
+
+# Segredos de produção do compose (deploy/.env.prod.example é o modelo)
+deploy/.env.prod
