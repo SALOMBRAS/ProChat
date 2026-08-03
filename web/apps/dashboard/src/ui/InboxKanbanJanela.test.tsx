@@ -15,7 +15,9 @@ const conversation = (id: string, nome: string): InboxConversation => ({
   createdAt: "2026-07-28T10:00:00.000Z", updatedAt: "2026-07-28T12:00:00.000Z",
   identity: { displayName: nome, phone: "5511999990001", pushName: nome, profileName: nome, avatarUrl: null, lastSyncAt: null, syncStatus: "synced", knownContact: true },
 });
-const cartao = (conversationId: string): KanbanCard => ({ conversationId, maskedId: "••••••2765@c.us", lastMessage: "Oi", lastMessageAt: "2026-07-28T12:00:00.000Z", unreadCount: 0, conversationType: "direct", assignedUserId: null, assignedTeamId: null, routingQueueId: null, priority: "normal", tags: [], slaStatus: null, sla: null, stageId: "etapa-nova", position: 1, updatedAt: "2026-07-28T12:00:00.000+00:00" });
+/** O card carrega a identidade desde a #139 — é dela que sai o rótulo do card,
+ *  e por isso o nome entra aqui em vez de o fixture ficar com `identity: null`. */
+const cartao = (conversationId: string, nome = "Ana"): KanbanCard => ({ conversationId, maskedId: "••••••2765@c.us", identity: { displayName: nome, phone: "5511999990001", pushName: null, profileName: nome, contactName: null, avatarUrl: null, lastSyncAt: null, syncStatus: "synced", knownContact: true }, lastMessage: "Oi", lastMessageAt: "2026-07-28T12:00:00.000Z", unreadCount: 0, conversationType: "direct", assignedUserId: null, assignedTeamId: null, routingQueueId: null, priority: "normal", tags: [], slaStatus: null, sla: null, stageId: "etapa-nova", position: 1, updatedAt: "2026-07-28T12:00:00.000+00:00" });
 const quadro = { id: "quadro-1", name: "Operação", stages: [{ id: "etapa-nova", key: "new", name: "Novo", count: 1 }] };
 const vazia = <T,>(): Page<T> => ({ items: [], page: 1, pageSize: 50, total: 0 });
 

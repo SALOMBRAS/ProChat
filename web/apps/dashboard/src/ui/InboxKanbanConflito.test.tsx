@@ -7,7 +7,7 @@ vi.mock("../api/realtime.js", () => ({ connectRealtime: () => () => {} }));
 vi.mock("../api/workspace.js", () => ({ WorkspaceApi: class { users = async () => []; } }));
 
 const mover = vi.fn();
-const cartao: KanbanCard = { conversationId: "conversa-1", maskedId: "••••••2765@c.us", lastMessage: "Olá", lastMessageAt: "2026-08-03T10:00:00.000Z", unreadCount: 0, conversationType: "direct", assignedUserId: null, assignedTeamId: null, routingQueueId: null, priority: "normal", tags: [], slaStatus: null, sla: null, stageId: "etapa-nova", position: 1, updatedAt: "2026-08-01T00:00:00.000+00:00" };
+const cartao: KanbanCard = { conversationId: "conversa-1", maskedId: "••••••2765@c.us", identity: null, lastMessage: "Olá", lastMessageAt: "2026-08-03T10:00:00.000Z", unreadCount: 0, conversationType: "direct", assignedUserId: null, assignedTeamId: null, routingQueueId: null, priority: "normal", tags: [], slaStatus: null, sla: null, stageId: "etapa-nova", position: 1, updatedAt: "2026-08-01T00:00:00.000+00:00" };
 const quadro = { id: "quadro-1", name: "Operação", stages: [{ id: "etapa-nova", key: "new", name: "Novo", count: 1 }, { id: "etapa-feito", key: "resolved", name: "Resolvido", count: 0 }] };
 
 vi.mock("../api/inbox.js", async (importar) => ({
