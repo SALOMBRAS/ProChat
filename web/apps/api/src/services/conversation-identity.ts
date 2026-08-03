@@ -50,8 +50,29 @@ export function isConversationChatId(value: unknown): value is string { return i
  * normalization one. `unknown` is absent for the opposite reason: it is the
  * parser's own fallback, so silencing it would also silence every real message
  * WhatsApp ships a new type for.
+ *
+ * Three more joined in 2026-08, each because it is a marker about content rather
+ * than content itself, and each measured on the live base before being added:
+ *
+ * - `album` (19 rows) is the header WhatsApp emits when someone sends several
+ *   photos at once. The photos arrive as their own messages and keep arriving
+ *   after this change; the header carries no body, no media and no mime, so
+ *   dropping it loses nothing and removes an empty bubble that always sat right
+ *   before a batch of real photos.
+ * - `pinned_message` (1 row) announces that somebody pinned a message in a
+ *   group. Measured: no useful field anywhere, neither at the root nor in
+ *   `_data`. It is the same family as `gp2`, which was already here.
+ * - `group-history` (1 row, `subtype: message_history_bundle`) is a bundle of
+ *   group history — a transport artefact, not anyone's message. It was reaching
+ *   the Inbox classified as `document` because `hasMedia` is true while no mime
+ *   exists, which is the one shape `mediaType` cannot tell apart from a file.
+ *
+ * All three are judged on one row or nineteen, which is thin evidence, and the
+ * product owner made the call knowing that. What makes it safe is the direction
+ * of the error: none of the three carries text, so a wrong call here hides an
+ * empty bubble rather than a message.
  */
-const technicalMessageTypes: ReadonlySet<string> = new Set(['ack', 'receipt', 'reaction', 'status', 'protocol', 'revoked', 'e2e_notification', 'notification_template', 'gp2', 'ciphertext', 'biz_content_placeholder']);
+const technicalMessageTypes: ReadonlySet<string> = new Set(['ack', 'receipt', 'reaction', 'status', 'protocol', 'revoked', 'e2e_notification', 'notification_template', 'gp2', 'ciphertext', 'biz_content_placeholder', 'album', 'pinned_message', 'group-history']);
 export function isTechnicalMessageType(value: string | null | undefined): boolean { const type = value?.trim().toLowerCase(); return Boolean(type && technicalMessageTypes.has(type)); }
 
 /** The real WhatsApp message type, from wherever the payload happens to carry it.

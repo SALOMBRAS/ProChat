@@ -567,3 +567,78 @@ describe('mime do anexo histórico', () => {
     expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType FROM whatsapp_messages').get()).toMatchObject({ messageType: 'document' });
   });
 });
+
+/** Três tipos que passaram a ser técnicos em 2026-08, e o template de marketing
+ *  que passou a ter corpo. Decisão do dono do produto depois da varredura; os
+ *  payloads abaixo são a forma real medida na base. */
+describe('tipos técnicos novos e o template de marketing', () => {
+  const chatId = '5511999990000@c.us';
+  const send = (app: any, body: unknown) => { const signedBody = signed(body); return request(app).post('/api/v1/webhooks/waha').set('content-type', 'application/json').set('x-webhook-hmac', signedBody.hmac).set('x-webhook-hmac-algorithm', 'sha512').set('x-webhook-timestamp', signedBody.timestamp).send(signedBody.raw); };
+  const event = (id: string, payload: unknown) => ({ id, timestamp: Date.now(), event: 'message.any' as const, session: 'waha-a', payload });
+  const total = (app: any) => (app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS n FROM whatsapp_messages').get() as { n: number }).n;
+
+  it.each([['album'], ['pinned_message'], ['group-history']])('descarta %s: é marcador sobre conteúdo, não conteúdo', async (type) => {
+    const app = await appFor();
+    await send(app, event(`evt-${type}`, systemNotification(`msg-${type}`, chatId, type))).expect(202);
+    // Aceito para auditoria, nunca vira mensagem nem cria conversa.
+    expect(total(app)).toBe(0);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS n FROM conversations').get()).toEqual({ n: 0 });
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT count(*) AS n FROM waha_webhook_events').get()).toEqual({ n: 1 });
+  });
+
+  it('o group-history não chega mais à Inbox classificado como documento', async () => {
+    const app = await appFor();
+    // hasMedia true e nenhum mime: a única forma que mediaType não distingue de
+    // um arquivo, e por isso ele aparecia como "Documento" na lista.
+    await send(app, event('evt-gh', { ...systemNotification('gh-msg', chatId, 'group-history'), hasMedia: true, _data: { type: 'group-history', subtype: 'message_history_bundle' } })).expect(202);
+    expect(total(app)).toBe(0);
+  });
+
+  /** O texto do template nunca esteve no `body` da raiz: está em `_data.caption`.
+   *  Medido em 8 de 8 linhas da base, de 345 a 994 caracteres. */
+  it('lê a legenda do template de marketing, que estava sendo jogada fora', async () => {
+    const app = await appFor();
+    await send(app, event('evt-int', { ...systemNotification('int-msg', chatId, 'interactive'), _data: { type: 'interactive', caption: 'Chega de adiar! O desconto está acabando.', footer: 'Envie PARAR para não receber mais mensagens' } })).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType, body FROM whatsapp_messages').get()).toMatchObject({ messageType: 'text', body: 'Chega de adiar! O desconto está acabando.' });
+  });
+
+  it('põe o título antes da legenda quando o template tem manchete', async () => {
+    const app = await appFor();
+    await send(app, event('evt-int-t', { ...systemNotification('int-titulo', chatId, 'interactive'), _data: { type: 'interactive', caption: 'A partir de 13/07 o Passe muda.', interactiveHeader: { title: 'O Passe para Motoristas começa em 13/07/2026', hasMediaAttachment: false } } })).expect(202);
+    expect((app.locals.persistenceDatabase.sqlite.prepare('SELECT body FROM whatsapp_messages').get() as { body: string }).body)
+      .toBe('O Passe para Motoristas começa em 13/07/2026\n\nA partir de 13/07 o Passe muda.');
+  });
+
+  it('deixa o rodapé de descadastro de fora: é instrução do disparador, não conversa', async () => {
+    const app = await appFor();
+    await send(app, event('evt-int-f', { ...systemNotification('int-rodape', chatId, 'interactive'), _data: { type: 'interactive', caption: 'Oferta.', footer: 'Responda SAIR para não receber mais mensagens da Uber' } })).expect(202);
+    expect((app.locals.persistenceDatabase.sqlite.prepare('SELECT body FROM whatsapp_messages').get() as { body: string }).body).toBe('Oferta.');
+  });
+
+  /** Uma das 8 linhas da base trazia `/9j/4AAQ…` no `body` da raiz — o pôster do
+   *  vídeo — e a coluna guardava isso como texto. Mesmo sintoma da localização. */
+  it('não deixa o pôster em base64 do template virar texto', async () => {
+    const app = await appFor();
+    const poster = `/9j/4AAQSkZJRgABAgAAAQABAAD${'A'.repeat(3000)}`;
+    await send(app, event('evt-int-b64', { ...systemNotification('int-b64', chatId, 'interactive'), body: poster, _data: { type: 'interactive', caption: 'Encontre as palavras certas com a Meta AI', mimetype: 'video/mp4' } })).expect(202);
+    const row = app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType, body FROM whatsapp_messages').get() as { messageType: string; body: string };
+    expect(row.body).toBe('Encontre as palavras certas com a Meta AI');
+    expect(row.body).not.toContain('/9j/');
+    // E o mime de `_data` não pode sequestrar a classificação: 5 das 8 linhas
+    // trazem mimetype, e nenhuma tem mídia para buscar.
+    expect(row.messageType).toBe('text');
+  });
+
+  it('template sem legenda nenhuma continua sem corpo, em vez de inventar', async () => {
+    const app = await appFor();
+    await send(app, event('evt-int-vazio', { ...systemNotification('int-vazio', chatId, 'interactive'), _data: { type: 'interactive' } })).expect(202);
+    expect(app.locals.persistenceDatabase.sqlite.prepare('SELECT messageType, body FROM whatsapp_messages').get()).toMatchObject({ messageType: 'text', body: null });
+  });
+
+  it('as decisões de deixar como estão continuam valendo: product e event_creation entram', async () => {
+    const app = await appFor();
+    await send(app, event('evt-prod', { ...systemNotification('prod-msg', chatId, 'product'), _data: { type: 'product', title: 'Excursão' } })).expect(202);
+    await send(app, event('evt-ev', { ...systemNotification('ev-msg', chatId, 'event_creation'), body: 'Ligação de Igor', _data: { type: 'event_creation', eventName: 'Ligação de Igor' } })).expect(202);
+    expect(total(app)).toBe(2);
+  });
+});

@@ -31,6 +31,17 @@ e2e_notification, notification_template, gp2, ciphertext, biz_content_placeholde
 O último commit a tocar `conversation-identity.ts` é de 28/07. **Nenhum tipo
 técnico entrou depois de 29/07.** Nesse ponto o procedimento está certo.
 
+> **Deixou de valer em 2026-08-03.** Entraram três tipos — `album`,
+> `pinned_message` e `group-history` —, e o vocabulário do código passou a ter
+> **14**, contra os 11 deste `.sql`. É exatamente o descasamento que o aviso
+> abaixo previa.
+>
+> Efeito medido na população-alvo: **nenhum**. Não existe conversa 100 % desses
+> três tipos, então o número de fantasmas não muda (134 com as duas listas). O
+> que muda são 7 conversas que passam a contar como **mistas**, de 14 para 21 —
+> e mista é o que a limpeza preserva, então o descasamento erra para o lado
+> conservador. Detalhamento no fim do arquivo.
+
 > **Mas o teste que prende SQL e código só prende um lado.**
 > `eventos-sistema-cleanup-sql.test.ts` garante que todo tipo do SQL é técnico
 > para o código, e que as listas do SQL são iguais entre si — **não** garante que
@@ -55,8 +66,22 @@ continuam não persistidos. O que ela muda é o **outro lado** da classificaçã
 > aparece como fantasma pode ser **um grupo vivo cujo histórico nunca foi
 > materializado**.
 
-As **150 fantasmas diretas não são afetadas**; as **21 de grupo** são a população
+As **fantasmas diretas não são afetadas**; as **de grupo** são a população
 suspeita.
+
+> **Remedido em 2026-08-03T16:01Z** — o número de diretas aqui era **150** e está
+> errado. A contagem correta é **113 diretas + 21 de grupo = 134 fantasmas**, de
+> 673 conversas (**19 %**). O total de grupo, 21, reproduz exatamente; foi só o de
+> diretas que mudou.
+>
+> A causa mais provável da queda não é erro de medição e sim o tempo: uma
+> fantasma que depois recebe uma mensagem real deixa de ser fantasma, e a base
+> saiu de 6 811 para 17 009 mensagens entre as duas medições. Não confirmei
+> conversa a conversa — **não identificado** qual parcela é isso e qual é
+> diferença de método.
+>
+> Use 113 / 21 / 134 ao retomar a limpeza, e remeça antes de congelar o alvo: a
+> tabela abaixo é um registro histórico de dois instantes, não o estado de hoje.
 
 **A consequência é uma regressão real, não teórica.** A consulta que monta
 `backup_eventos_sistema.alvo` — a lista congelada que os passos D e E apagam —
@@ -618,3 +643,47 @@ Depois de conferir tudo, o backup pode ser removido:
   `technicalMessageTypes` de `conversation-identity.ts`, os DELETE têm que
   continuar comentados, a ordem dos passos e os guards não podem sumir. Nove
   mutações no SQL foram testadas contra a suíte; todas quebram algum teste.
+
+---
+
+## Remedição de 2026-08-03 e o efeito dos três tipos novos
+
+Medido às 16:01Z, com 17 009 mensagens e 673 conversas.
+
+| | 18h (registro acima) | 2026-08-03 16:01Z |
+|---|---|---|
+| conversas fantasma | 171 (150 diretas + 21 grupo) | **134** (113 diretas + 21 grupo) |
+| % das conversas | 26 % | **19 %** |
+| fantasma com badge de não lida | 69, somando 92 | **67**, somando 89 |
+| conversas mistas (preservar) | 12 | **14** |
+| já vazias antes (não são alvo) | 29 | **29** |
+
+O total de grupo (21) e o de já vazias (29) reproduzem exatamente. Foi o número
+de diretas que caiu, e a explicação mais provável é o tempo: fantasma que recebe
+mensagem real deixa de ser fantasma, e a base mais que dobrou entre as duas
+medições.
+
+### O que os três tipos novos mudam aqui
+
+`album`, `pinned_message` e `group-history` entraram em `technicalMessageTypes`
+em 2026-08. Medindo a mesma base com as duas listas:
+
+| | lista antiga (11 tipos) | lista nova (14 tipos) |
+|---|---|---|
+| conversas fantasma | 134 | **134** |
+| conversas mistas | 14 | **21** |
+
+**A população-alvo da limpeza não muda.** Nenhuma conversa é 100 % `album`,
+`pinned_message` ou `group-history` — os três sempre convivem com mensagens
+reais, o que faz sentido: um cabeçalho de álbum vem junto das fotos, um aviso de
+fixar vem num grupo ativo.
+
+O que muda são **7 conversas que passam de "só mensagens reais" para "mistas"**.
+Mistas são as que a limpeza **preserva**, então o efeito é conservador: sete
+conversas a mais na lista do que não se apaga.
+
+> Isto reforça o alerta da seção anterior, agora com número: acrescentar tipo ao
+> vocabulário do código **não** atualiza as listas escritas à mão neste `.sql`.
+> Quem retomar a limpeza precisa decidir se `album`, `pinned_message` e
+> `group-history` entram nela — e, se entrarem, refazer a contagem, porque as 21
+> mistas mudam de composição.
