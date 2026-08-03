@@ -12,6 +12,13 @@
 -- A correção de ingestão está em apps/api/src/services/waha-webhook.service.ts
 -- e vale para o que chegar daqui em diante. Este arquivo conserta o gravado.
 --
+--
+-- OS NÚMEROS ACIMA SÃO UM INSTANTÂNEO, NÃO UM CONTRATO. A base está viva: durante
+-- a investigação as linhas de `location` passaram de 13 para 17, porque a
+-- sincronização continua ingerindo com o defeito até a correção subir. Os UPDATEs
+-- são escritos por PREDICADO e não por contagem, então alcançam o que existir na
+-- hora de aplicar. Rode a verificação do fim do arquivo depois: ela é a resposta
+-- certa, não os números daqui.
 -- NÃO adota o vocabulário cru do WEBJS: `chat` continua sendo `text`. Traduzir
 -- tudo renomearia 83% das linhas — o precedente da #57.
 --

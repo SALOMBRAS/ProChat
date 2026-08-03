@@ -19,6 +19,13 @@
 --    3 conversas com last_message em vCard cru, uma delas com 4.881 caracteres
 --      porque o vCard trazia PHOTO;BASE64
 --
+--
+-- OS NÚMEROS ACIMA SÃO UM INSTANTÂNEO, NÃO UM CONTRATO. A base está viva: durante
+-- a investigação as linhas de `location` passaram de 13 para 17, porque a
+-- sincronização continua ingerindo com o defeito até a correção subir. Os UPDATEs
+-- são escritos por PREDICADO e não por contagem, então alcançam o que existir na
+-- hora de aplicar. Rode a verificação do fim do arquivo depois: ela é a resposta
+-- certa, não os números daqui.
 -- NÃO adota o vocabulário cru do WEBJS: `chat` continua sendo `text`. Traduzir
 -- tudo renomearia 10.714 das 12.851 linhas (83%) — o precedente da #57.
 --
