@@ -7,7 +7,8 @@ vi.mock("../api/realtime.js", () => ({ connectRealtime: () => () => {} }));
 vi.mock("../api/workspace.js", () => ({ WorkspaceApi: class { users = async () => []; teams = async () => []; } }));
 
 import Inbox from "./Inbox.js";
-import { contactInitials, toggleSelection } from "./ContactPicker.js";
+import stylesheet from "./styles.css?raw";
+import { contactInitials, contactRow, toggleSelection } from "./ContactPicker.js";
 
 /**
  * A PR #53 entregou o envio de cartão de contato com `window.prompt` duas vezes:
@@ -36,10 +37,12 @@ const api = () => ({
   sendVcard: vi.fn().mockResolvedValue(undefined),
 }) as unknown as InboxApi;
 
-const pessoa = (id: string, displayName: string, phoneNumber: string) => ({
-  id, workspaceId: "workspace-a", displayName, phoneNumber,
+const pessoa = (id: string, displayName: string, phoneNumber: string, photoUrl?: string) => ({
+  id, workspaceId: "workspace-a", displayName, phoneNumber, ...(photoUrl ? { photoUrl } : {}),
   createdAt: "2026-07-28T10:00:00.000Z", updatedAt: "2026-07-28T10:00:00.000Z",
 });
+/** O caso da base: 66 dos 93 contatos têm `displayName` idêntico ao telefone. */
+const SEM_NOME = pessoa("dddddddd-4444-4444-8444-444444444444", "558592369359", "558592369359");
 const CONTATOS = [
   pessoa("aaaaaaaa-1111-4111-8111-111111111111", "Ana Ribeiro", "5511999990001"),
   pessoa("bbbbbbbb-2222-4222-8222-222222222222", "Bruno Carvalho", "5511999990002"),
@@ -74,11 +77,13 @@ describe("escolha de contato para envio", () => {
     const { painel } = await abrirContatos();
     const lista = await within(painel).findByRole("list", { name: "Contatos encontrados" });
     expect(within(lista).getByText("Ana Ribeiro")).toBeInTheDocument();
-    expect(within(lista).getByText("5511999990001")).toBeInTheDocument();
+    // Formatado, não os dígitos crus: é o telefone que o operador lê em voz alta.
+    expect(within(lista).getByText("+55 (11) 99999-0001")).toBeInTheDocument();
+    expect(within(lista).queryByText("5511999990001")).toBeNull();
     expect(within(lista).getAllByRole("checkbox")).toHaveLength(3);
   });
 
-  it("mostra as iniciais como avatar, porque a listagem de contatos não devolve foto", async () => {
+  it("com nome e sem foto, o avatar são as iniciais", async () => {
     const { painel } = await abrirContatos();
     await within(painel).findByRole("list", { name: "Contatos encontrados" });
     expect(painel.querySelectorAll(".composer-contact-avatar")[0]?.textContent).toBe("AR");
@@ -160,6 +165,62 @@ describe("escolha de contato para envio", () => {
     expect(contacts).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }));
   });
 
+  it("sem nome, mostra só o telefone formatado — e não o mesmo número duas vezes", async () => {
+    // Medido na base em 03/08/2026: 66 dos 93 contatos têm `displayName` igual ao
+    // telefone. Era isso que punha "558592369359" em cima e embaixo na mesma linha.
+    const { painel } = await abrirContatos(api(), domainWith(vi.fn().mockResolvedValue({ items: [SEM_NOME], page: 1, pageSize: 20, total: 1 })));
+    const linha = await within(painel).findByText("+55 (85) 9236-9359");
+
+    expect(within(painel).getAllByText(/9236-9359|558592369359/)).toHaveLength(1);
+    // Uma linha de texto, não duas: sem nome não há subtítulo a mostrar.
+    expect(linha.closest(".composer-contact-identity")!.children).toHaveLength(1);
+  });
+
+  it("sem nome, o avatar é silhueta e não o número dentro do círculo", async () => {
+    const { painel } = await abrirContatos(api(), domainWith(vi.fn().mockResolvedValue({ items: [SEM_NOME], page: 1, pageSize: 20, total: 1 })));
+    await within(painel).findByText("+55 (85) 9236-9359");
+    const avatar = painel.querySelector(".composer-contact-avatar")!;
+
+    expect(avatar.textContent).toBe("");
+    expect(avatar.querySelector("svg.composer-contact-silhouette")).toBeTruthy();
+  });
+
+  it("com nome, mostra nome em cima e telefone formatado embaixo", async () => {
+    const { painel } = await abrirContatos();
+    const nome = await within(painel).findByText("Ana Ribeiro");
+
+    expect(nome.closest(".composer-contact-identity")!.children).toHaveLength(2);
+    expect(within(painel).getByText("+55 (11) 99999-0001")).toBeTruthy();
+  });
+
+  it("usa a foto quando ela existe, e as iniciais quando não", async () => {
+    // A foto não chega por este contrato hoje — 552 das 748 identidades têm
+    // `profile_picture_url`, e `/domain/contacts` não devolve o campo. A lista já
+    // sabe desenhá-la para o dia em que ele for exposto.
+    const comFoto = pessoa("eeeeeeee-5555-4555-8555-555555555555", "Ana Ribeiro", "5511999990001", "https://cdn.test/ana.jpg");
+    const { painel } = await abrirContatos(api(), domainWith(vi.fn().mockResolvedValue({ items: [comFoto, CONTATOS[1]], page: 1, pageSize: 20, total: 2 })));
+    await within(painel).findByText("Ana Ribeiro");
+    const avatares = painel.querySelectorAll(".composer-contact-avatar");
+
+    expect(avatares[0].querySelector("img")?.getAttribute("src")).toBe("https://cdn.test/ana.jpg");
+    expect(avatares[1].textContent).toBe("BC");
+  });
+
+  it("a linha é horizontal e de altura fixa, e a caixa de marcação fica nela", () => {
+    // A regra global `label{flex-direction:column}` alcança este `<label>`. Sem
+    // declarar a direção aqui, ela vence por omissão — medido em Chrome real:
+    // a linha ia a 114 px, empilhada e com a caixa solta acima. Com a declaração,
+    // 52 px. É o teste que impede a volta silenciosa.
+    const regra = /\.chat-inbox \.composer-contact-row \{([^}]*)\}/.exec(stylesheet);
+    expect(regra, "regra .composer-contact-row ausente").toBeTruthy();
+    expect(regra![1]).toMatch(/flex-direction:\s*row/);
+    expect(regra![1]).toMatch(/min-height:\s*\d+px/);
+    expect(regra![1]).toMatch(/align-items:\s*center/);
+    // E o avatar precisa recortar a foto no círculo.
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-contact-avatar \{[^}]*overflow:\s*hidden/);
+    expect(stylesheet).toMatch(/\.chat-inbox \.composer-contact-avatar img \{[^}]*object-fit:\s*cover/);
+  });
+
   it("não oferece carregar mais quando a lista já tem tudo", async () => {
     const { painel } = await abrirContatos();
     await within(painel).findByRole("list", { name: "Contatos encontrados" });
@@ -197,5 +258,36 @@ describe("escolha de contato para envio", () => {
     fireEvent.click(within(painel).getByRole("button", { name: "Cancelar" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Enviar contato" })).toBeNull());
     expect(client.sendVcard).not.toHaveBeenCalled();
+  });
+});
+
+describe("o que a linha mostra", () => {
+  const contato = (displayName: string, phoneNumber: string, photoUrl?: string) => ({ id: "c", displayName, phoneNumber, ...(photoUrl ? { photoUrl } : {}) });
+
+  it("nome de verdade vira título, telefone formatado vira subtítulo", () => {
+    expect(contactRow(contato("Ana Ribeiro", "5511999990001")))
+      .toEqual({ title: "Ana Ribeiro", subtitle: "+55 (11) 99999-0001", initials: "AR" });
+  });
+
+  it("nome que é o próprio telefone não é nome: uma linha, sem subtítulo e sem iniciais", () => {
+    expect(contactRow(contato("558592369359", "558592369359")))
+      .toEqual({ title: "+55 (85) 9236-9359" });
+  });
+
+  it("o teste é a forma, não a igualdade: dígitos diferentes também não são nome", () => {
+    // Um número gravado no campo de nome não vira nome por ser outro número.
+    expect(contactRow(contato("+55 85 9236 9359", "5511999990001")))
+      .toEqual({ title: "+55 (11) 99999-0001" });
+  });
+
+  it("sem nome e sem telefone utilizável, cai no rótulo que a Inbox já usa", () => {
+    expect(contactRow(contato("  ", "abc"))).toEqual({ title: "Contato sem identificação" });
+  });
+
+  it("a foto acompanha o título, com nome ou sem", () => {
+    expect(contactRow(contato("Ana Ribeiro", "5511999990001", "u")).photoUrl).toBe("u");
+    expect(contactRow(contato("558592369359", "558592369359", "u")).photoUrl).toBe("u");
+    // String vazia não é foto: renderizar `<img src="">` recarrega a página.
+    expect(contactRow(contato("Ana", "5511999990001", "   ")).photoUrl).toBeUndefined();
   });
 });
