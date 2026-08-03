@@ -219,7 +219,7 @@ export function historyRecord(workspaceId: string, wahaSession: string, payload:
  * payload lands in `payloadJson` — no column and no migration for coordinates.
  */
 function outboundRecord(input: { workspaceId: string; wahaSession: string; chatId: string; externalMessageId: string; text: string | null; occurredAt: string; type?: string; payload?: Record<string, unknown> }): StoredWebhook { return { workspaceId: input.workspaceId, wahaSession: input.wahaSession, externalEventId: `outbound:${input.externalMessageId}`, eventType: 'message.any', occurredAt: input.occurredAt, payload: { id: input.externalMessageId, chatId: input.chatId, body: input.text, type: input.type ?? 'text', fromMe: true, ...(input.payload ?? {}) }, receivedAt: new Date().toISOString() }; }
-function messageFrom(event: StoredWebhook, ownWhatsappNumbers: readonly string[] = []): StoredMessage | undefined { if (event.eventType !== 'message' && event.eventType !== 'message.any') return undefined; const value = event.payload; const id = text(value.id) ?? text(nested(value, 'key', 'id')); const direction = value.fromMe === true ? 'outbound' : 'inbound'; const lockedHistoryChatId = value._history === true ? text(value._historyChatId) : undefined; const receivedChatId = lockedHistoryChatId ?? chatIdFromPayload(value, direction); const media = record(value.media); const mime = text(media?.mimetype) ?? text(media?.mimeType); const wahaType = wahaMessageType(value); const messageType = mediaType(text(value.type), mime, value.hasMedia === true, wahaType); const identity = resolveConversationIdentity({ direction, chatId: receivedChatId, messageType: wahaType, ownWhatsappNumbers }); if (!id || !identity) { log('info', 'WAHA message discarded', { eventId: event.externalEventId, messageId: id ?? null, chatIdReceived: receivedChatId ?? null, chatIdNormalized: null, discardReason: !id ? 'missing_message_id' : !receivedChatId ? 'missing_chat_id' : isTechnicalMessageType(wahaType) ? 'technical_message_type' : 'invalid_or_technical_chat_id', wahaMessageType: wahaType ?? null, messageInserted: false, conversationId: null }); return undefined; } log('info', 'WAHA message normalized', { eventId: event.externalEventId, messageId: id, chatIdReceived: receivedChatId, chatIdNormalized: identity.conversationChatId, chatIdSource: chatIdSource(value, direction), discardReason: null }); return { ...event, externalMessageId: id, chatId: identity.conversationChatId, deliveryChatId: identity.deliveryChatId, conversationType: identity.conversationType, senderWhatsappId: identity.conversationType === 'group' ? text(value.participant) ?? text(nested(value, 'key', 'participant')) ?? null : identity.conversationChatId, direction, messageType, body: text(value.body) ?? text(value.text) ?? null, mediaUrl: safeUrl(text(media?.url) ?? text(value.mediaUrl)), mediaMimeType: mime ?? null, mediaFilename: text(media?.filename) ?? text(value.filename) ?? null, mediaSize: integer(media?.filesize) ?? integer(media?.size) ?? integer(value.mediaSize), thumbnailUrl: safeUrl(text(media?.thumbnailUrl) ?? text(value.thumbnailUrl)), duration: integer(media?.duration) ?? integer(value.duration), quotedMessageId: text(value.replyTo) ?? text(nested(value, 'quoted', 'id')) ?? null, historical: value._history === true }; }
+function messageFrom(event: StoredWebhook, ownWhatsappNumbers: readonly string[] = []): StoredMessage | undefined { if (event.eventType !== 'message' && event.eventType !== 'message.any') return undefined; const value = event.payload; const id = text(value.id) ?? text(nested(value, 'key', 'id')); const direction = value.fromMe === true ? 'outbound' : 'inbound'; const lockedHistoryChatId = value._history === true ? text(value._historyChatId) : undefined; const receivedChatId = lockedHistoryChatId ?? chatIdFromPayload(value, direction); const media = record(value.media); const mime = mimeFrom(value, media); const wahaType = wahaMessageType(value); const messageType = mediaType(text(value.type), mime, value.hasMedia === true, wahaType); const identity = resolveConversationIdentity({ direction, chatId: receivedChatId, messageType: wahaType, ownWhatsappNumbers }); if (!id || !identity) { log('info', 'WAHA message discarded', { eventId: event.externalEventId, messageId: id ?? null, chatIdReceived: receivedChatId ?? null, chatIdNormalized: null, discardReason: !id ? 'missing_message_id' : !receivedChatId ? 'missing_chat_id' : isTechnicalMessageType(wahaType) ? 'technical_message_type' : 'invalid_or_technical_chat_id', wahaMessageType: wahaType ?? null, messageInserted: false, conversationId: null }); return undefined; } log('info', 'WAHA message normalized', { eventId: event.externalEventId, messageId: id, chatIdReceived: receivedChatId, chatIdNormalized: identity.conversationChatId, chatIdSource: chatIdSource(value, direction), discardReason: null }); return { ...event, externalMessageId: id, chatId: identity.conversationChatId, deliveryChatId: identity.deliveryChatId, conversationType: identity.conversationType, senderWhatsappId: identity.conversationType === 'group' ? text(value.participant) ?? text(nested(value, 'key', 'participant')) ?? null : identity.conversationChatId, direction, messageType, body: bodyFrom(messageType, value), mediaUrl: safeUrl(text(media?.url) ?? text(value.mediaUrl)), mediaMimeType: mime ?? null, mediaFilename: text(media?.filename) ?? text(value.filename) ?? null, mediaSize: integer(media?.filesize) ?? integer(media?.size) ?? integer(value.mediaSize), thumbnailUrl: safeUrl(text(media?.thumbnailUrl) ?? text(value.thumbnailUrl)), duration: integer(media?.duration) ?? integer(value.duration), quotedMessageId: text(value.replyTo) ?? text(nested(value, 'quoted', 'id')) ?? null, historical: value._history === true }; }
 function chatIdFromPayload(value: Record<string, unknown>, direction: 'inbound' | 'outbound'): string | undefined {
   // A participant identifies the author of a group message, never its chat.
   // Prefer explicit chat fields. When WAHA only provides remoteJid alongside a
@@ -278,7 +278,77 @@ function cursorValue(cursor?: string): { at: string; id: string } | undefined { 
  *  adopting it wholesale would rewrite 5.846 of 6.825 rows — `text` would become
  *  `chat`, and `gp2`, `e2e_notification` and `revoked` would reach the Inbox. */
 const voiceNoteRawTypes = new Set(['ptt', 'voice']);
-function mediaType(type: string | undefined, mime: string | undefined, hasMedia: boolean, rawType?: string): string { if (type && type !== 'text') return type.toLowerCase(); if (!hasMedia && !mime) return 'text'; if (mime?.startsWith('image/')) return 'image'; if (mime?.startsWith('video/')) return 'video'; if (mime?.startsWith('audio/')) return voiceNoteRawTypes.has(rawType?.trim().toLowerCase() ?? '') ? 'ptt' : 'audio'; return 'document'; }
+/** A tradução do vocabulário do WEBJS para o do produto, e o motivo de ela ser um
+ *  MAPA e não um repasse.
+ *
+ *  A tentação, depois de descobrir que o tipo real está em `_data.type`, é usá-lo
+ *  direto. É o que o comentário acima proíbe, e a medição na base viva diz por
+ *  quê: `chat` — o nome que o WEBJS dá a uma mensagem de texto comum — são 7.296
+ *  linhas, e adotar o vocabulário cru renomearia 10.714 das 12.851 (83%).
+ *
+ *  Então só entram aqui os tipos cuja tradução é conhecida, e o mapa é
+ *  deliberadamente CURTO: tipo que não está nele não é traduzido e continua
+ *  caindo na classificação por mime, exatamente como antes. É isso que impede que
+ *  um tipo novo do WhatsApp vire um rótulo que nenhum renderizador conhece.
+ *
+ *  `location` e `contact` são os dois que o dashboard desenha a partir do payload
+ *  guardado, antes de precisar de mídia (MessageMedia.tsx:331-332). Para eles a
+ *  classificação era a única coisa que faltava: sem ela a mensagem caía em
+ *  `text`, e uma localização do WEBJS traz no `body` a MINIATURA em base64 — 4 KB
+ *  de `/9j/4AAQ…` ocupando a conversa. Ver `bodyFrom`. */
+const canonicalRawTypes: ReadonlyMap<string, string> = new Map([
+  ['chat', 'text'],
+  ['location', 'location'],
+  ['vcard', 'contact'],
+  ['multi_vcard', 'contact'],
+]);
+export function canonicalMessageType(rawType: string | null | undefined): string | undefined {
+  return canonicalRawTypes.get(rawType?.trim().toLowerCase() ?? '');
+}
+function mediaType(type: string | undefined, mime: string | undefined, hasMedia: boolean, rawType?: string): string { if (type && type !== 'text') return type.toLowerCase(); const canonical = canonicalMessageType(rawType); if (canonical) return canonical; if (!hasMedia && !mime) return 'text'; if (mime?.startsWith('image/')) return 'image'; if (mime?.startsWith('video/')) return 'video'; if (mime?.startsWith('audio/')) return voiceNoteRawTypes.has(rawType?.trim().toLowerCase() ?? '') ? 'ptt' : 'audio'; return 'document'; }
+/** O texto da mensagem, por tipo — porque nem todo tipo guarda texto no mesmo
+ *  lugar, e um deles não guarda texto nenhum.
+ *
+ *  Numa localização do WEBJS o `body` da raiz é a miniatura do mapa em base64, o
+ *  mesmo blob de `location.thumbnail`. Copiá-lo para a coluna `body` é o que fazia
+ *  a Inbox exibir um bloco de base64 no lugar da mensagem, e o que punha esse
+ *  bloco em `conversations.last_message`. O texto útil de uma localização é o nome
+ *  do lugar, que vem em `location.name` quando o remetente escolheu um ponto
+ *  nomeado; quando ele mandou só as coordenadas, a localização não tem corpo — o
+ *  cartão do mapa já diz tudo.
+ *
+ *  `name` e não `description`: a descrição é o nome e o endereço concatenados, e o
+ *  cartão já mostra os dois. O dashboard suprime o corpo que repete o título
+ *  (`bodyRepeatsCard`, messageMedia.ts:121), e é com `name` que essa comparação
+ *  casa. */
+/** O mime do anexo, das duas origens — e a segunda é a que faltava.
+ *
+ *  O objeto `media` da raiz existe nos eventos que chegam ao vivo pelo webhook e
+ *  falta nos importados pela sincronização de histórico. Como `mediaType`
+ *  classifica por mime, todo anexo histórico caía no `return 'document'` final:
+ *  medido na base, 2.524 das 2.545 linhas gravadas como `document` estão com
+ *  `media_mime_type` nulo.
+ *
+ *  O mime nunca esteve faltando no payload — só não estava sendo lido.
+ *  `_data.mimetype` está preenchido em 5.377 de 5.377 linhas da família de mídia
+ *  (100%), contra 2.245 na raiz. Ler a raiz primeiro mantém o tráfego ao vivo
+ *  exatamente como estava; a retaguarda só age onde hoje não há nada.
+ *
+ *  Efeito medido antes de aplicar: 3.079 linhas passariam a classificar de outro
+ *  jeito (ptt, image, video no lugar de document) e TODAS as 3.079 estão sem
+ *  `media_url`, então a tela — que já mostra "Recebida" quando não há mídia para
+ *  buscar — não muda para nenhuma delas. O que muda é a classificação do que
+ *  chegar daqui em diante, inclusive pela sincronização de histórico. */
+function mimeFrom(value: Record<string, unknown>, media: Record<string, unknown> | undefined): string | undefined {
+  return text(media?.mimetype) ?? text(media?.mimeType) ?? text(record(value._data)?.mimetype);
+}
+function bodyFrom(canonical: string, value: Record<string, unknown>): string | null {
+  if (canonical === 'location') {
+    const point = record(value.location);
+    return text(point?.name) ?? null;
+  }
+  return text(value.body) ?? text(value.text) ?? null;
+}
 export function messagePreview(message: Pick<StoredMessage, 'messageType' | 'body' | 'mediaFilename'>): string { const caption = message.body?.trim(); switch (message.messageType) { case 'text': return caption || 'Mensagem'; case 'image': return caption ? `Foto: ${caption}` : 'Foto'; case 'video': return caption ? `Vídeo: ${caption}` : 'Vídeo'; case 'audio': return 'Áudio'; case 'ptt': case 'voice': return 'Mensagem de voz'; case 'document': return message.mediaFilename ? `Documento: ${message.mediaFilename}` : 'Documento'; case 'sticker': return 'Sticker'; case 'contact': return 'Contato'; case 'location': return 'Localização'; default: return caption || 'Mensagem'; } }
 function missingMediaColumns(error: { code?: string; message?: string; details?: string }): boolean { return error.code === '42703' || /media_(url|mime_type|filename|size|storage_path|checksum|persistence_status)|thumbnail_url|quoted_message_id/i.test(`${error.message ?? ''} ${error.details ?? ''}`); }
 function phoneFromChat(chatId: string): string { return chatId.split('@', 1)[0].replace(/\D/g, ''); }
