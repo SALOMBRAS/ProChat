@@ -202,6 +202,45 @@ sobe no boot e nada disso acontece. Uma unit de usuário não pode declarar
 dependência de `docker.service`, que é do sistema — em vez disso ela apenas
 falha e é reiniciada até o docker existir.
 
+### `npm` no `ExecStart` faz o desligamento vazar
+
+Se a unit chamar `npm run …`, o `npm` vira o `MainPID` — e ele **morre sem
+repassar o sinal**. Medido em 03/08/2026, subindo a mesma pilha das duas formas
+e mandando `SIGTERM` no processo de topo:
+
+| forma | topo saiu em | processos vivos depois |
+| --- | ---: | ---: |
+| `npm run dev:waha:keep` | 0,50 s | **6** |
+| `node … waha-runtime.mjs --keep-waha` | 0,50 s | **0** |
+
+Com o `npm` à frente, o processo que tem os handlers nunca recebe o `SIGTERM`:
+toda a lógica de desligamento do `local-runtime.mjs` fica sem rodar. O systemd
+vê o `MainPID` sumir com o cgroup ainda cheio, espera o `TimeoutStopSec` inteiro
+e mata o grupo. Isso custava **30,19 s por parada**, e num dos casos o `SIGKILL`
+atrasado alcançou a instância **seguinte** — o vite subiu, anunciou a porta e
+morreu segundos depois.
+
+Trocado o `ExecStart` para o `node` direto, a mesma parada leva **0,02 s** e não
+deixa processo para trás. O par de prazos (10 s no script, 30 s na unit) já
+estava na ordem certa; o defeito nunca foi o número.
+
+### Recusar subir vale mais que subir torto
+
+`local-runtime.mjs` confere 3000, 3101 e 5173 **antes** de compilar ou spawnar
+qualquer coisa, e sai com **78** (`EX_CONFIG`) se alguma estiver ocupada. Antes
+disso o arranque ia longe para depois falhar ao vincular, deixando meia pilha no
+ar; sob `Restart=always` virava laço — medidos 37 reinícios seguidos porque um
+runtime em primeiro plano segurava a 5173.
+
+O código distinto existe para a unit poder parar em vez de girar:
+
+```ini
+RestartPreventExitStatus=78
+```
+
+Porta ocupada é problema de ambiente, e reiniciar não conserta ambiente. Com
+isso a unit fica `failed` e visível, em vez de consumir a noite.
+
 ## Checklist de validação real
 
 1. Inicie API e worker e confirme a sessão `WORKING`.

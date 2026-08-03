@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -67,7 +68,25 @@ function shutdown(exitCode = 0) {
   if (stopping) return;
   stopping = true;
   for (const child of children) if (!child.killed) child.kill('SIGTERM');
-  const deadline = setTimeout(() => process.exit(1), 10_000);
+  // O prazo escala para SIGKILL em vez de desistir. Sair aqui, como antes,
+  // deixava órfão todo filho que ignorasse o SIGTERM: o pai morria, eles
+  // seguiam segurando 3000/3101/5173, e o arranque seguinte colidia com eles.
+  //
+  // Medido em 03/08/2026 contra o serviço de usuário: `systemctl stop` gastava
+  // os 30 s inteiros do `TimeoutStopSec` e terminava com o systemd matando o
+  // cgroup, ainda deixando processo para trás. Aconteceu duas vezes no mesmo
+  // dia, e uma delas o SIGKILL atrasado alcançou a instância *seguinte* —
+  // o vite subiu, anunciou a porta e morreu com SIGKILL segundos depois.
+  //
+  // O par 10 s / 30 s já estava na ordem certa; o defeito não era o número, era
+  // o desligamento entregar ao systemd um trabalho que é dele.
+  const deadline = setTimeout(() => {
+    for (const child of children) if (child.exitCode === null) child.kill('SIGKILL');
+    // SIGKILL não se ignora, mas o evento `exit` ainda precisa de um tique para
+    // chegar. Este último prazo é só para o processo não ficar preso caso um
+    // filho já esteja zumbi, com o pai esperando um `exit` que não vem.
+    setTimeout(() => process.exit(exitCode), 1_000);
+  }, 10_000);
   Promise.all(children.map(child => child.exitCode !== null ? Promise.resolve() : new Promise(resolve => child.once('exit', resolve)))).then(() => {
     clearTimeout(deadline);
     process.exit(exitCode);
@@ -75,7 +94,40 @@ function shutdown(exitCode = 0) {
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => shutdown(0));
-process.once('exit', () => { for (const child of children) if (child.exitCode === null) child.kill('SIGTERM'); });
+// SIGKILL, e não SIGTERM: quem continua vivo neste ponto já ignorou um SIGTERM,
+// e esta é a última oportunidade de não deixar processo solto.
+process.once('exit', () => { for (const child of children) if (child.exitCode === null) child.kill('SIGKILL'); });
+/** Recusa subir quando alguma porta já está ocupada.
+ *
+ *  Sem isto o arranque ia longe antes de descobrir o problema: o `tsc` compilava,
+ *  o worker subia, e só então a API ou o vite falhavam ao vincular — deixando
+ *  meia pilha no ar e um erro que não diz o que aconteceu. Sob `Restart=always`
+ *  isso vira laço: medido em 03/08/2026, 37 reinícios seguidos porque um runtime
+ *  em primeiro plano segurava a 5173.
+ *
+ *  O código 78 (`EX_CONFIG`) é escolhido para a unit poder distingui-lo de uma
+ *  queda comum com `RestartPreventExitStatus=78`: porta ocupada é problema de
+ *  ambiente e reiniciar não conserta, então a unit deve parar e ficar visível
+ *  em vez de girar a noite toda. */
+const PORTA_LIVRE = 78;
+async function portaOcupada(porta) {
+  return new Promise(resolve => {
+    const sonda = createServer();
+    sonda.once('error', () => resolve(true));
+    sonda.listen(porta, '127.0.0.1', () => sonda.close(() => resolve(false)));
+  });
+}
+const ocupadas = [];
+for (const [porta, dono] of [[3000, 'API'], [3101, 'worker'], [5173, 'dashboard']]) {
+  if (await portaOcupada(porta)) ocupadas.push(`${porta} (${dono})`);
+}
+if (ocupadas.length) {
+  console.error(`[local-runtime] recusando subir: porta em uso — ${ocupadas.join(', ')}.`);
+  console.error('[local-runtime] Um desligamento anterior deixou processo para trás, ou há outro runtime no ar.');
+  console.error("[local-runtime] Veja quem segura com: ss -ltnp | grep -E ':(3000|3101|5173) '");
+  process.exit(PORTA_LIVRE);
+}
+
 const tsc = resolve(nodeModules, 'typescript', 'bin', 'tsc');
 const build = run(process.execPath, [tsc, '-p', 'packages/contracts/tsconfig.json'], 'contracts');
 build.once('exit', code => {
