@@ -605,9 +605,12 @@
    bloqueia, e aparecer atrás dela seria pior que não aparecer. */
 .mic-gate-backdrop { z-index: 70; }
 .mic-gate { display: grid; justify-items: center; gap: 11px; }
-.mic-gate-art { width: 74px; height: 74px; color: #c084fc;
-  /* O tema pinta `.modal svg` de branco com moldura, para o QR code da
-     sessão ficar legível. Aqui isso vira uma caixa branca atrás do ícone. */
+/* `.mic-gate .mic-gate-art`, e não `.mic-gate-art` sozinho: o tema pinta
+   `.modal svg` de branco com moldura para o QR code da sessão ficar legível, e
+   esse seletor tem especificidade 0-1-1. Uma classe só (0-1-0) PERDE dele e a
+   caixa branca volta atrás do ícone — foi o que aconteceu quando o prefixo
+   `.chat-inbox` saiu, e só a conferência em tela pegou. */
+.mic-gate .mic-gate-art { width: 74px; height: 74px; color: #c084fc;
   margin: 0; padding: 0; background: transparent; border-radius: 0; }
 .mic-gate h2 { margin: 0; font-size: 17px; letter-spacing: -.5px; }
 .mic-gate-copy { margin: 0; color: #a697b4; font-size: 13px; line-height: 1.5; }

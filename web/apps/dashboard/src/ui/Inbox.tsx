@@ -264,7 +264,15 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [attachmentCapture, setAttachmentCapture] = useState<"environment" | "user">();
   const [isRecording, setIsRecording] = useState(false);
   /** O portão de permissão do microfone. `undefined` = fechado. */
-  const [micGate, setMicGate] = useState<{ state: "prompt" | "denied"; asking: boolean; error?: string }>();
+  const [micGate, setMicGate] = useState<{ state: "prompt" | "denied" | "choose"; asking: boolean; error?: string }>();
+  /** O operador já passou pelo portão até o fim NESTA sessão.
+   *
+   *  Sem isto, a permissão do navegador era a única condição de entrada — e ela
+   *  responde "dá para gravar?", não "o operador quer, e com qual microfone?".
+   *  Quem concedia ao navegador e depois recusava no portão voltava a gravar no
+   *  clique seguinte, porque o navegador já dizia `granted`. Ver o teste de
+   *  regressão em InboxMicrophone.test.tsx. */
+  const [micConsent, setMicConsent] = useState(false);
   const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
   const [micDeviceId, setMicDeviceId] = useState<string>();
   /** Nível do sinal durante a gravação, 0–1, e o aviso da causa 3. */
@@ -933,10 +941,17 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       setError("A gravação de áudio não é suportada neste navegador.");
       return;
     }
+    // Quem já passou pelo portão nesta sessão grava direto; quem não passou vê o
+    // portão, INDEPENDENTE do que o navegador responda. É a correção do defeito:
+    // a escolha do operador manda sobre o estado da permissão, porque as duas
+    // perguntas são diferentes e só uma delas é sobre querer.
+    if (micConsent) { await captureMicrophone(); return; }
     const state = await microphoneState();
     if (state === "denied") { setMicGate({ state: "denied", asking: false }); return; }
-    if (state === "prompt") { setMicGate({ state: "prompt", asking: false }); return; }
-    await captureMicrophone();
+    // `granted` sem consentimento é o caso de quem já autorizou o navegador
+    // antes: o portão ainda aparece, mas para escolher o microfone, não para
+    // pedir o que já foi dado.
+    setMicGate({ state: state === "granted" ? "choose" : "prompt", asking: false });
   };
 
   /** Pede ao navegador e começa a gravar. Chamada direto quando a permissão já
@@ -954,11 +969,17 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       // que o navegador escolheu sozinho.
       if (devices.length > 1 && !micDeviceId) {
         stream.getTracks().forEach((track) => track.stop());
+        // O primeiro fica pré-selecionado no seletor, mas isso NÃO é
+        // consentimento: `micConsent` só é marcado quando a gravação começa de
+        // fato, e é ele que a entrada consulta. Gravar do dispositivo que o
+        // navegador calhou de devolver, sem o operador confirmar, era a causa 2
+        // de volta — e foi assim que o defeito da #137 apareceu.
         setMicDeviceId(devices[0]?.deviceId);
-        setMicGate({ state: "prompt", asking: false });
+        setMicGate({ state: "choose", asking: false });
         return;
       }
       setMicGate(undefined);
+      setMicConsent(true);
       beginRecording(stream);
     } catch (nextError) {
       const message = microphoneErrorMessage(nextError);

@@ -17,8 +17,10 @@ import { deviceLabel, MICROPHONE_RECOVERY } from "./microphone.js";
  *  navegador apareça quando o operador está olhando para ele. */
 export type MicrophonePermissionProps = {
   /** `prompt` — ainda dá para perguntar. `denied` — o navegador não pergunta mais,
-   *  e o texto passa a ser sobre como reverter. */
-  state: "prompt" | "denied";
+   *  e o texto passa a ser sobre como reverter. `choose` — a permissão já existe
+   *  e o que falta é o operador confirmar de qual microfone gravar; pedir o que
+   *  já foi dado soaria a erro do produto. */
+  state: "prompt" | "denied" | "choose";
   /** Enquanto o navegador mostra o próprio balão. */
   asking: boolean;
   /** Erro da última tentativa, já traduzido por `microphoneErrorMessage`. */
@@ -47,18 +49,23 @@ export function MicrophonePermission({
   state, asking, error, devices, deviceId, onDevice, onAllow, onCancel,
 }: MicrophonePermissionProps) {
   const denied = state === "denied";
+  const choosing = state === "choose";
   return (
     <div className="modal-backdrop mic-gate-backdrop" role="presentation">
       <div className="modal mic-gate" role="alertdialog" aria-modal="true"
            aria-labelledby="mic-gate-title" aria-describedby="mic-gate-copy">
         <MicrophoneMark />
-        <h2 id="mic-gate-title">{denied ? "O microfone está bloqueado" : "Ativar o microfone?"}</h2>
+        <h2 id="mic-gate-title">
+          {denied ? "O microfone está bloqueado" : choosing ? "De qual microfone gravar?" : "Ativar o microfone?"}
+        </h2>
         <p id="mic-gate-copy" className="mic-gate-copy">
           {denied
             // Sem isto, "permissão negada" é um beco sem saída: o navegador não
             // volta a perguntar e o botão que reverte não está na página.
             ? `Este navegador não vai perguntar de novo. ${MICROPHONE_RECOVERY}`
-            : "Para gravar uma nota de voz, o ChatPro precisa do seu microfone. O navegador vai pedir a confirmação em seguida."}
+            : choosing
+              ? "O microfone já está liberado. Confirme de qual dispositivo gravar — é aqui que a nota sai muda quando o escolhido é o errado."
+              : "Para gravar uma nota de voz, o ChatPro precisa do seu microfone. O navegador vai pedir a confirmação em seguida."}
         </p>
 
         {error && <p className="mic-gate-error" role="alert">{error}</p>}
@@ -79,7 +86,7 @@ export function MicrophonePermission({
               como no Meet. Quem quer sair sai; quem só quer seguir não erra o
               alvo. */}
           <button type="button" className="mic-gate-allow" onClick={onAllow} disabled={asking} autoFocus>
-            {asking ? "Aguardando o navegador…" : denied ? "Tentar de novo" : "Permitir microfone"}
+            {asking ? "Aguardando o navegador…" : denied ? "Tentar de novo" : choosing ? "Começar a gravar" : "Permitir microfone"}
           </button>
           <button type="button" className="mic-gate-dismiss" onClick={onCancel} disabled={asking}>
             Agora não
