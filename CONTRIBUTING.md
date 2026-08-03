@@ -564,6 +564,50 @@ essencial:
 6. **Rollback** em **ordem inversa** (M2 antes de M1) e igualmente seguido de
    restart. Saiba o que ele não desfaz: `DROP COLUMN` descarta os dados.
 
+### Antes de apagar em massa
+
+Duas regras, escritas depois de um `DELETE` que custou **504 linhas** de
+`conversation_kanban_state` em 31/07/2026.
+
+**1. Confirme que a fonte da verdade é a mesma que o código usa em runtime.**
+
+O `DELETE` daquele dia selecionava os cards cuja conversa está numa sessão
+WhatsApp que a WAHA não lista, e foi aprovado conferindo
+`GET {WAHA_BASE_URL}/api/sessions?all=true` — que devolvia exatamente uma
+sessão. A conferência foi feita, no momento certo, e respondeu certo à pergunta
+que lhe foi feita.
+
+O problema é que **não era a fonte que o código consulta**. Quem decide se uma
+conversa é alcançável é o worker, e ele responde `session.list` com
+`{ wahaName, aliases: [...] }`: os `aliases` são nomes de pareamentos anteriores
+que ele **ainda roteia** para a sessão no ar. A WAHA não os expõe porque não são
+sessões dela — são um mapeamento do worker.
+
+Resultado: 499 dos 504 cards apagados eram de conversas vivas e respondíveis. A
+fonte estava **incompleta, não errada** — e é isso que a torna perigosa, porque
+uma fonte errada se denuncia e uma incompleta concorda com você.
+
+Na prática, antes de um `DELETE` que dependa de um critério externo:
+
+- pergunte **qual função do código** decide esse critério em produção, e leia
+  **de onde ela lê**;
+- se a resposta vier de um serviço interno (worker, cache, view), confira por
+  ele, não pela API de origem — e diga no documento por qual dos dois conferiu;
+- desconfie quando a fonte consultada for mais simples que a decisão. Um
+  endpoint que devolve uma lista de nomes não sabe nada sobre roteamento.
+
+**2. Backup exportado do SQL Editor tem de ser SALVO EM ARQUIVO.**
+
+Não serve copiar para a área de transferência. A área de transferência é
+sobrescrita pela próxima cópia, não sobrevive a um reinício e não pode ser
+conferida depois — e o `DELETE` de 31/07 ficou sem restauração possível
+exatamente assim: o `SELECT` foi exportado, copiado, e perdido antes de virar
+arquivo.
+
+Salve em disco, confira a contagem de linhas do arquivo **antes** de rodar o
+`DELETE`, e só apague depois que ela bater com a do `SELECT`. Guarde o arquivo
+até a conferência pós-restauração passar.
+
 ### Ao investigar produção
 
 Abra o documento declarando o modo de acesso, como todos os docs recentes fazem:
