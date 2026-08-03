@@ -276,6 +276,14 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [slaMetrics, setSlaMetrics] = useState<SlaMetrics>();
   const [loadingSla, setLoadingSla] = useState(false);
   const [requestedConversationId, setRequestedConversationId] = useState(() => conversationIdFromLocation());
+  /** A conversa aberta a partir de um card do Kanban. Estado separado de
+   *  `selected` porque `selected` responde a outra pergunta — qual conversa a
+   *  Inbox está mostrando —, e aqui é preciso saber se a **janela** está no ar,
+   *  inclusive enquanto a conversa ainda está carregando ou falhou. */
+  const [cardConversationOpen, setCardConversationOpen] = useState(false);
+  const [cardConversationError, setCardConversationError] = useState("");
+  const cardWindowRef = useRef<HTMLDivElement>(null);
+  const cardOpenerRef = useRef<HTMLElement>();
   const [resolvingConversationId, setResolvingConversationId] = useState<string>();
   const [deepLinkError, setDeepLinkError] = useState("");
   const [deepLinkAttempt, setDeepLinkAttempt] = useState(0);
@@ -741,7 +749,47 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
         : Promise.resolve(),
     ]);
   };
+  /** Abrir a conversa de um card **sem sair do quadro**: `openConversation` com
+   *  `syncUrl: false` é o mesmo caminho do deep link, menos o `pushState` — a
+   *  rota continua sendo a do Kanban, e fechar a janela não precisa desfazer
+   *  histórico nenhum.
+   *
+   *  A conversa vem da página já carregada quando estiver lá, e por `id` quando
+   *  não estiver. Nunca por varredura de páginas: o card do Kanban pode ser de
+   *  uma conversa que a primeira página da lista não alcança. */
+  const openFromCard = async (conversationId: string) => {
+    cardOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    setCardConversationError("");
+    setCardConversationOpen(true);
+    if (selected?.id === conversationId) return;
+    setSelected(undefined);
+    try {
+      const conversation = conversationPage.items.find(item => item.id === conversationId) ?? await api.conversation(conversationId);
+      if (!mounted.current) return;
+      await openConversation(conversation, false);
+    } catch (failure) {
+      if (!mounted.current) return;
+      const status = failure instanceof ApiError ? Number(failure.details.status) : 0;
+      setCardConversationError(status === 404 ? "A conversa não está disponível." : "Não foi possível abrir esta conversa. Tente novamente.");
+    }
+  };
+  const closeCardConversation = useCallback(() => { setCardConversationOpen(false); setCardConversationError(""); cardOpenerRef.current?.focus(); cardOpenerRef.current = undefined; }, []);
+  // `Esc` fecha, e o foco entra na janela ao abrir e volta para o card ao
+  // fechar. Sem isso, quem navega por teclado abriria a conversa e continuaria
+  // com o foco perdido no quadro atrás dela.
   useEffect(() => {
+    if (!cardConversationOpen) return;
+    cardWindowRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); closeCardConversation(); } };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [cardConversationOpen, closeCardConversation]);
+  useEffect(() => {
+    // A janela do Kanban manda enquanto está aberta. Sem esta guarda, abrir um
+    // card depois de ter vindo da Inbox com uma conversa na URL faria o deep
+    // link reabrir a conversa da URL por cima da que o operador clicou — o
+    // `setSelected(undefined)` de `openFromCard` é exatamente o gatilho.
+    if (cardConversationOpen) return;
     if (loadingConversations || !requestedConversationId || selected?.id === requestedConversationId) return;
     const loaded = conversationPage.items.find((item) => item.id === requestedConversationId);
     if (loaded) { void openConversation(loaded, false); return; }
@@ -765,7 +813,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
         if (mounted.current && request === deepLinkRequest.current) setResolvingConversationId(undefined);
       });
     return () => controller.abort();
-  }, [api, conversationPage.items, deepLinkAttempt, loadingConversations, requestedConversationId, selected?.id]);
+  }, [api, cardConversationOpen, conversationPage.items, deepLinkAttempt, loadingConversations, requestedConversationId, selected?.id]);
   const submitMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected || sending) return;
@@ -1142,108 +1190,12 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     return true;
   });
   const sync = syncView(syncJob, syncResume, startingSync);
-  if (view === "kanban") return <section className="page inbox"><button className="secondary" onClick={() => setView("list")}>Lista</button><InboxKanban /></section>;
-  return (
-    <section className="page inbox chat-inbox">
-      <div className="inbox-layout">
-        <aside className="inbox-list" aria-label="Conversas">
-          <div className="inbox-list-head">
-            <div>
-              <p className="inbox-eyebrow">ATENDIMENTO</p>
-              <h2>
-                Conversas <span>{conversationPage.total}</span>
-              </h2>
-            </div>
-            <button
-              className="secondary refresh-button"
-              disabled={loadingConversations}
-              onClick={() => void refreshConversations()}
-              aria-label="Atualizar conversas"
-            >
-              ↻
-            </button>
-            <button className="secondary" onClick={() => setView("kanban")} aria-label="Abrir Kanban">Kanban</button>
-          </div>
-          {/* O estado da sincronização em uma faixa só: o que está acontecendo
-              agora, quanto já veio, e a ação que cabe neste estado. Antes daqui a
-              tela repetia o último `progressLabel` gravado, então um job que
-              falhou e voltou a rodar continuava anunciando "Falhou". */}
-          {/* Região viva sem `role="status"`: o papel já existe no compositor, e
-              dois `status` na mesma tela deixam qualquer busca por papel ambígua —
-              para a leitura em voz alta o `aria-live` sozinho basta. */}
-          <div className={`inbox-sync is-${sync.tone}`} aria-live="polite">
-            <div className="inbox-sync-copy">
-              <strong>{sync.headline}</strong>
-              {sync.detail && <span>{sync.detail}</span>}
-              {sync.note && <small>{sync.note}</small>}
-            </div>
-            <div className="inbox-sync-actions">
-              {sync.canStart && (
-                <button className="secondary" disabled={sync.busy} onClick={() => void startSync()}>
-                  {sync.startLabel}
-                </button>
-              )}
-              {sync.canCancel && (
-                <button className="secondary" onClick={() => void cancelSync()}>
-                  Cancelar sincronização
-                </button>
-              )}
-            </div>
-          </div>
-          <label className="inbox-management-filter">
-            <span>Filtro</span>
-            <select aria-label="Filtrar conversas" value={filter} onChange={(event) => setFilter(event.target.value as InboxFilter)}>
-              <option value="all">Todas</option><option value="mine">Minhas</option><option value="unassigned">Sem responsável</option><option value="in_progress">Em atendimento</option><option value="waiting_customer">Aguardando cliente</option><option value="resolved">Resolvidas</option><option value="archived">Arquivadas</option><option value="high_priority">Alta prioridade</option>
-            </select>
-          </label>
-          {error && (
-            <p className="alert" role="alert">
-              {error}
-            </p>
-          )}
-          {resolvingConversationId && <p className="inbox-loading" role="status">Abrindo conversa…</p>}
-          {deepLinkError && <div className="alert" role="alert"><span>{deepLinkError}</span><button type="button" className="secondary" onClick={() => setDeepLinkAttempt((attempt) => attempt + 1)}>Tentar novamente</button></div>}
-          {loadingConversations ? (
-            <p className="inbox-loading">Carregando conversas…</p>
-          ) : (
-            filteredConversations.map((conversation) => (
-              <button
-                className={
-                  selected?.id === conversation.id
-                    ? "conversation-item selected"
-                    : "conversation-item"
-                }
-                key={conversation.id}
-                onClick={() => void openConversation(conversation)}
-              >
-                <Avatar conversation={conversation} />
-                <span className="conversation-content">
-                  <span className="conversation-top">
-                    <strong>
-                      {contactName(conversation)}
-                      {isGroup(conversation) && " · Grupo"}
-                    </strong>
-                    <time>
-                      {new Date(conversation.lastMessageAt).toLocaleTimeString(
-                        [],
-                        { hour: "2-digit", minute: "2-digit" },
-                      )}
-                    </time>
-                  </span>
-                  <span className="conversation-bottom">
-                    <span className="conversation-preview">
-                      {conversation.lastMessage ?? "Sem mensagens de texto"}
-                    </span>
-                    {conversation.unreadCount > 0 && (
-                      <span className="unread">{conversation.unreadCount}</span>
-                    )}
-                  </span>
-                  <span className="conversation-management-meta"><b className={`priority-${conversation.priority}`}>{priorityLabel[conversation.priority]}</b><small>{statusLabel[conversation.status]}</small><small>{conversation.assignedUserId ? workspaceUsers.find(user => user.id === conversation.assignedUserId)?.displayName ?? "Responsável definido" : "Sem responsável"}</small>{conversation.assignedTeamId && <small>{teams.find(team => team.id === conversation.assignedTeamId)?.name ?? "Equipe"}</small>}</span>
-                </span>
-              </button>
-            ))
-          )}
-        </aside>
+  /** A conversa da Inbox, uma vez só. A coluna do meio da lista e a janela
+   *  flutuante do Kanban renderizam ESTE bloco — não uma cópia dele. É closure
+   *  e não componente de propósito: o painel usa dezenas de estados e
+   *  manipuladores desta função (composição, anexos, editor, áudio, notas), e
+   *  passá-los por props seria reescrever a fiação para não reescrever a tela. */
+  const conversationPane = () => (
         <section
           className={`inbox-history${dropping ? " dropping" : ""}`}
           onDragEnter={dragEnter}
@@ -1415,6 +1367,126 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
             </div>
           )}
         </section>
+  );
+  if (view === "kanban") return <section className="page inbox">
+    <button className="secondary" onClick={() => setView("list")}>Lista</button>
+    <InboxKanban onOpenConversation={openFromCard} />
+    {/* Sobreposição, e não painel lateral nem janela arrastável. O Kanban é
+      * horizontal: uma gaveta lateral encolheria justamente as colunas que o
+      * operador está lendo. E o que ele quer é **voltar rápido** para o quadro
+      * — problema de fechar, não de ver as duas coisas ao mesmo tempo. `Esc`,
+      * clique fora e o botão fecham; nada de arrastar, redimensionar e ordem
+      * de empilhamento para manter. O quadro continua montado por trás, então
+      * fechar não recarrega nada. */}
+    {cardConversationOpen && <div className="kanban-conversation-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) closeCardConversation(); }}>
+      <div className="kanban-conversation-window" role="dialog" aria-modal="true" aria-label={selected ? `Conversa com ${contactName(selected)}` : "Abrindo conversa"} ref={cardWindowRef} tabIndex={-1}>
+        <button type="button" className="kanban-conversation-close" onClick={closeCardConversation} aria-label="Fechar conversa e voltar ao quadro">×</button>
+        {cardConversationError ? <p className="alert" role="alert">{cardConversationError}</p> : selected ? conversationPane() : <p className="inbox-loading">Abrindo conversa…</p>}
+      </div>
+    </div>}
+  </section>;
+  return (
+    <section className="page inbox chat-inbox">
+      <div className="inbox-layout">
+        <aside className="inbox-list" aria-label="Conversas">
+          <div className="inbox-list-head">
+            <div>
+              <p className="inbox-eyebrow">ATENDIMENTO</p>
+              <h2>
+                Conversas <span>{conversationPage.total}</span>
+              </h2>
+            </div>
+            <button
+              className="secondary refresh-button"
+              disabled={loadingConversations}
+              onClick={() => void refreshConversations()}
+              aria-label="Atualizar conversas"
+            >
+              ↻
+            </button>
+            <button className="secondary" onClick={() => setView("kanban")} aria-label="Abrir Kanban">Kanban</button>
+          </div>
+          {/* O estado da sincronização em uma faixa só: o que está acontecendo
+              agora, quanto já veio, e a ação que cabe neste estado. Antes daqui a
+              tela repetia o último `progressLabel` gravado, então um job que
+              falhou e voltou a rodar continuava anunciando "Falhou". */}
+          {/* Região viva sem `role="status"`: o papel já existe no compositor, e
+              dois `status` na mesma tela deixam qualquer busca por papel ambígua —
+              para a leitura em voz alta o `aria-live` sozinho basta. */}
+          <div className={`inbox-sync is-${sync.tone}`} aria-live="polite">
+            <div className="inbox-sync-copy">
+              <strong>{sync.headline}</strong>
+              {sync.detail && <span>{sync.detail}</span>}
+              {sync.note && <small>{sync.note}</small>}
+            </div>
+            <div className="inbox-sync-actions">
+              {sync.canStart && (
+                <button className="secondary" disabled={sync.busy} onClick={() => void startSync()}>
+                  {sync.startLabel}
+                </button>
+              )}
+              {sync.canCancel && (
+                <button className="secondary" onClick={() => void cancelSync()}>
+                  Cancelar sincronização
+                </button>
+              )}
+            </div>
+          </div>
+          <label className="inbox-management-filter">
+            <span>Filtro</span>
+            <select aria-label="Filtrar conversas" value={filter} onChange={(event) => setFilter(event.target.value as InboxFilter)}>
+              <option value="all">Todas</option><option value="mine">Minhas</option><option value="unassigned">Sem responsável</option><option value="in_progress">Em atendimento</option><option value="waiting_customer">Aguardando cliente</option><option value="resolved">Resolvidas</option><option value="archived">Arquivadas</option><option value="high_priority">Alta prioridade</option>
+            </select>
+          </label>
+          {error && (
+            <p className="alert" role="alert">
+              {error}
+            </p>
+          )}
+          {resolvingConversationId && <p className="inbox-loading" role="status">Abrindo conversa…</p>}
+          {deepLinkError && <div className="alert" role="alert"><span>{deepLinkError}</span><button type="button" className="secondary" onClick={() => setDeepLinkAttempt((attempt) => attempt + 1)}>Tentar novamente</button></div>}
+          {loadingConversations ? (
+            <p className="inbox-loading">Carregando conversas…</p>
+          ) : (
+            filteredConversations.map((conversation) => (
+              <button
+                className={
+                  selected?.id === conversation.id
+                    ? "conversation-item selected"
+                    : "conversation-item"
+                }
+                key={conversation.id}
+                onClick={() => void openConversation(conversation)}
+              >
+                <Avatar conversation={conversation} />
+                <span className="conversation-content">
+                  <span className="conversation-top">
+                    <strong>
+                      {contactName(conversation)}
+                      {isGroup(conversation) && " · Grupo"}
+                    </strong>
+                    <time>
+                      {new Date(conversation.lastMessageAt).toLocaleTimeString(
+                        [],
+                        { hour: "2-digit", minute: "2-digit" },
+                      )}
+                    </time>
+                  </span>
+                  <span className="conversation-bottom">
+                    <span className="conversation-preview">
+                      {conversation.lastMessage ?? "Sem mensagens de texto"}
+                    </span>
+                    {conversation.unreadCount > 0 && (
+                      <span className="unread">{conversation.unreadCount}</span>
+                    )}
+                  </span>
+                  <span className="conversation-management-meta"><b className={`priority-${conversation.priority}`}>{priorityLabel[conversation.priority]}</b><small>{statusLabel[conversation.status]}</small><small>{conversation.assignedUserId ? workspaceUsers.find(user => user.id === conversation.assignedUserId)?.displayName ?? "Responsável definido" : "Sem responsável"}</small>{conversation.assignedTeamId && <small>{teams.find(team => team.id === conversation.assignedTeamId)?.name ?? "Equipe"}</small>}</span>
+                </span>
+              </button>
+            ))
+          )}
+        </aside>
+        {conversationPane()}
         <aside className="customer-panel">
           {selected ? (
             <>
