@@ -59,7 +59,12 @@ if (FRESH) {
   db = new Database(join(tmp, 'fresh.sqlite'));
   db.pragma('foreign_keys = ON');
   const dir = resolve(WEB, 'apps/api/migrations');
-  const arquivos = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+  // Mesmo filtro de apps/api/src/persistence/database.ts:30. Este runner é uma
+  // terceira cópia da regra — a correção da #91 pegou o de produção e o do teste
+  // e deixou este de fora, e ele quebrou em `no such column: "chatsTotal"`:
+  // ordenado, `021_x.rollback.sql` vem ANTES de `021_x.sql`, então o rollback
+  // roda primeiro, num banco onde a coluna ainda não existe.
+  const arquivos = readdirSync(dir).filter((f) => f.endsWith('.sql') && !f.endsWith('.rollback.sql')).sort();
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, appliedAt TEXT NOT NULL)');
   const marcar = db.prepare('INSERT OR IGNORE INTO schema_migrations (id, appliedAt) VALUES (?, ?)');
   for (const f of arquivos)
