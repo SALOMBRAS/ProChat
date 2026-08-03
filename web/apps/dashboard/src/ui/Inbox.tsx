@@ -17,6 +17,8 @@ import { WorkspaceApi } from "../api/workspace.js";
 import { DomainApi } from "../api/domain.js";
 import type { PersistenceContact, Team, WorkspaceUser } from "@chatpro/contracts";
 import { InboxKanban } from "./InboxKanban.js";
+import { MicrophonePermission } from "./MicrophonePermission.js";
+import { audioInputs, isSilent, microphoneErrorMessage, microphoneState, signalLevel, SILENCE_WARNING } from "./microphone.js";
 import { conversationIdFromLocation, inboxUrlForConversation } from "./conversationNavigation.js";
 import { contactLabel, conversationPhone, participantLabel } from "./contactIdentity.js";
 import { Media } from "./MessageMedia.js";
@@ -261,6 +263,14 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const discardCameraRef = useRef(false);
   const [attachmentCapture, setAttachmentCapture] = useState<"environment" | "user">();
   const [isRecording, setIsRecording] = useState(false);
+  /** O portão de permissão do microfone. `undefined` = fechado. */
+  const [micGate, setMicGate] = useState<{ state: "prompt" | "denied"; asking: boolean; error?: string }>();
+  const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
+  const [micDeviceId, setMicDeviceId] = useState<string>();
+  /** Nível do sinal durante a gravação, 0–1, e o aviso da causa 3. */
+  const [micLevel, setMicLevel] = useState(0);
+  const [micSilent, setMicSilent] = useState(false);
+  const micMeterRef = useRef<{ context: AudioContext; raf: number }>();
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [conversationSearchOpen, setConversationSearchOpen] = useState(false);
@@ -368,6 +378,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     discardRecordingRef.current = true;
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    // O AudioContext sobrevive ao desmonte e mantém o microfone ativo.
+    const meter = micMeterRef.current;
+    if (meter) { cancelAnimationFrame(meter.raf); void meter.context.close().catch(() => undefined); }
     // A câmera fica com a luz acesa se o stream sobreviver ao desmonte.
     if (cameraTimerRef.current) clearInterval(cameraTimerRef.current);
     discardCameraRef.current = true;
@@ -868,14 +881,95 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     discardRecordingRef.current = discard;
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
   };
+  /** Liga o medidor de sinal ao stream. É a defesa contra a causa 3 — dispositivo
+   *  certo, permissão dada, e nenhum som chegando —, que é a única das três que
+   *  não falha em lugar nenhum: o MediaRecorder grava silêncio com o mesmo
+   *  tamanho e o mesmo formato de uma nota de voz de verdade.
+   *
+   *  Degrada em silêncio onde não há `AudioContext` (jsdom, navegador antigo): o
+   *  medidor é diagnóstico, e derrubar a gravação por falta dele seria trocar um
+   *  problema raro por um certo. */
+  const startMeter = (stream: MediaStream) => {
+    const Context = window.AudioContext ?? (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Context) return;
+    try {
+      const context = new Context();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      context.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Float32Array(analyser.fftSize);
+      const levels: number[] = [];
+      let lastSecond = -1;
+      const tick = () => {
+        analyser.getFloatTimeDomainData(samples);
+        const level = signalLevel(samples);
+        setMicLevel(level);
+        // Uma amostra por segundo alimenta a decisão: `isSilent` conta segundos,
+        // e empilhar 60 leituras por segundo mediria o quadro, não o tempo.
+        const second = Math.floor(context.currentTime);
+        if (second !== lastSecond) { lastSecond = second; levels.push(level); setMicSilent(isSilent(levels)); }
+        micMeterRef.current = { context, raf: requestAnimationFrame(tick) };
+      };
+      micMeterRef.current = { context, raf: requestAnimationFrame(tick) };
+    } catch { /* medidor é diagnóstico, não requisito */ }
+  };
+  const stopMeter = () => {
+    const meter = micMeterRef.current;
+    micMeterRef.current = undefined;
+    if (!meter) return;
+    cancelAnimationFrame(meter.raf);
+    void meter.context.close().catch(() => undefined);
+    setMicLevel(0);
+    setMicSilent(false);
+  };
+
+  /** Abre o portão quando ainda dá para explicar, e grava direto quando não há o
+   *  que explicar. Só `granted` dispensa o diálogo: em `prompt` ele existe para o
+   *  balão do navegador não aparecer sozinho, e em `denied` para dizer como
+   *  reverter — que é a informação que falta em "permissão negada". */
   const startRecording = async () => {
     if (sending || isRecording) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setError("A gravação de áudio não é suportada neste navegador.");
       return;
     }
+    const state = await microphoneState();
+    if (state === "denied") { setMicGate({ state: "denied", asking: false }); return; }
+    if (state === "prompt") { setMicGate({ state: "prompt", asking: false }); return; }
+    await captureMicrophone();
+  };
+
+  /** Pede ao navegador e começa a gravar. Chamada direto quando a permissão já
+   *  existe, e pelo botão do portão quando não. */
+  const captureMicrophone = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicGate((gate) => (gate ? { ...gate, asking: true, error: undefined } : gate));
+      const stream = await navigator.mediaDevices.getUserMedia(
+        micDeviceId ? { audio: { deviceId: { exact: micDeviceId } } } : { audio: true });
+      // Os rótulos só existem depois de permitir: é aqui que a lista fica útil.
+      const devices = await audioInputs();
+      setMicDevices(devices);
+      // Com mais de um microfone, escolher é parte da decisão — e é a causa 2.
+      // O portão fica aberto mostrando a lista em vez de gravar do dispositivo
+      // que o navegador escolheu sozinho.
+      if (devices.length > 1 && !micDeviceId) {
+        stream.getTracks().forEach((track) => track.stop());
+        setMicDeviceId(devices[0]?.deviceId);
+        setMicGate({ state: "prompt", asking: false });
+        return;
+      }
+      setMicGate(undefined);
+      beginRecording(stream);
+    } catch (nextError) {
+      const message = microphoneErrorMessage(nextError);
+      const name = nextError instanceof Error ? nextError.name : "";
+      const denied = name === "NotAllowedError" || name === "SecurityError";
+      setMicGate({ state: denied ? "denied" : "prompt", asking: false, error: message });
+    }
+  };
+
+  const beginRecording = (stream: MediaStream) => {
+    try {
       const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type));
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       const chunks: BlobPart[] = [];
@@ -889,19 +983,24 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
         recordingStreamRef.current = undefined;
         recorderRef.current = undefined;
         setIsRecording(false);
-        if (!discardRecordingRef.current && chunks.length) {
-          const type = recorder.mimeType || "audio/webm";
-          const extension = type.includes("ogg") ? "ogg" : "webm";
-          applyAttachment(new File([new Blob(chunks, { type })], `audio-${Date.now()}.${extension}`, { type }));
-          setAttachmentStatus("Áudio pronto para envio");
-        }
+        stopMeter();
+        if (discardRecordingRef.current) return;
+        // Sem nenhum bloco, o `onstop` antigo simplesmente não fazia nada: a
+        // barra sumia e o operador ficava sem áudio e sem explicação.
+        if (!chunks.length) { setError("A gravação não capturou nenhum áudio. Verifique o microfone e tente de novo."); return; }
+        const type = recorder.mimeType || "audio/webm";
+        const extension = type.includes("ogg") ? "ogg" : "webm";
+        applyAttachment(new File([new Blob(chunks, { type })], `audio-${Date.now()}.${extension}`, { type }));
+        setAttachmentStatus("Áudio pronto para envio");
       };
       setRecordingSeconds(0);
       setIsRecording(true);
       recordingTimerRef.current = setInterval(() => setRecordingSeconds((seconds) => seconds + 1), 1000);
       recorder.start();
+      startMeter(stream);
     } catch (nextError) {
-      setError(nextError instanceof Error ? `Não foi possível acessar o microfone: ${nextError.message}` : "Não foi possível acessar o microfone.");
+      stream.getTracks().forEach((track) => track.stop());
+      setError(microphoneErrorMessage(nextError));
     }
   };
   const stopCamera = () => {
@@ -1331,7 +1430,22 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                       : <><button type="button" className="composer-camera-shoot" onClick={takePhoto} disabled={Boolean(cameraError) && !cameraStreamRef.current}>Tirar foto</button><button type="button" onClick={startCameraRecording} disabled={Boolean(cameraError) && !cameraStreamRef.current}>Gravar vídeo</button><button type="button" onClick={closeCamera}>Fechar</button></>}
                   </div>
                 </div>}
-                {isRecording && <div className="composer-recording" role="status" aria-live="polite"><span className="composer-recording-indicator" aria-hidden="true" /><strong>Gravando áudio</strong><time>{`${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`}</time><button type="button" onClick={() => finishRecording(true)} aria-label="Cancelar gravação">Cancelar</button><button type="button" className="composer-recording-send" onClick={() => finishRecording()} aria-label="Concluir gravação">Enviar</button></div>}
+                {micGate && <MicrophonePermission
+                  state={micGate.state}
+                  asking={micGate.asking}
+                  error={micGate.error}
+                  devices={micDevices}
+                  deviceId={micDeviceId}
+                  onDevice={setMicDeviceId}
+                  onAllow={() => void captureMicrophone()}
+                  onCancel={() => setMicGate(undefined)}
+                />}
+                {isRecording && <div className="composer-recording" role="status" aria-live="polite"><span className="composer-recording-indicator" aria-hidden="true" /><strong>Gravando áudio</strong>
+                  {/* O medidor é o retorno que faltava: sem ele, gravar mudo e
+                      gravar falando têm exatamente a mesma aparência. */}
+                  <span className="composer-recording-level" aria-hidden="true"><i style={{ transform: `scaleX(${Math.min(1, micLevel * 12)})` }} /></span>
+                  <time>{`${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`}</time><button type="button" onClick={() => finishRecording(true)} aria-label="Cancelar gravação">Cancelar</button><button type="button" className="composer-recording-send" onClick={() => finishRecording()} aria-label="Concluir gravação">Enviar</button></div>}
+                {isRecording && micSilent && <p className="composer-recording-silent" role="alert">{SILENCE_WARNING}</p>}
                 {/* Só documento e áudio chegam aqui: imagem e vídeo abrem a tela de
                     composição, onde o editor de traço passou a ser acionado. */}
                 {attachment && <div className="composer-pending-attachment" aria-label={`Anexo pendente: ${attachment.name}`}>
