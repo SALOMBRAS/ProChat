@@ -142,8 +142,47 @@ export const documentKind = (filename?: string | null, mimeType?: string | null)
 };
 
 export type ContactCard = { fullName?: string; phoneNumber?: string; organization?: string };
-export const contactCards = (message: Pick<InboxMessage, "metadata">): ContactCard[] =>
-  (message.metadata as { contacts?: ContactCard[] } | undefined)?.contacts ?? [];
+/** O cartão de contato chega de duas formas, e só uma delas estava sendo lida.
+ *
+ *  - enviado por nós: `metadata.contacts` já é uma lista de `ContactCard`,
+ *    montada por internal-inbox.service.ts:41;
+ *  - recebido do WhatsApp: `metadata` é o payload cru, e o cartão vem na RAIZ em
+ *    `vCards` — uma lista de STRINGS no formato vCard, não de objetos. Medido: os
+ *    6 cartões da base têm `vCards` com exatamente um item, e `_data.body` repete
+ *    a mesma string.
+ *
+ *  Sem esta segunda leitura, classificar a mensagem como `contact` deixaria o
+ *  cartão vazio — `contacts` não existe em payload recebido —, e o componente
+ *  cairia no rótulo de retaguarda exibindo o texto cru do vCard. Pior quando o
+ *  vCard traz `PHOTO;BASE64:`, o que acontece em um dos seis: aí o "texto" é
+ *  outro bloco de base64, o mesmo sintoma que a localização produzia. */
+const VCARD_TEL = /^(?:item\d+\.)?TEL(?:;[^:]*)?:/i;
+const VCARD_WAID = /waid=([\d+]+)/i;
+export const parseVcard = (raw: string): ContactCard | undefined => {
+  if (!/^BEGIN:VCARD/im.test(raw)) return undefined;
+  // Linha dobrada do vCard continua na seguinte, começando por espaço ou tab.
+  const lines = raw.replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "").split("\n");
+  const valueOf = (prefix: RegExp) => lines.find((line) => prefix.test(line))?.replace(prefix, "").trim();
+  const telLine = lines.find((line) => VCARD_TEL.test(line));
+  // `waid` é o identificador do WhatsApp, só dígitos, e é o que serve para
+  // procurar no CRM; o valor depois dos dois pontos vem formatado à moda do
+  // aparelho que exportou. Preferir o primeiro e cair no segundo.
+  const phoneNumber = telLine?.match(VCARD_WAID)?.[1] ?? telLine?.replace(VCARD_TEL, "").trim();
+  const fullName = valueOf(/^FN:/i) ?? valueOf(/^X-WA-BIZ-NAME:/i);
+  const organization = valueOf(/^ORG:/i)?.replace(/;+$/, "");
+  if (!fullName && !phoneNumber) return undefined;
+  return { fullName: fullName || undefined, phoneNumber: phoneNumber || undefined, organization: organization || undefined };
+};
+export const contactCards = (message: Pick<InboxMessage, "metadata">): ContactCard[] => {
+  const sent = (message.metadata as { contacts?: ContactCard[] } | undefined)?.contacts;
+  if (sent?.length) return sent;
+  const received = (message.metadata as { vCards?: unknown } | undefined)?.vCards;
+  if (!Array.isArray(received)) return [];
+  return received
+    .filter((card): card is string => typeof card === "string")
+    .map(parseVcard)
+    .filter((card): card is ContactCard => Boolean(card));
+};
 
 /** Só dígitos e um `+` inicial: é o que serve para `tel:` e para procurar no CRM. */
 export const phoneDigits = (value?: string | null) => (value ?? "").replace(/(?!^\+)[^\d]/g, "");
@@ -159,9 +198,14 @@ export const phoneDisplay = (value?: string | null): string => {
 
 /** O corpo guardado de uma localização é o título, e o de um cartão de contato é o
  *  nome — os mesmos textos que o cartão já mostra em destaque. Renderizar os dois
- *  põe a mesma frase duas vezes, uma dentro do cartão e outra logo abaixo. */
+ *  põe a mesma frase duas vezes, uma dentro do cartão e outra logo abaixo.
+ *
+ *  No cartão RECEBIDO o corpo não é o nome: é o vCard inteiro, texto cru que o
+ *  WEBJS copia para `body`. Ele nunca deve aparecer — e num dos seis cartões da
+ *  base ele carrega um `PHOTO;BASE64:` de milhares de caracteres. */
 export const bodyRepeatsCard = (message: Pick<InboxMessage, "messageType" | "content" | "metadata">): boolean => {
   const body = message.content?.trim();
+  if (message.messageType === "contact" && /^BEGIN:VCARD/i.test(body ?? "")) return true;
   if (!body) return false;
   if (message.messageType === "location") {
     const title = (message.metadata as { location?: { title?: string; name?: string } } | undefined)?.location;

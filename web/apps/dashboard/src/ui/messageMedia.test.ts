@@ -9,6 +9,7 @@ import {
   mediaDuration,
   mediaFilename,
   mediaSize,
+  parseVcard,
   phoneDigits,
   phoneDisplay,
   voiceWaveform,
@@ -176,5 +177,53 @@ describe("acesso ao payload", () => {
   it("devolve objeto vazio em vez de explodir quando não há _data", () => {
     expect(wahaData(message())).toEqual({});
     expect(wahaData(message({ metadata: { _data: null as never } }))).toEqual({});
+  });
+});
+
+/** Cartões de contato RECEBIDOS. O WEBJS manda `vCards` — lista de strings no
+ *  formato vCard — e nunca `contacts`, que é o formato dos nossos envios. Antes
+ *  desta leitura, classificar a mensagem como `contact` deixava o cartão vazio.
+ *  Os exemplos abaixo são a forma real medida na base, com os dígitos trocados. */
+describe("cartão de contato recebido do WhatsApp", () => {
+  const vcard = (body: string) => ({ messageType: "contact", content: body, metadata: { vCards: [body] } }) as never;
+
+  it("lê nome e telefone de um vCard recebido, preferindo o waid", () => {
+    const raw = "BEGIN:VCARD\nVERSION:3.0\nN:Souza;Rodrigo;;;\nFN:Rodrigo Souza\nitem1.TEL;waid=5585999990000:+55 85 99999-0000\nitem1.X-ABLabel:Celular\nEND:VCARD";
+    expect(contactCards({ metadata: { vCards: [raw] } } as never)).toEqual([
+      { fullName: "Rodrigo Souza", phoneNumber: "5585999990000", organization: undefined },
+    ]);
+  });
+
+  it("cai no telefone formatado quando não há waid", () => {
+    const raw = "BEGIN:VCARD\nVERSION:3.0\nFN:Suporte\nTEL;type=CELL:+55 85 3333-0000\nEND:VCARD";
+    expect(contactCards({ metadata: { vCards: [raw] } } as never)[0]).toMatchObject({ fullName: "Suporte", phoneNumber: "+55 85 3333-0000" });
+  });
+
+  it("usa o nome comercial quando o vCard não tem FN", () => {
+    const raw = "BEGIN:VCARD\nVERSION:3.0\nX-WA-BIZ-NAME:Pizza da Esquina\nTEL;waid=5585988880000:+55 85 98888-0000\nEND:VCARD";
+    expect(contactCards({ metadata: { vCards: [raw] } } as never)[0]?.fullName).toBe("Pizza da Esquina");
+  });
+
+  it("ignora ORG vazio em vez de mostrar string em branco", () => {
+    const raw = "BEGIN:VCARD\nVERSION:3.0\nFN:Suporte\nORG:\nTEL;waid=5585977770000:+55\nEND:VCARD";
+    expect(contactCards({ metadata: { vCards: [raw] } } as never)[0]?.organization).toBeUndefined();
+  });
+
+  it("não deixa o vCard cru — nem a foto em base64 dentro dele — virar texto na conversa", () => {
+    const raw = `BEGIN:VCARD\nVERSION:3.0\nFN:Bê\nitem1.TEL;waid=5585966660000:+55 85 96666-0000\nPHOTO;BASE64:/9j/4AAQSkZJRgABAQAAAQABAAD${"A".repeat(3000)}\nEND:VCARD`;
+    expect(contactCards({ metadata: { vCards: [raw] } } as never)[0]?.fullName).toBe("Bê");
+    // O corpo é o vCard inteiro; se ele for renderizado, o base64 da foto aparece.
+    expect(bodyRepeatsCard(vcard(raw))).toBe(true);
+  });
+
+  it("continua preferindo `contacts` quando a mensagem foi enviada por nós", () => {
+    const sent = { metadata: { contacts: [{ fullName: "Enviado por nós", phoneNumber: "5585911110000" }], vCards: ["BEGIN:VCARD\nFN:Ignorado\nEND:VCARD"] } } as never;
+    expect(contactCards(sent)).toEqual([{ fullName: "Enviado por nós", phoneNumber: "5585911110000" }]);
+  });
+
+  it("devolve lista vazia para payload sem cartão, sem estourar", () => {
+    expect(contactCards({ metadata: {} } as never)).toEqual([]);
+    expect(contactCards({ metadata: { vCards: "não é lista" } } as never)).toEqual([]);
+    expect(parseVcard("isto não é um vCard")).toBeUndefined();
   });
 });

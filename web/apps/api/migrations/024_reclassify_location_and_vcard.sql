@@ -30,6 +30,10 @@ UPDATE whatsapp_messages
    AND messageType <> 'location';
 
 -- 2. Cartão de contato: mesmo defeito, mesma causa.
+--    O `body` do cartão NÃO é limpo, ao contrário do da localização. Nos dois o
+--    texto está duplicado no payload, mas aqui o corpo é o próprio vCard — dado,
+--    não lixo — e a Inbox já o suprime na tela (`bodyRepeatsCard`). Apagar seria
+--    destruir a única cópia legível fora do JSON, sem ganho.
 UPDATE whatsapp_messages
    SET messageType = 'contact'
  WHERE json_extract(payloadJson, '$._data.type') IN ('vcard', 'multi_vcard')
@@ -48,6 +52,20 @@ UPDATE conversations
             AND m.occurredAt  = conversations.lastMessageAt
             AND m.messageType = 'location');
 
+-- 4. A mesma contaminação, pelo outro tipo: o WEBJS copia o vCard inteiro para
+--    `body`, e daí ele foi para a prévia.
+UPDATE conversations
+   SET lastMessage = 'Contato'
+ WHERE lastMessage LIKE 'BEGIN:VCARD%'
+   AND EXISTS (
+         SELECT 1
+           FROM whatsapp_messages m
+          WHERE m.workspaceId = conversations.workspaceId
+            AND m.wahaSession = conversations.wahaSession
+            AND m.chatId      = conversations.chatId
+            AND m.occurredAt  = conversations.lastMessageAt
+            AND m.messageType = 'contact');
+
 -- VERIFICAÇÃO (deve devolver zero nas quatro)
 --
 --   SELECT count(*) FROM whatsapp_messages
@@ -56,3 +74,4 @@ UPDATE conversations
 --    WHERE json_extract(payloadJson,'$._data.type') IN ('vcard','multi_vcard') AND messageType<>'contact';
 --   SELECT count(*) FROM whatsapp_messages WHERE body LIKE '/9j/%';
 --   SELECT count(*) FROM conversations WHERE lastMessage LIKE '/9j/%';
+--   SELECT count(*) FROM conversations WHERE lastMessage LIKE 'BEGIN:VCARD%';

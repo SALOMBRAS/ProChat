@@ -23,6 +23,18 @@ UPDATE public.conversations AS c
    AND m.message_type = 'location'
    AND COALESCE(m.payload_json -> 'location' ->> 'thumbnail', '') <> '';
 
+-- 1b. A prévia contaminada pelo vCard, direto do payload.
+UPDATE public.conversations AS c
+   SET last_message = m.payload_json -> 'vCards' ->> 0
+  FROM public.whatsapp_messages AS m
+ WHERE c.last_message = 'Contato'
+   AND m.workspace_id = c.workspace_id
+   AND m.waha_session = c.waha_session
+   AND m.chat_id      = c.chat_id
+   AND m.occurred_at  = c.last_message_at
+   AND m.message_type = 'contact'
+   AND COALESCE(m.payload_json -> 'vCards' ->> 0, '') <> '';
+
 -- 2. As mensagens de localização.
 UPDATE public.whatsapp_messages
    SET message_type = 'text',

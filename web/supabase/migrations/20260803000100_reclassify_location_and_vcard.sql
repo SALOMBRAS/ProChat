@@ -15,7 +15,9 @@
 --   13 linhas com _data.type = 'location'   (0 já classificadas como location)
 --    6 linhas com _data.type = 'vcard'
 --    0 linhas com _data.type = 'multi_vcard'
---    1 conversa com last_message em base64
+--    1 conversa com last_message em base64 (miniatura de mapa)
+--    3 conversas com last_message em vCard cru, uma delas com 4.881 caracteres
+--      porque o vCard trazia PHOTO;BASE64
 --
 -- NÃO adota o vocabulário cru do WEBJS: `chat` continua sendo `text`. Traduzir
 -- tudo renomearia 10.714 das 12.851 linhas (83%) — o precedente da #57.
@@ -36,6 +38,10 @@ UPDATE public.whatsapp_messages
 
 -- 2. Cartão de contato: mesmo defeito, mesma causa. O renderizador desenha a
 --    partir do payload (MessageMedia.tsx:332); faltava só a classificação.
+--    O `body` do cartão NÃO é limpo, ao contrário do da localização. Nos dois o
+--    texto está duplicado no payload, mas aqui o corpo é o próprio vCard — dado,
+--    não lixo — e a Inbox já o suprime na tela (`bodyRepeatsCard`). Apagar seria
+--    destruir a única cópia legível fora do JSON, sem ganho.
 UPDATE public.whatsapp_messages
    SET message_type = 'contact'
  WHERE payload_json -> '_data' ->> 'type' IN ('vcard', 'multi_vcard')
@@ -57,6 +63,21 @@ UPDATE public.conversations AS c
             AND m.occurred_at  = c.last_message_at
             AND m.message_type = 'location');
 
+-- 4. A mesma contaminação, pelo outro tipo: o WEBJS copia o vCard inteiro para
+--    `body`, e daí ele foi para a prévia. Medido: 3 conversas, uma delas com
+--    4.881 caracteres porque o vCard trazia `PHOTO;BASE64:`.
+UPDATE public.conversations AS c
+   SET last_message = 'Contato'
+ WHERE c.last_message LIKE 'BEGIN:VCARD%'
+   AND EXISTS (
+         SELECT 1
+           FROM public.whatsapp_messages AS m
+          WHERE m.workspace_id = c.workspace_id
+            AND m.waha_session = c.waha_session
+            AND m.chat_id      = c.chat_id
+            AND m.occurred_at  = c.last_message_at
+            AND m.message_type = 'contact');
+
 COMMIT;
 
 -- VERIFICAÇÃO (rodar depois; deve devolver zero em todas as linhas)
@@ -71,4 +92,7 @@ COMMIT;
 --    WHERE body LIKE '/9j/%'
 --   UNION ALL
 --   SELECT 'previa com base64', count(*) FROM public.conversations
---    WHERE last_message LIKE '/9j/%';
+--    WHERE last_message LIKE '/9j/%'
+--   UNION ALL
+--   SELECT 'previa com vcard cru', count(*) FROM public.conversations
+--    WHERE last_message LIKE 'BEGIN:VCARD%';
