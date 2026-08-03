@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { safeContactText, safePhoneText } from "./contactIdentity.js";
+import { normalizedPhone } from "./contactIdentity.js";
+import { phoneDisplay } from "./messageMedia.js";
 
 /** Escolha de contato para enviar como cartão.
  *
@@ -17,8 +18,15 @@ import { safeContactText, safePhoneText } from "./contactIdentity.js";
  */
 
 /** Só o que a lista precisa. Estrutural de propósito: evita amarrar a tela ao
- *  formato completo de contato, que carrega workspaceId e datas sem uso aqui. */
-export type PickableContact = { id: string; displayName: string; phoneNumber: string };
+ *  formato completo de contato, que carrega workspaceId e datas sem uso aqui.
+ *
+ *  `photoUrl` é opcional porque hoje **não chega**: `/domain/contacts` devolve
+ *  id, workspaceId, displayName, phoneNumber, email, company e datas, e nada
+ *  mais. A foto existe na base — `whatsapp_identities.profile_picture_url`, em
+ *  552 das 748 identidades medidas em 03/08/2026 —, só não passa por este
+ *  contrato. O campo fica declarado para a lista já saber desenhá-la: expor a
+ *  coluna é mudança de `apps/api/src`. */
+export type PickableContact = { id: string; displayName: string; phoneNumber: string; photoUrl?: string | null };
 
 export type ContactPickerProps = {
   /** A busca já filtra no banco (PR #22) — só o que casa viaja pela rede. Recebe
@@ -32,9 +40,8 @@ export type ContactPickerProps = {
   max?: number;
 };
 
-/** Iniciais do nome. A listagem de contatos não devolve foto — `contactSchema`
- *  tem id, workspaceId, displayName, phoneNumber e datas, e nada mais —, então
- *  este é o único avatar possível aqui, não um fallback. */
+/** Iniciais do nome, quando há nome. Sem foto e sem nome não há inicial que
+ *  signifique alguma coisa — ver `contactRow`. */
 export const contactInitials = (displayName: string) => {
   const words = displayName.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return "?";
@@ -43,6 +50,55 @@ export const contactInitials = (displayName: string) => {
   const label = `${first}${last}`.toUpperCase();
   return label || "?";
 };
+
+/** Um nome só de dígitos não é nome.
+ *
+ *  Medido na base em 03/08/2026: **66 dos 93 contatos** têm `displayName`
+ *  idêntico ao telefone. Não é campo vazio — é uma cópia —, então testar por
+ *  vazio não pega nenhum deles, e era isso que fazia a linha mostrar
+ *  "558592369359" em cima e "558592369359" embaixo.
+ *
+ *  O teste é a forma, não a igualdade com o telefone daquele contato: um nome
+ *  que é só algarismos e pontuação não vira nome por ser diferente do número
+ *  gravado ao lado. */
+const realName = (value: string | null | undefined) => {
+  const name = value?.trim();
+  if (!name || /^[+(]?[\d\s().+-]+$/.test(name)) return undefined;
+  return name;
+};
+
+/** O que a linha mostra. Uma linha, dois campos no máximo, e nunca o mesmo
+ *  texto duas vezes:
+ *
+ *  - com nome  → nome em cima, telefone formatado embaixo;
+ *  - sem nome  → só o telefone formatado, e nada embaixo;
+ *  - sem os dois → o rótulo de sempre, que é o que a Inbox já usa.
+ *
+ *  As iniciais só existem quando há nome. Para quem não tem, um número dentro
+ *  do círculo não identifica ninguém — o WhatsApp põe a silhueta, e é o que a
+ *  ausência de `initials` manda desenhar. */
+export type ContactRow = { title: string; subtitle?: string; initials?: string; photoUrl?: string };
+
+export const contactRow = (contact: PickableContact): ContactRow => {
+  const name = realName(contact.displayName);
+  const phone = normalizedPhone(contact.phoneNumber) ? phoneDisplay(contact.phoneNumber) : undefined;
+  const photoUrl = contact.photoUrl?.trim() || undefined;
+  if (name) return { title: name, ...(phone ? { subtitle: phone } : {}), initials: contactInitials(name), ...(photoUrl ? { photoUrl } : {}) };
+  return { title: phone ?? "Contato sem identificação", ...(photoUrl ? { photoUrl } : {}) };
+};
+
+/** A silhueta de quem não tem nome nem foto.
+ *
+ *  Desenho e não glifo: nenhum caractere disponível é uma pessoa, e o que estava
+ *  no lugar era o telefone em algarismos dentro do círculo — que não identifica
+ *  ninguém e ainda repetia o texto ao lado. Herda a cor do círculo por
+ *  `currentColor`, então não traz cor nova. */
+const ContactSilhouette = () => (
+  <svg className="composer-contact-silhouette" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+    <circle cx="12" cy="8" r="4" fill="currentColor" />
+    <path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7z" fill="currentColor" />
+  </svg>
+);
 
 /** Marca e desmarca respeitando o teto. Vive fora do componente porque a caixa
  *  de marcação já chega `disabled` no teto: pela tela este limite é inalcançável,
@@ -144,6 +200,7 @@ export const ContactPicker = ({ search, onSend, onClose, sending, max = 20 }: Co
           : <ul className="composer-contact-list" aria-label="Contatos encontrados" aria-busy={loading}>
               {items.map((contact) => {
                 const checked = selected.includes(contact.id);
+                const row = contactRow(contact);
                 return (
                   <li key={contact.id}>
                     <label className={`composer-contact-row${checked ? " selected" : ""}`}>
@@ -152,12 +209,14 @@ export const ContactPicker = ({ search, onSend, onClose, sending, max = 20 }: Co
                         checked={checked}
                         disabled={!checked && atLimit}
                         onChange={() => toggle(contact.id)}
-                        aria-label={safeContactText(contact.displayName)}
+                        aria-label={row.title}
                       />
-                      <span className="composer-contact-avatar" aria-hidden="true">{contactInitials(contact.displayName)}</span>
+                      <span className="composer-contact-avatar" aria-hidden="true">
+                        {row.photoUrl ? <img src={row.photoUrl} alt="" /> : row.initials ?? <ContactSilhouette />}
+                      </span>
                       <span className="composer-contact-identity">
-                        <strong>{safeContactText(contact.displayName)}</strong>
-                        <span>{safePhoneText(contact.phoneNumber)}</span>
+                        <strong>{row.title}</strong>
+                        {row.subtitle && <span>{row.subtitle}</span>}
                       </span>
                     </label>
                   </li>
