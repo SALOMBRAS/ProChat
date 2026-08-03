@@ -6,6 +6,7 @@ import { AppError } from '../errors.js';
 import type { KanbanFilters, KanbanSource, SessionActivity } from './kanban.service.js';
 import type { KanbanAutomationRequest, KanbanAutomationResult } from './kanban-automation.service.js';
 import { isKanbanConflict, kanbanRetry, kanbanRetryDelayMs, type KanbanRetry } from './kanban-conflict.js';
+import { manualWins, movedByOperator } from './kanban-manual-conflict.js';
 
 const defaults = [['new', 'Novo'], ['in_progress', 'Em atendimento'], ['waiting_customer', 'Aguardando cliente'], ['waiting_operator', 'Aguardando operador'], ['resolved', 'Resolvido'], ['archived', 'Arquivado']] as const;
 const mapped: Record<string, string> = { open: 'new', in_progress: 'in_progress', waiting_customer: 'waiting_customer', resolved: 'resolved', archived: 'archived' };
@@ -52,7 +53,31 @@ export class SupabaseKanbanService {
     const config = rows.some((row: any) => row.conversations.conversation_sla_metrics) ? await this.sla.config(workspaceId) : undefined;
     return { items: rows.map((row: any) => { const metric = Array.isArray(row.conversations.conversation_sla_metrics) ? row.conversations.conversation_sla_metrics[0] : row.conversations.conversation_sla_metrics; return { conversationId: row.conversation_id, stageId: row.stage_id, position: Number(row.position), updatedAt: row.updated_at, maskedId: row.conversations.chat_id.replace(/\d(?=\d{4})/g, '•'), lastMessage: (row.conversations.last_message ?? '').slice(0, 180), lastMessageAt: row.conversations.last_message_at, unreadCount: row.conversations.unread_count, conversationType: row.conversations.conversation_type, assignedUserId: row.conversations.assigned_user_id, assignedTeamId: row.conversations.assigned_team_id, routingQueueId: row.conversations.routing_queue_id, priority: row.conversations.priority, tags: (Array.isArray(row.conversations.conversation_metadata) ? row.conversations.conversation_metadata[0] : row.conversations.conversation_metadata)?.tags ?? [], slaStatus: metric?.sla_status ?? null, sla: metric && config ? projectSlaCard({ slaStatus: metric.sla_status, waitingSinceAt: metric.waiting_since_at, firstResponseAt: metric.first_response_at, frozenAt: metric.frozen_at }, config) : null }; }), page, pageSize, total: count ?? 0 };
   }
-  async move(workspaceId: string, actorId: string, conversationId: string, input: any) { const stage = await this.requireStage(workspaceId, input.stageId); const position = await this.position(workspaceId, input.boardId, stage.id, input.beforeConversationId, input.afterConversationId); const { data, error } = await this.client.rpc('chatpro_kanban_move', { p_workspace_id: workspaceId, p_conversation_id: conversationId, p_board_id: input.boardId, p_stage_id: input.stageId, p_position: position, p_source: input.source as KanbanSource, p_actor_id: actorId, p_expected_updated_at: input.expectedUpdatedAt ?? null }); if (error) fail(error); await this.sla.applyOperationalStatus(workspaceId, conversationId, stage.key); const row = Array.isArray(data) ? data[0] : data; this.realtime.publish(workspaceId, 'conversation.kanban.moved', { conversationId, boardId: input.boardId, fromStageId: row?.from_stage_id ?? null, toStageId: stage.id, state: { updatedAt: row?.updated_at } }); return row; }
+  async move(workspaceId: string, actorId: string, conversationId: string, input: any) {
+    const stage = await this.requireStage(workspaceId, input.stageId); const position = await this.position(workspaceId, input.boardId, stage.id, input.beforeConversationId, input.afterConversationId);
+    const call = (expected: string | null) => this.client.rpc('chatpro_kanban_move', { p_workspace_id: workspaceId, p_conversation_id: conversationId, p_board_id: input.boardId, p_stage_id: input.stageId, p_position: position, p_source: input.source as KanbanSource, p_actor_id: actorId, p_expected_updated_at: expected });
+    let { data, error } = await call(input.expectedUpdatedAt ?? null);
+    if (error?.code === '40001' && input.source === 'manual') ({ data, error } = await this.retakeForOperator(workspaceId, conversationId, input.boardId, call));
+    if (error) fail(error);
+    await this.sla.applyOperationalStatus(workspaceId, conversationId, stage.key); const row = Array.isArray(data) ? data[0] : data; this.realtime.publish(workspaceId, 'conversation.kanban.moved', { conversationId, boardId: input.boardId, fromStageId: row?.from_stage_id ?? null, toStageId: stage.id, state: { updatedAt: row?.updated_at } }); return row;
+  }
+  /**
+   *  Uma pessoa arrastou o card e perdeu a corrida. Relê o estado e pergunta
+   *  **quem** ganhou: automação, e a pessoa passa por cima com a versão fresca;
+   *  outro operador, e ela recebe um 409 que diz para onde o card foi.
+   *
+   *  Uma tentativa só. Um laço aqui disputaria com a automação indefinidamente
+   *  numa conversa movimentada, e o primeiro `move` manual já grava
+   *  `manual_override`, que tira a automação daquele card — então a segunda
+   *  tentativa é a que basta.
+   */
+  private async retakeForOperator(workspaceId: string, conversationId: string, boardId: string, call: (expected: string | null) => any) {
+    const { data, error } = await this.client.from('conversation_kanban_state').select('stage_id,updated_at,last_transition_source,kanban_stages!inner(name)').eq('workspace_id', workspaceId).eq('conversation_id', conversationId).eq('board_id', boardId).maybeSingle();
+    if (error) fail(error);
+    if (!data) return call(null); // A linha sumiu entre as duas leituras: não há versão a defender.
+    if (!manualWins(data.last_transition_source)) throw movedByOperator({ id: data.stage_id, name: (data.kanban_stages as any).name });
+    return call(data.updated_at);
+  }
   async history(workspaceId: string, conversationId: string) { const { data, error } = await this.client.from('conversation_kanban_events').select('*').eq('workspace_id', workspaceId).eq('conversation_id', conversationId).order('created_at', { ascending: false }); if (error) fail(error); return data ?? []; }
   async automated(request: KanbanAutomationRequest): Promise<KanbanAutomationResult> {
     if (request.historical || request.imported || request.replay || request.technical || request.quarantined || !request.visible) return { status: 'skipped', reason: 'ineligible_origin' };

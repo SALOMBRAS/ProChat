@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceUser } from "@chatpro/contracts";
+import { ApiError } from "../api/client.js";
 import { InboxApi, type KanbanBoard, type KanbanCard } from "../api/inbox.js";
 import { connectRealtime } from "../api/realtime.js";
 import { WorkspaceApi } from "../api/workspace.js";
@@ -36,6 +37,17 @@ const slaLabel = (card: KanbanCard, now: number) => {
   if (card.sla.status === "archived") return "Arquivado";
   return card.sla.indicator === "yellow" ? "Atenção" : card.sla.indicator === "red" ? "Atrasado" : "Dentro do prazo";
 };
+
+/** A API põe `reason` e `stageName` no `details` do 409, e o `ApiClient` os
+ *  repassa em `ApiError.details`. Sem o nome da etapa a frase não se sustenta,
+ *  então o caso sem ele cai na mensagem genérica em vez de inventar destino. */
+export function conflictMessage(failure: unknown) {
+  const details = failure instanceof ApiError ? failure.details : undefined;
+  const stageName = details?.reason === "moved_by_operator" && typeof details.stageName === "string" ? details.stageName : undefined;
+  return stageName
+    ? `Outro atendente moveu este card para «${stageName}». O quadro foi atualizado.`
+    : "Não foi possível mover o card. Ele foi restaurado.";
+}
 
 function timeLabel(value: string) {
   const date = new Date(value);
@@ -121,9 +133,13 @@ export function InboxKanban() {
       }) as { updatedAt?: string; updated_at?: string };
       const updatedAt = persisted.updatedAt ?? persisted.updated_at;
       if (updatedAt) setCards((current) => Object.fromEntries(Object.entries(current).map(([stageId, items]) => [stageId, items.map((item) => item.conversationId === card.conversationId ? { ...item, updatedAt } : item)])));
-    } catch {
+    } catch (failure) {
       setCards(snapshot);
-      setError("A movimentação conflitou ou falhou. O card foi restaurado.");
+      // "Conflitou ou falhou" era verdade sobre o código e inútil para quem
+      // estava arrastando. Conflito legítimo é outro atendente ter movido o
+      // card — e nesse caso a tela diz para onde ele foi. Perder para a
+      // automação não chega mais aqui: a API passa por cima dela.
+      setError(conflictMessage(failure));
       void load();
     } finally {
       setMovingId(undefined);
