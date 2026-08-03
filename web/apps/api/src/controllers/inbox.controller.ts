@@ -55,7 +55,7 @@ export const attachmentUploadMiddleware: RequestHandler = multer(attachmentUploa
 
 export class InboxController {
   readonly attachmentUpload = attachmentUploadMiddleware;
-  constructor(private readonly conversations: ConversationStore, private readonly inbox: InternalInboxService, private readonly context: ConversationContextService, private readonly management: ConversationManagementService, private readonly sync?: WhatsAppHistorySyncService, private readonly sessions?: { list(context: NonNullable<import('express').Request['context']>): Promise<Array<{ id: string; status: string }>> }, private readonly outbox?: AttachmentOutboxService, private readonly media?: WahaMediaProxyService, private readonly permanentMedia?: SupabaseWhatsAppMediaStorage, private readonly sla?: SlaService, private readonly kanban?: KanbanService | SupabaseKanbanService, private readonly contacts?: InboxContactService, private readonly sessionActivity?: WhatsAppSessionActivityService) {}
+  constructor(private readonly conversations: ConversationStore, private readonly inbox: InternalInboxService, private readonly context: ConversationContextService, private readonly management: ConversationManagementService, private readonly sync?: WhatsAppHistorySyncService, private readonly sessions?: { list(context: NonNullable<import('express').Request['context']>): Promise<Array<{ id: string; status: string; wahaName?: string }>> }, private readonly outbox?: AttachmentOutboxService, private readonly media?: WahaMediaProxyService, private readonly permanentMedia?: SupabaseWhatsAppMediaStorage, private readonly sla?: SlaService, private readonly kanban?: KanbanService | SupabaseKanbanService, private readonly contacts?: InboxContactService, private readonly sessionActivity?: WhatsAppSessionActivityService) {}
   private requireKanban() { if (!this.kanban) throw new AppError(503,'SERVICE_UNAVAILABLE','Kanban storage is unavailable for this provider'); return this.kanban; }
   private activeSessions(context: NonNullable<import('express').Request['context']>) { return this.sessionActivity?.activeSessions(context) ?? Promise.resolve(undefined); }
   kanbanBoards: RequestHandler = async (req,res)=>res.json(await this.requireKanban().boards(req.context!.workspaceId));
@@ -104,5 +104,20 @@ export class InboxController {
   startSync: RequestHandler = async (req, res) => { if (!this.sync) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'History synchronization is unavailable'); const input = syncRequest.parse(req.body); const session = input.wahaSession ?? await this.connectedWahaSession(req.context!); res.status(202).json(await this.sync.start(req.context!.workspaceId, session, input)); };
   syncStatus: RequestHandler = async (req, res) => { if (!this.sync) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'History synchronization is unavailable'); const wahaSession = z.string().trim().min(1).max(200).parse(req.query.wahaSession); const job = await this.sync.status(req.context!.workspaceId, wahaSession); if (!job) throw new AppError(404, 'NOT_FOUND', 'Sync job not found'); res.json(job); };
   cancelSync: RequestHandler = async (req, res) => { if (!this.sync) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'History synchronization is unavailable'); const wahaSession = syncRequest.parse(req.body).wahaSession; if (!wahaSession) throw new AppError(400, 'VALIDATION_ERROR', 'wahaSession is required'); const job = await this.sync.cancel(req.context!.workspaceId, wahaSession); if (!job) throw new AppError(404, 'NOT_FOUND', 'Sync job not found'); res.json(job); };
-  private async connectedWahaSession(context: NonNullable<import('express').Request['context']>): Promise<string> { const session = (await this.sessions?.list(context))?.find(item => item.status === 'connected'); if (!session) throw new AppError(409, 'CONFLICT', 'No connected WhatsApp session found'); return `chatpro-${createHash('sha256').update(`${context.workspaceId}:${session.id}`).digest('hex').slice(0, 40)}`; }
+  /** Qual sessão da WAHA o `POST /inbox/sync/start` sem corpo deve retomar.
+   *
+   *  **O nome vivo vem do worker, não de um hash refeito aqui.** O hash derivado
+   *  de `workspaceId:session.id` era o nome da sessão *quando ela foi criada*; o
+   *  worker renomeia a sessão e guarda o nome anterior em `aliases`, e a partir
+   *  daí a conta bate no alias. Medido na conta de produção em 03/08/2026:
+   *
+   *    wahaName    chatpro-87a9de0476d7df33378259135259bb5dfd16524f  (job travado)
+   *    hash daqui  chatpro-42217e8d030af3c738f272559e67befaf1533633  (alias, job de 21/07)
+   *
+   *  O alias tinha um job antigo em `completed`, então retomar por ele respondia
+   *  "Histórico sincronizado" enquanto a sessão viva seguia parada — o operador
+   *  clicava, a barra dizia que estava tudo certo, e nada era sincronizado.
+   *
+   *  O hash continua como último recurso para um worker que não informe o nome. */
+  private async connectedWahaSession(context: NonNullable<import('express').Request['context']>): Promise<string> { const session = (await this.sessions?.list(context))?.find(item => item.status === 'connected'); if (!session) throw new AppError(409, 'CONFLICT', 'No connected WhatsApp session found'); return session.wahaName ?? `chatpro-${createHash('sha256').update(`${context.workspaceId}:${session.id}`).digest('hex').slice(0, 40)}`; }
 }
