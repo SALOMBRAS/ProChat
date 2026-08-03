@@ -23,7 +23,19 @@ export class SupabaseKanbanService {
   async conversations(workspaceId: string, boardId: string, stageId: string, page: number, pageSize: number, filters: KanbanFilters) {
     await this.detail(workspaceId, boardId); const stage = await this.requireStage(workspaceId, stageId); if (stage.boardId !== boardId) throw new AppError(404, 'NOT_FOUND', 'Stage not found');
     const from = (page - 1) * pageSize;
-    let query = this.client.from('conversation_kanban_state').select('conversation_id,stage_id,position,updated_at,conversations!inner(id,workspace_id,visibility_state,chat_id,last_message,last_message_at,unread_count,conversation_type,assigned_user_id,assigned_team_id,routing_queue_id,priority),conversation_metadata(tags),conversation_sla_metrics(sla_status,waiting_since_at,first_response_at,frozen_at)', { count: 'exact' }).eq('workspace_id', workspaceId).eq('board_id', boardId).eq('stage_id', stageId).eq('conversations.visibility_state', 'visible').order('position', { ascending: false }).range(from, from + pageSize - 1);
+    // `position` sozinho não é ordem total, e a coluna pagina por `range`. Medido
+    // na base em 03/08/2026: 627 cartões em "Novo" ocupam 541 posições — 83 valores
+    // repetidos cobrindo 169 cartões, e `position = 1` sozinho é de 5, porque é o
+    // que `ensureState` grava em todo cartão novo. Postgres não promete ordem entre
+    // linhas empatadas, então o mesmo cartão podia sair em duas páginas ou em
+    // nenhuma conforme o operador rolava o quadro.
+    //
+    // O desempate é atividade primeiro e `conversation_id` por último. O id não é
+    // ordem que faça sentido para ninguém: está aqui só para fechar a ordem total
+    // quando até a última mensagem empata, que é o que torna a paginação estável.
+    // `last_message_at` é NOT NULL nos dois provedores (003_conversations.sql),
+    // então não há caso de nulo a tratar de um lado e não do outro.
+    let query = this.client.from('conversation_kanban_state').select('conversation_id,stage_id,position,updated_at,conversations!inner(id,workspace_id,visibility_state,chat_id,last_message,last_message_at,unread_count,conversation_type,assigned_user_id,assigned_team_id,routing_queue_id,priority),conversation_metadata(tags),conversation_sla_metrics(sla_status,waiting_since_at,first_response_at,frozen_at)', { count: 'exact' }).eq('workspace_id', workspaceId).eq('board_id', boardId).eq('stage_id', stageId).eq('conversations.visibility_state', 'visible').order('position', { ascending: false }).order('conversations(last_message_at)', { ascending: false }).order('conversation_id', { ascending: true }).range(from, from + pageSize - 1);
     if (filters.unread) query = query.gt('conversations.unread_count', 0); if (filters.type) query = query.eq('conversations.conversation_type', filters.type);
     const { data, error, count } = await query; if (error) fail(error);
     const rows = (data ?? []).filter((row: any) => !filters.search || `${row.conversations.chat_id} ${row.conversations.last_message ?? ''}`.toLowerCase().includes(filters.search.toLowerCase()));

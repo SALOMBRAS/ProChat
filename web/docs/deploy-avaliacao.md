@@ -340,40 +340,6 @@ sessão.
 
 ---
 
-> **Estado em 03/08/2026:** o item "a pilha de desenvolvimento publica a API em
-> `*:3000`" foi corrigido, e a medição que o motivava está confirmada: a máquina
-> está em `192.168.20.151/22`, e `http://192.168.20.151:3000/health` respondia
-> **200** para qualquer um no mesmo /22.
->
-> **Escutar só no loopback não serve**, e a evidência é direta: dentro do
-> contêiner da WAHA, `host.docker.internal` resolve para **172.17.0.1** — o
-> gateway da bridge —, não para `127.0.0.1`. Ligar apenas no loopback calaria o
-> webhook, e em silêncio.
->
-> A API passou a aceitar **uma lista** de endereços, em `API_HOST`, com um
-> servidor HTTP por endereço compartilhando o mesmo `app` e o mesmo
-> `RealtimeHub`. O padrão continua `0.0.0.0`: quem não configura nada não muda de
-> vida. O `local-runtime` passa a pedir `127.0.0.1` mais o gateway detectado, e
-> **avisa em vez de cair para o loopback** quando não consegue detectar — calar o
-> webhook seria pior que continuar exposto sem aviso.
->
-> Provado numa instância de sondagem, sem reiniciar a pilha que estava
-> sincronizando:
->
-> | de onde | resultado |
-> |---|---|
-> | `127.0.0.1:3010` | **200** — dashboard e uso local seguem |
-> | `172.17.0.1:3010` | **200** |
-> | de dentro do contêiner da WAHA | **200** |
-> | `192.168.20.151:3010` (rede local) | **recusado** |
->
-> Na mesma medição, a pilha em `0.0.0.0` respondia **200** em
-> `192.168.20.151:3000` — a diferença que o conserto produz.
->
-> `API_HOST=127.0.0.1,172.17.0.1` foi escrito em `web/.env.local`. **Só passa a
-> valer no próximo arranque da pilha de desenvolvimento**; enquanto o processo
-> atual não for reiniciado, a API segue em `0.0.0.0`.
-
 ## 6. O que este levantamento não determinou
 
 - **Limite exato de corpo de requisição e de duração** das funções da Vercel
