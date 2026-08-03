@@ -48,18 +48,29 @@ ainda não tinha reiniciado.
 `waha_webhook_events` grava **todo** evento que chega, antes de qualquer filtro.
 Comparando com o que virou mensagem:
 
+> **Corrigido em 2026-08-03.** O corte desta seção estava em 13:50:05Z e estava
+> **cedo demais**: dois eventos técnicos posteriores àquele instante — um
+> `e2e_notification` às 17:05:52Z e um `notification_template` às 20:40:04Z, os
+> dois ainda em 28/07 — também viraram mensagem. Ou seja, o processo da API não
+> tinha reiniciado às 13:50; reiniciou depois das 20:40.
+>
+> A conclusão não muda, e a evidência ficou forte em vez de amostra de um.
+> Remedido na base em 2026-08-03T15:40Z:
+
 | janela | eventos técnicos que chegaram | viraram mensagem |
 |---|---|---|
-| até 2026-07-28 13:50:05Z | 419 | 241 |
-| depois de 13:50:05Z | 1 | **0** |
+| até 2026-07-28 20:40:04Z | 514 | 243 |
+| depois de 20:40:04Z | **22** | **0** |
 
-Na janela posterior chegaram 354 eventos brutos e 197 viraram mensagem — o
-pipeline estava ativo. O único evento técnico do período (`notification_template`)
-foi descartado.
+Na janela posterior chegaram **7 809 eventos brutos e 2 771 viraram mensagem** —
+o pipeline esteve ativo o tempo todo. Os 22 técnicos do período
+(`notification_template` 12, `e2e_notification` 6, `revoked` 4), espalhados entre
+2026-07-30T13:39Z e 2026-08-03T01:59Z, foram todos descartados.
 
-É uma amostra de 1, e por si só seria fraca. Ela sustenta a conclusão porque
-combina com os três fatos acima: as quatro têm assinatura de código antigo, e os
-tipos delas já eram cobertos.
+Vinte e dois eventos ao longo de cinco dias, com o pipeline comprovadamente
+processando milhares de outros no mesmo período, é o que sustenta a conclusão. Os
+três fatos indiretos acima continuam válidos como corroboração, mas já não são a
+única perna.
 
 ## O que a varredura completa revelou
 
@@ -125,3 +136,38 @@ técnico para o código), não o contrário. Então:
 Não alterei o `.sql` aqui: ele é a proposta de uma limpeza que ainda não rodou e
 cujos números foram medidos com o vocabulário anterior. Mudar a lista sem refazer
 a medição deixaria o arquivo dizendo um número e fazendo outro.
+
+## Quantas conversas existem só por causa disso
+
+Medido em 2026-08-03T15:45Z, varrendo as 15 157 linhas de `whatsapp_messages` e
+agrupando por `chat_id`:
+
+**134 de 572 conversas têm 100% das suas mensagens em tipos técnicos.** São
+conversas que existem na Inbox por causa de um evento de sistema e de mais nada —
+nenhuma mensagem de ninguém, nunca.
+
+| tipos presentes na conversa | conversas |
+|---|---|
+| só `e2e_notification` | 68 |
+| só `notification_template` | 26 |
+| só `gp2` | 23 |
+| só `biz_content_placeholder` | 12 |
+| `e2e_notification` + `notification_template` | 4 |
+| só `revoked` | 1 |
+
+Isso é o alvo da limpeza que está parada, e é o número que faltava para
+dimensioná-la: não é "algumas conversas fantasma", são **23% da lista**.
+
+Duas observações para quem for executar:
+
+- **O filtro atual não as remove.** Ele impede que novas apareçam (seção acima),
+  mas nada apaga as que já estão lá. As 134 continuam ocupando a lista até a
+  limpeza rodar.
+- **Nenhuma delas tem conteúdo a perder**, por definição: se tivesse uma
+  mensagem real, não estaria nesta contagem. É o caso mais seguro possível para
+  uma remoção — o que não quer dizer que a decisão de remover esteja tomada.
+
+O número anterior que circulou nesta investigação, 150, estava errado: veio de uma
+contagem que classificava por um vocabulário mais largo. A contagem acima usa
+exatamente a lista `technicalMessageTypes` de
+`apps/api/src/services/conversation-identity.ts:54`.
