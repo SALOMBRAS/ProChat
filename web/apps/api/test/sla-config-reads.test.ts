@@ -41,14 +41,40 @@ function setup() {
   return { database, store, service: new SlaService(store, new RealtimeHub()) };
 }
 
-// Uma conversa em espera do operador desde `inboundAt`, portanto vencida às 12h e
-// candidata a virar `expired` no tick — o caminho que também publica evento.
-function dueConversation(database: SqlitePersistenceDatabase, workspaceId: string, index: number) {
-  const conversationId = `00000000-0000-4000-8000-0000000${String(index).padStart(5, '0')}`;
-  database.sqlite.prepare('INSERT INTO conversations (id,workspaceId,wahaSession,chatId,contactId,status,lastMessage,lastMessageAt,unreadCount,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(conversationId, workspaceId, 'waha-a', `55119999${String(index).padStart(5, '0')}@c.us`, null, 'open', 'Olá', inboundAt, 0, inboundAt, inboundAt);
-  database.sqlite.prepare('INSERT INTO conversation_sla_metrics (workspaceId,conversationId,slaStatus,firstInboundAt,lastInboundAt,lastActivityAt,waitingSinceAt,updatedAt) VALUES (?,?,?,?,?,?,?,?)').run(workspaceId, conversationId, 'waiting_operator', inboundAt, inboundAt, inboundAt, inboundAt, inboundAt);
-  return conversationId;
+// Conversas em espera do operador desde `inboundAt`, portanto vencidas às 12h e
+// candidatas a virar `expired` no tick — o caminho que também publica evento.
+//
+// O lote inteiro entra numa transação só, e as duas instruções são preparadas uma
+// vez fora do laço. Não é estilo. O banco de teste roda no padrão do SQLite —
+// `journal_mode = delete` e `synchronous = FULL`, conferidos —, então cada
+// `.run()` solto é uma transação implícita: cria o arquivo de journal, escreve,
+// dá `fsync`, comita, dá `fsync` de novo e apaga. As 120 linhas do primeiro
+// cenário eram 120 dessas rodadas, 388 ms medidos nesta máquina contra 5 ms em
+// transação.
+//
+// Esse é o custo que varia com o disco do runner, e não com a lógica sob teste:
+// o caso levava 826 ms aqui e estourou o timeout de 5 s do vitest com 6176 ms na
+// execução 30830804324 do CI. Não era a máquina inteira mais lenta — dois testes
+// mais pesados que ele passaram na mesma execução —, era esta pilha de `fsync`
+// esperando um disco disputado. Uma transação a reduz a um. Montar o cenário não
+// é o que este arquivo mede.
+function dueConversations(database: SqlitePersistenceDatabase, workspaceId: string, from: number, to: number) {
+  const conversation = database.sqlite.prepare('INSERT INTO conversations (id,workspaceId,wahaSession,chatId,contactId,status,lastMessage,lastMessageAt,unreadCount,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+  const metrics = database.sqlite.prepare('INSERT INTO conversation_sla_metrics (workspaceId,conversationId,slaStatus,firstInboundAt,lastInboundAt,lastActivityAt,waitingSinceAt,updatedAt) VALUES (?,?,?,?,?,?,?,?)');
+  return database.sqlite.transaction(() => {
+    const ids: string[] = [];
+    for (let index = from; index < to; index++) {
+      const conversationId = `00000000-0000-4000-8000-0000000${String(index).padStart(5, '0')}`;
+      conversation.run(conversationId, workspaceId, 'waha-a', `55119999${String(index).padStart(5, '0')}@c.us`, null, 'open', 'Olá', inboundAt, 0, inboundAt, inboundAt);
+      metrics.run(workspaceId, conversationId, 'waiting_operator', inboundAt, inboundAt, inboundAt, inboundAt, inboundAt);
+      ids.push(conversationId);
+    }
+    return ids;
+  })();
 }
+
+const dueConversation = (database: SqlitePersistenceDatabase, workspaceId: string, index: number) =>
+  dueConversations(database, workspaceId, index, index + 1)[0]!;
 
 afterEach(() => { vi.useRealTimers(); directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })); });
 
@@ -61,8 +87,8 @@ describe('leituras de configuração de SLA por operação', () => {
     const { database, store, service } = setup();
     vi.useFakeTimers();
     vi.setSystemTime(new Date(now));
-    for (let index = 0; index < 30; index++) dueConversation(database, 'workspace-a', index);
-    for (let index = 30; index < 60; index++) dueConversation(database, 'workspace-b', index);
+    dueConversations(database, 'workspace-a', 0, 30);
+    dueConversations(database, 'workspace-b', 30, 60);
     await service.tick();
     expect(await store.listDue()).toHaveLength(60);
     expect(store.configReads).toBe(2);
@@ -86,7 +112,7 @@ describe('leituras de configuração de SLA por operação', () => {
     const { database, store, service } = setup();
     vi.useFakeTimers();
     vi.setSystemTime(new Date(now));
-    const ids = Array.from({ length: 10 }, (_, index) => dueConversation(database, 'workspace-a', index));
+    const ids = dueConversations(database, 'workspace-a', 0, 10);
     for (const id of ids) expect(await service.metrics('workspace-a', id)).toBeDefined();
     expect(store.configReads).toBe(1);
   });
@@ -96,7 +122,7 @@ describe('leituras de configuração de SLA por operação', () => {
     const { database, store, service } = setup();
     vi.useFakeTimers();
     vi.setSystemTime(new Date(now));
-    for (let index = 0; index < 20; index++) dueConversation(database, 'workspace-a', index);
+    dueConversations(database, 'workspace-a', 0, 20);
     const summary = await service.summary('workspace-a');
     expect(summary.totals.active).toBe(20);
     expect(store.configReads).toBe(1);
@@ -123,7 +149,7 @@ describe('leituras de configuração de SLA por operação', () => {
     const { database, store, service } = setup();
     vi.useFakeTimers();
     vi.setSystemTime(new Date(now));
-    for (let index = 0; index < 5; index++) dueConversation(database, 'workspace-a', index);
+    dueConversations(database, 'workspace-a', 0, 5);
     // Cada gravação do tick empurra o relógio além do TTL do cache.
     store.onSave = () => vi.setSystemTime(new Date(Date.now() + slaConfigTtlMs + 1));
     await service.tick();
@@ -135,7 +161,7 @@ describe('leituras de configuração de SLA por operação', () => {
   // rodar sobreposto a si mesmo, e cada cópia repete o percurso inteiro.
   it('não deixa um tick lento se sobrepor ao seguinte', async () => {
     const { database, store, service } = setup();
-    for (let index = 0; index < 5; index++) dueConversation(database, 'workspace-a', index);
+    dueConversations(database, 'workspace-a', 0, 5);
     let release = () => {};
     store.gate = new Promise<void>((resolve) => { release = resolve; });
     const running = service.tick();
