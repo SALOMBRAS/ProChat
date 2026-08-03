@@ -6,7 +6,7 @@ import type { InboxApi, InboxConversation, InboxMessage, Page } from "../api/inb
 vi.mock("../api/realtime.js", () => ({ connectRealtime: () => () => {} }));
 vi.mock("../api/workspace.js", () => ({ WorkspaceApi: class { users = async () => []; teams = async () => []; } }));
 
-import Inbox, { locationOf, mapsUrl, coordinatesLabel } from "./Inbox.js";
+import Inbox, { locationOf, mapsUrl, coordinatesLabel, parseCoordinates } from "./Inbox.js";
 
 /**
  * A PR #51 entregou o envio de localização com UI mínima: dois itens soltos no menu
@@ -155,6 +155,41 @@ describe("envio de localização", () => {
   });
 });
 
+/** O link de conferência lia `locationPoint`, que só a geolocalização preenche.
+ *  Quem digitava a coordenada nunca via o link — a conferência faltava justamente
+ *  na entrada que mais precisa dela — e quem usava o GPS e depois editava o campo
+ *  conferia o ponto antigo enquanto o envio mandava o novo. */
+describe("o link de conferência segue o campo, não o GPS", () => {
+  it("aparece para coordenada digitada, sem geolocalização nenhuma", async () => {
+    geolocation({ getCurrentPosition: vi.fn() } as never);
+    const { painel } = await abrirPainel();
+    fireEvent.change(within(painel).getByLabelText("Latitude, longitude"), { target: { value: "-7.115, -34.861" } });
+    expect(within(painel).getByText(/Conferir no mapa/i).getAttribute("href")).toContain("query=-7.115,-34.861");
+  });
+
+  it("acompanha a edição depois de usar o GPS, em vez de congelar no ponto antigo", async () => {
+    const getCurrentPosition = vi.fn().mockImplementation((ok: PositionCallback) =>
+      ok({ coords: { latitude: -7.1153, longitude: -34.861 } } as GeolocationPosition));
+    geolocation({ getCurrentPosition } as never);
+    const { painel } = await abrirPainel();
+    fireEvent.click(within(painel).getByText("Usar minha localização atual"));
+    const campo = await within(painel).findByLabelText("Latitude, longitude");
+    await waitFor(() => expect((campo as HTMLInputElement).value).toContain("-7.115"));
+
+    fireEvent.change(campo, { target: { value: "-3.7784, -38.4848" } });
+    const link = within(painel).getByText(/Conferir no mapa/i).getAttribute("href");
+    expect(link).toContain("query=-3.7784,-38.4848");
+    expect(link).not.toContain("-7.1153");
+  });
+
+  it("some quando o campo deixa de resolver, em vez de conferir lixo", async () => {
+    geolocation({ getCurrentPosition: vi.fn() } as never);
+    const { painel } = await abrirPainel();
+    fireEvent.change(within(painel).getByLabelText("Latitude, longitude"), { target: { value: "-7,115" } });
+    expect(within(painel).queryByText(/Conferir no mapa/i)).toBeNull();
+  });
+});
+
 describe("leitura do ponto nas duas origens", () => {
   it("lê a localização enviada por nós", () => {
     expect(locationOf({ location: { latitude: -7.1, longitude: -34.8, title: "Loja" } })).toMatchObject({ latitude: -7.1, longitude: -34.8, title: "Loja" });
@@ -229,5 +264,89 @@ describe("cartão da mensagem de localização", () => {
     expect(stylesheet).toMatch(/\.chat-inbox \.message-location-copy strong \{[^}]*font-size: 15px[^}]*font-weight: 600/);
     expect(stylesheet).toMatch(/\.chat-inbox \.message-location-copy > span \{[^}]*font-size: 13px/);
     expect(stylesheet).toMatch(/\.chat-inbox \.message-location-copy small \{[^}]*font-size: 11px/);
+  });
+});
+
+/** A vírgula é, em português, o separador decimal E o separador do par. A versão
+ *  anterior separava por vírgula antes de converter, então `-7,115` virava o par
+ *  `{-7, 115}` — Oceano Índico — e era enviável, porque o botão só olha se a
+ *  função devolveu algo.
+ *
+ *  A regra nova é a que as pessoas já usam: vírgula colada num dígito é decimal,
+ *  vírgula com espaço depois é separador. Cada caso abaixo foi medido na função
+ *  antiga antes de virar teste. */
+describe("parseCoordinates: vírgula decimal e entrada ambígua", () => {
+  const ponto = { latitude: -7.115, longitude: -34.861 };
+
+  it.each([
+    ["-7.115, -34.861", ponto],
+    ["-7.115,-34.861", ponto],
+    ["-7.115 -34.861", ponto],
+    ["-7.115; -34.861", ponto],
+    ["  -7.115 ,  -34.861  ", ponto],
+  ])("aceita o formato com ponto decimal: %s", (entrada, esperado) => {
+    expect(parseCoordinates(entrada as string)).toEqual(esperado);
+  });
+
+  it.each([
+    ["-7,115, -34,861", ponto],
+    ["-7,115 -34,861", ponto],
+    ["-7,115; -34,861", ponto],
+    ["-7,115;-34,861", ponto],
+  ])("aceita o formato brasileiro, com vírgula decimal: %s", (entrada, esperado) => {
+    expect(parseCoordinates(entrada as string)).toEqual(esperado);
+  });
+
+  /** O defeito que motivou a correção. Antes devolvia { latitude: -7,
+   *  longitude: 115 } — um ponto no Oceano Índico — com o botão habilitado. */
+  it("RECUSA uma coordenada sozinha escrita com vírgula decimal", () => {
+    expect(parseCoordinates("-7,115")).toBeUndefined();
+    expect(parseCoordinates("-34,861")).toBeUndefined();
+    expect(parseCoordinates("0,5")).toBeUndefined();
+  });
+
+  /** O sinal de menos desfaz a ambiguidade sozinho: em `-7,115,-34,861` a vírgula
+   *  antes do `-34` é seguida de sinal, não de dígito, então ela é separador e as
+   *  outras duas são decimais. É o que o brasileiro escreve quando os dois lados
+   *  são negativos — o caso comum no Brasil inteiro. */
+  it("lê o par colado quando o sinal desfaz a ambiguidade", () => {
+    expect(parseCoordinates("-7,115,-34,861")).toEqual(ponto);
+  });
+
+  /** Sem sinal não há o que desfaça: `7,115,34,861` tanto pode ser dois decimais
+   *  quanto quatro inteiros, e a função recusa em vez de escolher. */
+  it("recusa o par colado quando nada desfaz a ambiguidade", () => {
+    expect(parseCoordinates("7,115,34,861")).toBeUndefined();
+    expect(parseCoordinates("1,2,3")).toBeUndefined();
+  });
+
+  it("mantém válido o par de inteiros separado por vírgula e espaço", () => {
+    // A vírgula tem espaço depois: é separador, e o par é legítimo.
+    expect(parseCoordinates("-7, 115")).toEqual({ latitude: -7, longitude: 115 });
+    expect(parseCoordinates("0, 0")).toEqual({ latitude: 0, longitude: 0 });
+  });
+
+  /** `Number` aceita hexadecimal, notação científica e Infinity. Nenhum é
+   *  coordenada que alguém digitou querendo; `0x10, 0` passava como {16, 0}. */
+  it.each([["0x10, 0"], ["1e2, 0"], ["Infinity, 0"], ["NaN, 0"], ["0b11, 0"], ["1_0, 0"]])(
+    "recusa notação que não é decimal simples: %s",
+    (entrada) => { expect(parseCoordinates(entrada as string)).toBeUndefined(); },
+  );
+
+  it.each([["abc"], [""], ["   "], ["-7.115"], ["1 2 3"], [","], [";"]])(
+    "recusa entrada que não é um par: %s",
+    (entrada) => { expect(parseCoordinates(entrada as string)).toBeUndefined(); },
+  );
+
+  it("continua conferindo a faixa geográfica", () => {
+    expect(parseCoordinates("91, 0")).toBeUndefined();
+    expect(parseCoordinates("0, 181")).toBeUndefined();
+    expect(parseCoordinates("-90, -180")).toEqual({ latitude: -90, longitude: -180 });
+    expect(parseCoordinates("90, 180")).toEqual({ latitude: 90, longitude: 180 });
+  });
+
+  it("preserva a precisão que o navegador entrega", () => {
+    expect(parseCoordinates("-3.7784414291381836, -38.48479080200195"))
+      .toEqual({ latitude: -3.7784414291381836, longitude: -38.48479080200195 });
   });
 });
