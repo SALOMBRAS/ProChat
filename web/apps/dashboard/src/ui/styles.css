@@ -341,11 +341,22 @@
 .chat-inbox .composer-editor-crop-handle.is-s { bottom: 0; left: 50%; transform: translateX(-50%); }
 .chat-inbox .composer-editor-crop-handle.is-w { top: 50%; left: 0; transform: translateY(-50%); }
 .chat-inbox .composer-editor-crop-handle.is-e { top: 50%; right: 0; transform: translateY(-50%); }
+/* A camada do texto recorta a alça que escapa da imagem e não intercepta ponteiro:
+   quem desenha é o canvas por baixo, e no modo caneta esta camada nem existe. */
+.chat-inbox .composer-editor-text-layer { position: absolute; inset: 0; overflow: hidden; border-radius: 10px; pointer-events: none; }
+/* A alça é do tamanho da caixa do texto e fica por cima das letras que o canvas
+   desenhou: é o alvo do ponteiro, o alvo do Tab e o rótulo do leitor de tela. */
+.chat-inbox .composer-editor-text-item { position: absolute; padding: 0 !important; border: 1px dashed #ffffff88 !important; border-radius: 4px !important; background: transparent !important; cursor: move; pointer-events: auto; touch-action: none; }
+.chat-inbox .composer-editor-text-item.is-selected { border-style: solid !important; border-color: #c084fc !important; background: #a855f71f !important; }
+.chat-inbox .composer-editor-text-item:focus-visible { outline: 2px solid #c084fc; outline-offset: 2px; }
+.chat-inbox .composer-editor-text-field { flex: 1; flex-direction: row; align-items: center; gap: 7px; min-width: 168px; color: #a697b4; font-size: 10px; font-weight: 700; }
+.chat-inbox .composer-editor-text-field input { flex: 1; width: auto; padding: 6px 8px; border: 1px solid #ffffff22; border-radius: 8px; background: #ffffff0b; color: #f3eff8; font-size: 11px; }
+.chat-inbox .composer-editor-text-field input:disabled { opacity: .48; }
 .chat-inbox .composer-editor-modes, .chat-inbox .composer-editor-turns, .chat-inbox .composer-editor-aspects { display: flex; align-items: center; gap: 6px; }
 .chat-inbox .composer-editor-turns { margin-left: auto; }
-.chat-inbox .composer-editor-modes button, .chat-inbox .composer-editor-turns button, .chat-inbox .composer-editor-aspects button { padding: 6px 9px !important; border: 1px solid #ffffff22 !important; border-radius: 9px !important; background: #ffffff0b !important; color: #e8dcea !important; font-size: 11px !important; font-weight: 700; }
+.chat-inbox .composer-editor-modes button, .chat-inbox .composer-editor-turns button, .chat-inbox .composer-editor-aspects button, .chat-inbox .composer-editor-text-action { padding: 6px 9px !important; border: 1px solid #ffffff22 !important; border-radius: 9px !important; background: #ffffff0b !important; color: #e8dcea !important; font-size: 11px !important; font-weight: 700; }
 .chat-inbox .composer-editor-modes button[aria-checked="true"], .chat-inbox .composer-editor-aspects button[aria-checked="true"] { border-color: #d8b4fe88 !important; background: #a855f744 !important; color: #fff !important; }
-.chat-inbox .composer-editor-modes button:disabled, .chat-inbox .composer-editor-turns button:disabled, .chat-inbox .composer-editor-aspects button:disabled { opacity: .48; }
+.chat-inbox .composer-editor-modes button:disabled, .chat-inbox .composer-editor-turns button:disabled, .chat-inbox .composer-editor-aspects button:disabled, .chat-inbox .composer-editor-text-action:disabled { opacity: .48; }
 .chat-inbox .composer-editor-crop-size { margin-left: auto; color: #a697b4; font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .chat-inbox .composer-editor-notice { margin: 0; color: #a697b4; font-size: 10px; line-height: 1.4; }
 .chat-inbox .composer-editor-error { margin: 0; color: #ff9c9c; font-size: 11px; line-height: 1.4; }

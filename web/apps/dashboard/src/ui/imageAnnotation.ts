@@ -1,8 +1,9 @@
-/** Marcação a caneta sobre a imagem, antes do envio.
+/** Marcação sobre a imagem — caneta, recorte, giro e texto — antes do envio.
  *
  *  Fica fora do componente porque é a parte que pede teste próprio: o canvas do
  *  jsdom não desenha nada, mas as decisões — teto de resolução, formato de saída,
- *  interpolação entre pontos — são aritmética pura e ficam presas aqui.
+ *  interpolação entre pontos, onde a caixa de texto pousa — são aritmética pura e
+ *  ficam presas aqui.
  *
  *  A saída é um `File` que entra no mesmo `api.sendAttachment` de sempre. Não há
  *  endpoint novo: o editor troca o arquivo pendente por outro arquivo pendente.
@@ -12,6 +13,38 @@ export type Point = { x: number; y: number };
 export type Stroke = { color: string; width: number; points: Point[] };
 export type Size = { width: number; height: number };
 export type Rect = { x: number; y: number; width: number; height: number };
+
+/** Um texto posto sobre a foto.
+ *
+ *  `x`/`y` são a âncora e `size` é o corpo da fonte, os dois em pixels da **imagem
+ *  base** — o mesmo sistema dos pontos do traço. É isso que faz o texto ser tinta
+ *  sobre a foto: ele acompanha o giro e é cortado pelo recorte.
+ *
+ *  `turn` é o giro do quadro **no momento em que o texto foi escrito**, e existe
+ *  porque rabisco não tem em pé e frase tem. Sem ele, endireitar uma foto deitada e
+ *  então escrever produziria letras deitadas na mesma sessão: a base não gira, quem
+ *  gira é a transformação do canvas, e o texto desenhado em coordenadas da base sairia
+ *  correndo para o lado. Guardando o quadro de origem, o desenho desfaz esse giro e
+ *  o texto nasce em pé — e um giro posterior o leva junto, como leva a tinta.
+ *
+ *  O `id` existe só para a seleção saber de quem está falando entre um passo do
+ *  histórico e outro; nunca é mostrado ao operador. */
+export type TextItem = { id: number; text: string; x: number; y: number; size: number; color: string; turn: Rotation };
+
+/** O que a edição guarda, em ordem de criação.
+ *
+ *  Antes do texto, a edição era uma lista de traços — e traço é a única ferramenta
+ *  cujo estado cabe numa lista imutável de pontos, porque nunca é ajustado depois
+ *  de solto. Texto pede o contrário: é criado, selecionado, movido, reescrito e
+ *  apagado. Daí a lista única de objetos com identidade.
+ *
+ *  A lista é **uma só**, e não `strokes[]` mais `texts[]`, porque a ordem de
+ *  criação é a ordem de empilhamento: riscar por cima de um texto tem de deixar o
+ *  risco por cima. Duas listas paralelas obrigariam a uma camada fixa, e a camada
+ *  fixa é mentira em metade dos casos. */
+export type StrokeItem = { kind: "stroke" } & Stroke;
+export type TextEditItem = { kind: "text" } & TextItem;
+export type EditItem = StrokeItem | TextEditItem;
 
 /** Giro em quartos de volta, no sentido horário. Não é ângulo livre de propósito:
  *  múltiplo de 90° gira o canvas sem reamostrar um único pixel, então girar e
@@ -23,10 +56,12 @@ export type Rotation = 0 | 90 | 180 | 270;
  *  porque é lá que ele arrasta as alças e que "16:9" quer dizer 16:9. Os traços,
  *  esses, ficam em coordenadas da imagem base (§`renderAnnotation`). */
 export type Geometry = { rotation: Rotation; crop?: Rect };
-/** Tudo o que a edição é: traços, giro e recorte. Guardar isto — e não o resultado
- *  — é o que deixa reabrir o editor partindo sempre do arquivo original. */
-export type ImageEdit = { strokes: readonly Stroke[]; rotation: Rotation; crop?: Rect };
-export const PRISTINE_EDIT: ImageEdit = { strokes: [], rotation: 0 };
+/** Tudo o que a edição é: os objetos desenhados, o giro e o recorte. Guardar isto —
+ *  e não o resultado — é o que deixa reabrir o editor partindo sempre do arquivo
+ *  original. Nenhum dos três guarda pixel: por isso a garantia de recodificação
+ *  única sobrevive ao texto pelo mesmo motivo que sobreviveu ao recorte. */
+export type ImageEdit = { items: readonly EditItem[]; rotation: Rotation; crop?: Rect };
+export const PRISTINE_EDIT: ImageEdit = { items: [], rotation: 0 };
 
 /** Espelho da allowlist de imagem do servidor (`policy` em
  *  attachment-outbox.service.ts). Reexportar para fora dela devolve 415 no envio,
@@ -66,6 +101,33 @@ export const PEN_COLORS: readonly { value: string; label: string }[] = [
 ];
 export const PEN_LEVELS = { min: 1, max: 6, default: 3 } as const;
 
+/** O texto usa a mesma paleta da caneta: são as cores que já existem no tema, e um
+ *  editor que inventasse cor nova por ferramenta teria duas paletas para manter. */
+export const TEXT_LEVELS = { min: 1, max: 6, default: 3 } as const;
+/** Divisor da escala do corpo da fonte, na mesma ideia do divisor 260 da caneta: o
+ *  tamanho é fração do lado maior do que está à vista, não um número fixo de pixels.
+ *  O nível 3 cai em 5% do lado maior, que é o corpo de legenda que se lê numa foto
+ *  de conversa. **É calibração a olho**, como a da caneta — se ficar grande ou
+ *  pequeno demais, mexa no divisor sem cerimônia. */
+export const TEXT_SIZE_DIVISOR = 60;
+/** Piso em pixels da base. Abaixo disso o texto não sobrevive à redução que o
+ *  WhatsApp faz na entrega. */
+export const TEXT_MIN_SIZE = 12;
+/** Altura da caixa do texto como múltiplo do corpo da fonte: o suficiente para
+ *  cobrir ascendente e descendente. Serve à alça de seleção e ao limite que impede o
+ *  texto de sair da imagem — o canvas não devolve altura de linha de graça. */
+export const TEXT_LINE_RATIO = 1.28;
+/** Teto de caracteres. É legenda sobre foto, não parágrafo: acima disto o texto não
+ *  cabe em nenhum corpo legível. Arbitrário. */
+export const TEXT_MAX_LENGTH = 120;
+/** A mesma pilha de fontes do `:root` em styles.css, para o texto na foto sair com a
+ *  letra do produto. O peso 700 não é enfeite: texto fino sobre foto some. */
+export const TEXT_FONT_STACK = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+/** Contorno escuro por baixo do preenchimento. Sem ele, o texto branco sobre céu
+ *  branco desaparece — e a paleta tem branco. É o mesmo preto translúcido com que a
+ *  moldura do recorte já escurece o lado de fora. */
+export const TEXT_HALO = "#000000b8";
+
 /** Lado mínimo do recorte, em pixels do quadro. Existe para o arrasto não conseguir
  *  fechar a seleção em nada: um recorte de 2 px exporta uma imagem que o operador
  *  não consegue mais reabrir para consertar. */
@@ -90,6 +152,22 @@ const clamp = (value: number, low: number, high: number) => Math.min(Math.max(va
  *  é o peso de caneta que o WhatsApp usa. */
 export const penWidth = (level: number, longestSide: number): number =>
   Math.max(2, Math.round((Math.max(longestSide, 1) * clamp(level, PEN_LEVELS.min, PEN_LEVELS.max)) / 260));
+
+/** O corpo da fonte pela mesma regra da espessura da caneta: fração do lado maior do
+ *  que está à vista, e não pixel fixo. Fixo, o nível 3 daria uma legenda enorme numa
+ *  imagem de 600 px e ilegível numa foto de 12 MP. Como o lado maior é o da saída — e
+ *  a saída é sempre mostrada na mesma largura —, proporcional à imagem quer dizer
+ *  constante para quem olha. O valor é congelado no texto quando ele é criado. */
+export const textSize = (level: number, longestSide: number): number =>
+  Math.max(TEXT_MIN_SIZE, Math.round((Math.max(longestSide, 1) * clamp(level, TEXT_LEVELS.min, TEXT_LEVELS.max)) / TEXT_SIZE_DIVISOR));
+
+/** O caminho de volta: que nível produziu este corpo. Serve para a régua mostrar o
+ *  tamanho do texto que o operador acabou de selecionar, em vez de mentir o último
+ *  valor que ela tinha. */
+export const textLevelOf = (size: number, longestSide: number): number =>
+  clamp(Math.round((size * TEXT_SIZE_DIVISOR) / Math.max(longestSide, 1)), TEXT_LEVELS.min, TEXT_LEVELS.max);
+
+export const textFont = (size: number): string => `700 ${Math.max(1, Math.round(size))}px ${TEXT_FONT_STACK}`;
 
 /** Reduz proporcionalmente até caber no teto. `reduced` existe para o painel poder
  *  dizer ao operador que a imagem foi reduzida, e para quanto. */
@@ -171,6 +249,33 @@ export const geometryMatrix = (base: Size, geometry: Geometry): Matrix => {
   return [1, 0, 0, 1, offsetX, offsetY];
 };
 
+/** `a` depois de `b`: o ponto passa por `b` primeiro. Compor em TypeScript, e não
+ *  empilhando `rotate`/`translate` no contexto, mantém o desenho com uma chamada de
+ *  `setTransform` por objeto — e mantém a transformação inteira visível ao teste, que
+ *  é como as três propriedades de §4.6 continuam confiráveis. */
+export const composeMatrix = (a: Matrix, b: Matrix): Matrix => [
+  a[0] * b[0] + a[2] * b[1],
+  a[1] * b[0] + a[3] * b[1],
+  a[0] * b[2] + a[2] * b[3],
+  a[1] * b[2] + a[3] * b[3],
+  a[0] * b[4] + a[2] * b[5] + a[4],
+  a[1] * b[4] + a[3] * b[5] + a[5],
+];
+
+/** O giro puro, sem translação. É a parte `[a b c d]` da matriz da geometria, isolada
+ *  para o texto poder desfazer o giro do quadro em que foi escrito. */
+export const spinMatrix = (rotation: Rotation): Matrix =>
+  rotation === 90 ? [0, 1, -1, 0, 0, 0] : rotation === 180 ? [-1, 0, 0, -1, 0, 0] : rotation === 270 ? [0, -1, 1, 0, 0, 0] : [1, 0, 0, 1, 0, 0];
+
+/** Leva um retângulo por uma matriz de quarto de volta. Como o giro é rígido e
+ *  múltiplo de 90°, o retângulo continua alinhado aos eixos e dois cantos opostos
+ *  bastam para descrevê-lo. */
+export const mapRect = (matrix: Matrix, rect: Rect): Rect => {
+  const start = applyMatrix(matrix, { x: rect.x, y: rect.y });
+  const end = applyMatrix(matrix, { x: rect.x + rect.width, y: rect.y + rect.height });
+  return { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y) };
+};
+
 /** Canvas → base. É o que transforma o ponteiro em ponto de traço: o operador
  *  desenha sobre a imagem girada e recortada, mas o traço é gravado na base, de
  *  onde acompanha qualquer geometria posterior. */
@@ -179,6 +284,10 @@ export const toBasePoint = (point: Point, base: Size, geometry: Geometry): Point
 
 export const turnRotation = (rotation: Rotation, quarter: 1 | -1): Rotation =>
   ((((rotation + quarter * 90) % 360) + 360) % 360) as Rotation;
+
+/** O giro que desfaz este: 90° vira 270°, e zero continua zero. Sem o `% 360`, o
+ *  inverso de 0 seria 360, que nenhum ramo da matriz reconhece. */
+export const oppositeRotation = (rotation: Rotation): Rotation => ((360 - rotation) % 360) as Rotation;
 
 /** Leva o recorte para o quadro que o giro acabou de criar. Sem isto, girar moveria
  *  o recorte para outro pedaço da foto — o operador enquadra um rosto, gira, e o
@@ -196,6 +305,115 @@ export const fitAspect = (rect: Rect, aspect: number): Rect => {
   const height = width / aspect;
   return { x: rect.x + (rect.width - width) / 2, y: rect.y + (rect.height - height) / 2, width, height };
 };
+
+/* ---------- O texto na base, e a caixa dele na tela ---------- */
+
+/** Medir texto é a única coisa do editor que depende do desenho de verdade: a
+ *  largura de uma frase é a soma das larguras dos glifos, e só a fonte carregada
+ *  sabe quais são. O medidor entra como argumento para a aritmética continuar pura e
+ *  testável sem um canvas. */
+export type TextMeasure = (text: string, size: number) => number;
+
+/** Medidor de emergência, para antes de o contexto 2D existir. Erra a largura de
+ *  qualquer fonte proporcional, e é por isso que só vale para posicionar uma caixa
+ *  vazia — nunca para decidir se o texto cabe. */
+export const approximateTextWidth: TextMeasure = (text, size) => Math.max(1, text.length) * size * 0.52;
+
+export const measureWith = (context: Pick<AnnotationContext, "font" | "measureText">): TextMeasure => (text, size) => {
+  context.font = textFont(size);
+  return context.measureText(text).width;
+};
+
+/** A caixa do texto no quadro do próprio texto, com a âncora na origem: a frase corre
+ *  para a direita e desce uma linha, sempre, porque neste quadro ela está em pé.
+ *  O texto vazio ainda tem caixa, senão a alça de quem acabou de criar um texto
+ *  nasceria com zero pixel e ninguém conseguiria pegá-la para digitar. */
+export const textBox = (item: TextItem, measure: TextMeasure): Rect => ({
+  x: 0,
+  y: 0,
+  width: Math.max(item.size / 2, measure(item.text || " ", item.size)),
+  height: Math.max(1, item.size * TEXT_LINE_RATIO),
+});
+
+/** Quadro do texto → base: leva a âncora ao lugar e desfaz o giro em que o texto foi
+ *  escrito, para ele nascer em pé sobre a foto que o operador estava vendo. */
+export const textBaseMatrix = (item: TextItem): Matrix =>
+  composeMatrix([1, 0, 0, 1, item.x, item.y], spinMatrix(oppositeRotation(item.turn)));
+
+/** Quadro do texto → canvas: a geometria da imagem por cima do quadro do texto. Uma
+ *  matriz só, ainda rígida, ainda sem escala — a letra não engorda nem afina. */
+export const textMatrix = (item: TextItem, base: Size, geometry: Geometry): Matrix =>
+  composeMatrix(geometryMatrix(base, geometry), textBaseMatrix(item));
+
+/** A pegada do texto em coordenadas da base. É contra isto que se confere se o texto
+ *  cabe na imagem: a caixa troca de lados quando o texto foi escrito num quarto de
+ *  volta, e usar largura e altura cruas erraria o limite justamente aí. */
+export const textBaseRect = (item: TextItem, measure: TextMeasure): Rect =>
+  mapRect(textBaseMatrix(item), textBox(item, measure));
+
+/** O pedaço da base que o operador está vendo agora — a imagem inteira sem recorte, o
+ *  recorte quando há um. A matriz é rígida e de quarto de volta, então o retângulo
+ *  continua alinhado aos eixos e dois cantos bastam. */
+export const visibleBase = (base: Size, geometry: Geometry): Rect =>
+  mapRect(invertMatrix(geometryMatrix(base, geometry)), fullRect(outputSize(base, geometry)));
+
+/** Um deslocamento da tela vira deslocamento da base. É a parte linear da inversa da
+ *  geometria: sem ela, a seta para a direita moveria o texto para baixo depois de um
+ *  giro de 90°, porque os eixos da base já não são os da tela. */
+export const canvasDeltaToBase = (delta: Point, base: Size, geometry: Geometry): Point => {
+  const inverse = invertMatrix(geometryMatrix(base, geometry));
+  const origin = applyMatrix(inverse, { x: 0, y: 0 });
+  const moved = applyMatrix(inverse, delta);
+  return { x: moved.x - origin.x, y: moved.y - origin.y };
+};
+
+/** Prende o texto dentro do que está à vista. Não dá para arrastar uma coisa para
+ *  onde não se vê, e sem isto o texto sairia pela borda da foto ou sumiria dentro da
+ *  parte que o recorte joga fora. Texto mais largo que a área encosta na borda em vez
+ *  de ficar preso num limite negativo.
+ *
+ *  O que se prende é a **pegada**, não a âncora: a âncora anda junto pelo mesmo
+ *  deslocamento, senão um texto escrito de lado seria empurrado pelo canto errado. */
+export const clampTextPosition = (item: TextItem, measure: TextMeasure, bounds: Rect): Point => {
+  const rect = textBaseRect(item, measure);
+  const x = clamp(rect.x, bounds.x, Math.max(bounds.x, bounds.x + bounds.width - rect.width));
+  const y = clamp(rect.y, bounds.y, Math.max(bounds.y, bounds.y + bounds.height - rect.height));
+  return { x: item.x + (x - rect.x), y: item.y + (y - rect.y) };
+};
+
+/** A caixa do texto em coordenadas do canvas, que é onde a alça de seleção pousa. A
+ *  alça não tem geometria própria: é a mesma matriz do desenho, então ela cai
+ *  exatamente sobre as letras em qualquer giro e recorte. */
+export const textOverlayRect = (item: TextItem, measure: TextMeasure, base: Size, geometry: Geometry): Rect =>
+  mapRect(textMatrix(item, base, geometry), textBox(item, measure));
+
+/** Os dois retângulos se tocam? Serve para a alça de um texto que o recorte jogou
+ *  fora não ser desenhada: fora da moldura ela vira um alvo de Tab que ninguém vê,
+ *  e um Delete ali apagaria um texto invisível. */
+export const rectsOverlap = (a: Rect, b: Rect): boolean =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/** Identidade derivada da própria lista, em vez de contador global ou `randomUUID`:
+ *  reabrir o editor com a mesma edição reconstrói os mesmos ids, e o histórico
+ *  continua falando do mesmo texto depois de desfazer. */
+export const nextTextId = (items: readonly EditItem[]): number =>
+  items.reduce((highest, item) => (item.kind === "text" ? Math.max(highest, item.id) : highest), 0) + 1;
+
+export const textsOf = (items: readonly EditItem[]): TextEditItem[] => items.filter((item): item is TextEditItem => item.kind === "text");
+export const textById = (items: readonly EditItem[], id?: number): TextEditItem | undefined =>
+  id === undefined ? undefined : textsOf(items).find((item) => item.id === id);
+
+export const addItem = (edit: ImageEdit, item: EditItem): ImageEdit => ({ ...edit, items: [...edit.items, item] });
+/** Mexer num texto é trocar um item da lista, nunca mutá-lo: os instantâneos do
+ *  histórico compartilham os objetos, e mutar um deles reescreveria o passado. */
+export const updateTextItem = (edit: ImageEdit, id: number, patch: Partial<TextItem>): ImageEdit => ({
+  ...edit,
+  items: edit.items.map((item) => (item.kind === "text" && item.id === id ? { ...item, ...patch } : item)),
+});
+export const removeTextItem = (edit: ImageEdit, id: number): ImageEdit => ({
+  ...edit,
+  items: edit.items.filter((item) => !(item.kind === "text" && item.id === id)),
+});
 
 export type CropHandle = "move" | "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 export const CROP_HANDLES: readonly CropHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -262,10 +480,18 @@ export const dragCrop = (
   return aspect ? lockAspect(rect, west, east, north, south, frame, aspect, min) : rect;
 };
 
+/** O item marca a imagem? Traço sem ponto e texto sem conteúdo não desenham nada, e
+ *  contá-los como marcação faria uma imagem intocada ser reexportada por nada. */
+export const marksImage = (item: EditItem): boolean => (item.kind === "stroke" ? item.points.length > 0 : item.text.trim().length > 0);
+
 /** A edição não mexeu em nada. Confirmar assim devolve o `File` que entrou, sem
- *  recodificar — a regra vale para o giro e o recorte pelo mesmo motivo que valia
- *  para o traço. */
-export const isPristineEdit = (edit: ImageEdit): boolean => !edit.strokes.length && edit.rotation === 0 && !edit.crop;
+ *  recodificar — a regra vale para o giro, o recorte e o texto pelo mesmo motivo que
+ *  valia para o traço.
+ *
+ *  Um texto criado e deixado vazio não conta: a caixa existe na lista para o operador
+ *  poder voltar e digitar, mas não põe um pixel na imagem. Fazer a exceção aqui, e não
+ *  numa limpeza chamada em cinco lugares, é o que impede que um deles seja esquecido. */
+export const isPristineEdit = (edit: ImageEdit): boolean => edit.rotation === 0 && !edit.crop && !edit.items.some(marksImage);
 
 /** O ponteiro dá coordenadas de viewport; o canvas desenha nas suas próprias, que
  *  são as da imagem reduzida. Sem a conversão o traço sai deslocado e com a
@@ -302,11 +528,17 @@ export type AnnotationContext = {
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void;
   fillRect(x: number, y: number, width: number, height: number): void;
   drawImage(image: CanvasImageSource, x: number, y: number, width: number, height: number): void;
+  fillText(text: string, x: number, y: number): void;
+  strokeText(text: string, x: number, y: number): void;
+  measureText(text: string): { width: number };
   fillStyle: string | CanvasGradient | CanvasPattern;
   strokeStyle: string | CanvasGradient | CanvasPattern;
   lineWidth: number;
   lineCap: CanvasLineCap;
   lineJoin: CanvasLineJoin;
+  font: string;
+  textAlign: CanvasTextAlign;
+  textBaseline: CanvasTextBaseline;
 };
 
 /** Desenha um traço passando *suave* pelos pontos captados.
@@ -343,19 +575,47 @@ export const tracePath = (context: AnnotationContext, stroke: Stroke): void => {
   context.stroke();
 };
 
-/** Repinta tudo: base branca, imagem, traços na ordem. Desfazer e refazer são
- *  fatias do histórico de edições — nada de guardar `ImageData` por passo, que num
- *  canvas de 5 MP custaria 20 MB por nível.
+/** Escreve um texto nas coordenadas da base.
  *
- *  A imagem e os traços são desenhados nas coordenadas da **base**, e a geometria
- *  entra como transformação do canvas. É essa ordem que responde à pergunta "o
- *  traço acompanha o recorte?": acompanha, porque o traço é tinta sobre a foto e o
- *  recorte é a moldura por onde se olha para ela. Riscar e depois recortar corta o
- *  que ficou de fora, exatamente como cortaria a foto. */
+ *  O contorno escuro vem antes do preenchimento, e não é enfeite: a paleta tem
+ *  branco, e branco sobre céu branco não existe. Escrever o contorno depois cobriria
+ *  o miolo da letra.
+ *
+ *  A âncora é o canto superior esquerdo (`textBaseline = "top"`) porque é o canto que
+ *  a caixa de seleção usa; com a linha de base como âncora, mover a alça um pixel
+ *  moveria o texto um pixel e a caixa outro.
+ *
+ *  Escreve na origem porque quem posiciona é a matriz: o contexto já chega no quadro
+ *  do próprio texto. */
+export const drawText = (context: AnnotationContext, item: TextItem): void => {
+  if (!item.text) return;
+  context.font = textFont(item.size);
+  context.textAlign = "left";
+  context.textBaseline = "top";
+  context.lineJoin = "round";
+  context.lineWidth = Math.max(2, Math.round(item.size / 8));
+  context.strokeStyle = TEXT_HALO;
+  context.strokeText(item.text, 0, 0);
+  context.fillStyle = item.color;
+  context.fillText(item.text, 0, 0);
+};
+
+/** Repinta tudo: base branca, imagem, e os objetos na ordem em que foram criados.
+ *  Desfazer e refazer são fatias do histórico de edições — nada de guardar
+ *  `ImageData` por passo, que num canvas de 5 MP custaria 20 MB por nível.
+ *
+ *  A ordem da lista é a ordem de empilhamento: um traço feito depois de um texto fica
+ *  por cima dele, que é o que o operador vê acontecer enquanto desenha.
+ *
+ *  A imagem, os traços e os textos são desenhados nas coordenadas da **base**, e a
+ *  geometria entra como transformação do canvas. É essa ordem que responde à pergunta
+ *  "a marcação acompanha o recorte?": acompanha, porque a marcação é tinta sobre a
+ *  foto e o recorte é a moldura por onde se olha para ela. Marcar e depois recortar
+ *  corta o que ficou de fora, exatamente como cortaria a foto. */
 export const renderAnnotation = (
   context: AnnotationContext,
   image: CanvasImageSource | undefined,
-  strokes: readonly Stroke[],
+  items: readonly EditItem[],
   base: Size,
   geometry: Geometry = { rotation: 0 },
 ): void => {
@@ -369,7 +629,16 @@ export const renderAnnotation = (
   const matrix = geometryMatrix(base, geometry);
   context.setTransform(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]);
   if (image) context.drawImage(image, 0, 0, base.width, base.height);
-  for (const stroke of strokes) tracePath(context, stroke);
+  for (const item of items) {
+    if (item.kind === "stroke") { tracePath(context, item); continue; }
+    // O texto tem quadro próprio — a âncora e o giro em que foi escrito. Depois de
+    // desenhá-lo, a matriz da geometria volta, senão o traço seguinte herdaria o
+    // quadro do texto anterior.
+    const own = textMatrix(item, base, geometry);
+    context.setTransform(own[0], own[1], own[2], own[3], own[4], own[5]);
+    drawText(context, item);
+    context.setTransform(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]);
+  }
   context.restore();
 };
 

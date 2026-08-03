@@ -2,8 +2,8 @@
 
 Escrito para quem vai implementar o mesmo recurso em outro sistema, sem acesso a
 este código. Descreve o que foi construído nas PRs #56 (o editor), #62 (a tela
-que o hospeda) e #71 (recorte e giro), por que cada decisão foi tomada, e o que
-quebra se for feito sem cuidado.
+que o hospeda), #71 (recorte e giro) e #104 (texto), por que cada decisão foi
+tomada, e o que quebra se for feito sem cuidado.
 
 Onde a decisão foi arbitrária, está escrito que foi arbitrária. Onde há número
 medido, a medição está junto.
@@ -13,9 +13,10 @@ medido, a medição está junto.
 ## 1. O que faz
 
 O operador prepara uma foto antes de enviá-la: escolhe a imagem, rabisca por cima
-para circular ou apontar alguma coisa, endireita o que saiu deitado, corta o que
-não interessa, e manda. Não é edição de imagem — são as três coisas que se faz a
-uma foto antes de mostrá-la a alguém, do jeito que o WhatsApp faz.
+para circular ou apontar alguma coisa, escreve uma palavra sobre ela, endireita o
+que saiu deitado, corta o que não interessa, e manda. Não é edição de imagem —
+são as quatro coisas que se faz a uma foto antes de mostrá-la a alguém, do jeito
+que o WhatsApp faz.
 
 ### Fluxo do ponto de vista do operador
 
@@ -23,21 +24,25 @@ uma foto antes de mostrá-la a alguém, do jeito que o WhatsApp faz.
    arrastando. Tanto faz de onde veio.
 2. A imagem aparece grande, com uma barra de ferramentas.
 3. Clica em **Editar**. O preview dá lugar ao painel: a imagem, um seletor de
-   ferramenta (caneta ou recorte), dois botões de giro, e os botões desfazer,
-   refazer, descartar e concluir.
+   ferramenta (caneta, texto ou recorte), dois botões de giro, e os botões
+   desfazer, refazer, descartar e concluir.
 4. Na **caneta**, desenha com o mouse, o dedo ou a caneta, escolhendo cor e
    espessura.
-5. No **recorte**, arrasta as oito alças da seleção — ou a seleção inteira — e
+5. No **texto**, toca a imagem onde quer escrever e digita. A frase aparece na
+   foto enquanto ele digita. Pode arrastá-la para outro lugar, mudar a cor e o
+   tamanho, tocar numa frase já escrita para corrigi-la, e apagá-la.
+6. No **recorte**, arrasta as oito alças da seleção — ou a seleção inteira — e
    pode travar a proporção em 1:1, 4:3 ou 16:9. O tamanho em pixels do que vai
    sair fica à vista o tempo todo.
-6. O **giro** de 90° para qualquer lado vale a qualquer momento, e leva o recorte
+7. O **giro** de 90° para qualquer lado vale a qualquer momento, e leva o recorte
    junto.
-7. **Concluir** fecha o painel e volta ao preview, agora com a edição aplicada.
-8. Escreve uma legenda (opcional) e envia.
+8. **Concluir** fecha o painel e volta ao preview, agora com a edição aplicada.
+9. Escreve uma legenda (opcional) e envia.
 
-Desfazer e refazer cobrem os três: um passo é o último traço, o último giro ou o
-último recorte, o que tiver sido. Em qualquer ponto ele pode **descartar a
-edição** e voltar à imagem como ela entrou, ou fechar tudo sem enviar.
+Desfazer e refazer cobrem os quatro: um passo é o último traço, a última palavra
+escrita, o último giro ou o último recorte, o que tiver sido. Em qualquer ponto
+ele pode **descartar a edição** e voltar à imagem como ela entrou, ou fechar tudo
+sem enviar.
 
 ---
 
@@ -87,7 +92,7 @@ O contrato do componente é este:
 
 ```ts
 type ImageEdit = {
-  strokes: readonly Stroke[];   // em coordenadas da imagem base — ver §3.7
+  items: readonly EditItem[];   // traços e textos, em coordenadas da BASE — ver §3.7 e §3.12
   rotation: 0 | 90 | 180 | 270;
   crop?: Rect;                  // em coordenadas do quadro GIRADO — ver §3.8
 };
@@ -102,9 +107,9 @@ type EditorProps = {
 
 Devolver a **descrição da edição** junto do arquivo é o que permite reabrir sem
 empilhar perda de qualidade — ver §3.5. Repare que `ImageEdit` não guarda um
-único pixel: uma lista de pontos, um número e um retângulo. É essa propriedade,
-não o tamanho da estrutura, que faz a garantia de recodificação única sobreviver
-ao recorte e ao giro.
+único pixel: uma lista de pontos, uma frase com posição, um número e um
+retângulo. É essa propriedade, não o tamanho da estrutura, que faz a garantia de
+recodificação única sobreviver ao recorte, ao giro e ao texto.
 
 ---
 
@@ -289,7 +294,7 @@ Quem chama guarda três estados:
 
 ```ts
 attachmentSource  // o File como entrou. Nunca muda até trocar de anexo.
-attachmentEdit    // traços + giro + recorte. A memória da edição.
+attachmentEdit    // traços + textos + giro + recorte. A memória da edição.
 attachment        // o File que vai ser enviado (o exportado, ou o próprio source)
 ```
 
@@ -330,12 +335,24 @@ perderia qualidade, perderia o EXIF (que aqui não interessa a ninguém, já que
 foto não foi tocada) e trocaria o nome do arquivo. O operador não fez nenhuma
 edição; o arquivo não deve mudar.
 
-A regra vale para os três pelo mesmo motivo, e é por isso que o teste é sobre a
-edição inteira, não sobre a lista de traços:
+A regra vale para os quatro pelo mesmo motivo, e é por isso que o teste é sobre a
+edição inteira, não sobre a lista de objetos:
 
 ```
-intocada(edição) = edição.traços.vazia? e edição.giro == 0 e edição.recorte == nenhum
+intocada(edição) = nenhum objeto de edição.objetos MARCA a imagem
+                   e edição.giro == 0 e edição.recorte == nenhum
+
+marca(objeto) = objeto é traço  ? tem ponto
+              : objeto é texto  ? tem conteúdo além de espaço
 ```
+
+Repare que a condição não é "a lista está vazia". **Uma caixa de texto criada e
+deixada vazia não marca nada**: o operador tocou a imagem, mudou de ideia e não
+digitou. Se ela contasse, concluir recomprimiria a foto, jogaria o EXIF fora e
+trocaria o nome do arquivo sem uma única marca visível — exatamente o que esta
+seção existe para impedir. Fazer a exceção dentro da própria definição de
+"intocada", e não numa limpeza chamada em cinco lugares, é o que garante que
+nenhum dos cinco seja esquecido.
 
 O caso que revela um teste frouxo aqui é girar 360° em quatro cliques: a edição
 volta a ser intocada, e o arquivo tem de voltar a ser o original. Se a sua
@@ -373,6 +390,15 @@ repintar  = pinta o fundo do tamanho da SAÍDA
 Com isso, "o traço acompanha o recorte" deixa de ser código: é consequência de a
 imagem e o traço estarem no mesmo sistema, com a moldura por fora dos dois.
 Recortar não transforma nenhum ponto de nenhum traço. Girar também não.
+
+**O texto entra por esta mesma porta**, e é o que faz a resposta do editor ser
+uma só: a frase é gravada em coordenadas da base e desenhada por dentro da mesma
+matriz. Recortar corta a parte do texto que ficou de fora, do jeito que a tesoura
+cortaria a caneta — inclusive pelo meio de uma palavra, se for lá que a borda
+caiu. Girar leva o texto junto. Responder diferente para a segunda ferramenta
+criaria duas regras mentais dentro do mesmo painel.
+
+O texto pede **um acréscimo** a este modelo, e só um. Está em §3.13.
 
 **A contrapartida é o ponteiro.** Se o traço é gravado na base e o operador
 desenha sobre o canvas já girado e recortado, o ponto que o ponteiro dá tem de
@@ -414,9 +440,9 @@ Duas convenções que evitam confusão depois:
 - **Pixel inteiro.** `canvas.width` trunca. Um recorte fracionário faria a
   reabertura reconstruir uma imagem de outro tamanho que a exportada.
 
-### 3.9 Um histórico só, para os três
+### 3.9 Um histórico só, para os quatro
 
-Desfazer com três ferramentas tem duas saídas: uma pilha por ferramenta, ou uma
+Desfazer com quatro ferramentas tem duas saídas: uma pilha por ferramenta, ou uma
 pilha de estados. **Escolhemos a pilha de estados**, e a razão é o operador, não
 o código: ele não pensa em "desfazer o último traço" e "desfazer o último giro"
 como filas separadas — ele pensa em "desfazer o que acabei de fazer".
@@ -429,21 +455,32 @@ Então cada passo do histórico é uma `ImageEdit` inteira, e desfazer é recuar
 ```
 
 Isso seria proibitivo se um passo fosse um `ImageData`. Não é: um passo são três
-campos, e cada instantâneo **compartilha os objetos de traço** dos anteriores.
-Empilhar cem passos custa cem ponteiros, não cem cópias da foto. É a mesma razão
-de §4.5, levada ao caso geral.
+campos, e cada instantâneo **compartilha os objetos** dos anteriores. Empilhar
+cem passos custa cem ponteiros, não cem cópias da foto. É a mesma razão de §4.5,
+levada ao caso geral.
 
-Duas consequências que valem prender em teste:
+Esse compartilhamento cobra uma disciplina que o traço não cobrava: **mexer num
+objeto é trocá-lo na lista, nunca alterá-lo no lugar**. O traço estava imune por
+acidente de forma — só entra no histórico depois de pronto e nunca mais muda. O
+texto é reescrito, movido e redimensionado depois de criado, e alterá-lo no lugar
+reescreveria todos os instantâneos anteriores de uma vez: desfazer recuaria o
+índice e a tela não mudaria.
+
+Três consequências que valem prender em teste:
 
 - **"Descartar edição" é um passo do histórico**, não um `reset`. Desfazer logo
   depois traz tudo de volta — o operador que descarta por engano não perde o
   trabalho.
 - **Reabrir o editor reconstrói um histórico plausível** a partir da `ImageEdit`
-  que voltou: primeiro a geometria, depois um passo por traço. A ordem real da
+  que voltou: primeiro a geometria, depois um passo por objeto. A ordem real da
   passagem anterior não foi guardada, e não precisa ser — qualquer caminho até
   aquela edição termina na mesma imagem. O que importa é que desfazer continue
   descascando o trabalho anterior um passo por vez, em vez de ficar desabilitado
-  logo na abertura.
+  logo na abertura. Objetos que não marcam a imagem (§3.6) não ganham passo, e
+  não voltam: um passo que não muda nada na tela é um desfazer que parece
+  quebrado.
+- **Desfazer solta a seleção.** Ver §3.12 — o identificador do objeto é
+  reaproveitado, e seleção presa a um crachá reaproveitado apaga o texto errado.
 
 ### 3.10 `minmax(0, 1fr)` na célula do preview
 
@@ -522,6 +559,262 @@ deslocado, e ninguém tinha notado porque a foto de teste era larga.
 Se você mantiver os `max-height` responsivos, mova-os para a variável
 (`--editor-max`), não para o canvas: aplicar altura máxima ao canvas de volta
 desfaz a proporção da moldura.
+
+### 3.12 De lista de traços a lista de objetos
+
+Esta é a decisão que o texto obriga, e a única que muda a forma do estado. Tudo o
+que vem depois — §3.13 a §3.15 — só é possível por causa dela.
+
+**O que era.** A edição guardava `strokes: Stroke[]`, e traço é a única
+ferramenta cujo estado cabe numa lista imutável de pontos: é criado com um gesto,
+solto, e nunca mais tocado. Não tem seleção, não tem "qual deles", não tem
+"mover". Reeditar era acrescentar ao fim.
+
+**O que passa a ser.** Uma lista única e ordenada de objetos:
+
+```ts
+type TextItem = {
+  id: number;      // identidade da seleção. NUNCA é mostrado ao operador.
+  text: string;
+  x: number;       // âncora, em pixels da imagem BASE
+  y: number;
+  size: number;    // corpo da fonte, também em pixels da BASE
+  color: string;
+  turn: 0|90|180|270;   // o quadro em que foi escrito — ver §3.13
+};
+
+type EditItem = ({ kind: "stroke" } & Stroke) | ({ kind: "text" } & TextItem);
+type ImageEdit = { items: readonly EditItem[]; rotation: Rotation; crop?: Rect };
+```
+
+**Por que uma lista só, e não `strokes[]` mais `texts[]`.** Porque a ordem de
+criação é a ordem de empilhamento. Duas listas paralelas obrigariam a uma camada
+fixa — todo texto sempre acima de todo traço, ou o contrário — e a camada fixa é
+mentira em metade dos casos: quem risca um texto para cancelá-lo espera o risco
+por cima. Com uma lista só, "por cima" é consequência de "depois", e a
+repintura é um laço sem ramo de prioridade.
+
+**O `id` é derivado, não sorteado.** É o maior id de texto da lista mais um.
+Nada de contador global nem de `randomUUID`: reabrir o editor com a mesma edição
+tem de reconstruir os mesmos ids, senão a seleção deixa de significar a mesma
+coisa entre uma passagem e outra. O preço é que **o id é reaproveitado**: apagar
+o segundo texto devolve o crachá 2 ao terceiro. Isso é inofensivo enquanto a
+seleção não sobreviver a um desfazer — e é por isso que §3.9 manda soltá-la.
+
+#### O impacto na reedição a partir do original
+
+Nenhum, e vale dizer por quê, porque a pergunta é razoável.
+
+§3.5 se apoia numa propriedade só: **a edição é descrição, não pixel**. Traço é
+uma lista de pontos; texto é uma frase, uma posição e um corpo. Os dois são
+repintados do zero sobre o original a cada confirmação, e o pipeline continua
+sendo *original → aplica tudo → codifica uma vez*, quantas vezes o editor abrir.
+A reedição não replica mais "um passo por traço": replica **um passo por
+objeto**, na ordem da lista. É a mesma frase com uma palavra trocada.
+
+O que muda é um detalhe honesto de reprodutibilidade: **o texto é rasterizado
+pela fonte da máquina**. Dois pontos de um traço reconstroem os mesmos pixels em
+qualquer aparelho; uma frase reconstrói os mesmos pixels só se a mesma fonte
+estiver lá. Por isso o corpo é declarado com uma pilha de fontes explícita, e não
+herdado do padrão do canvas (que é `10px sans-serif`, e produziria letra
+minúscula sem ninguém pedir). Se a primeira fonte da pilha faltar, a frase sai
+com métrica um pouco diferente da que o operador viu — a posição continua a
+mesma, porque a âncora é gravada, mas a largura não. Não é um problema de
+qualidade: é uma diferença de um caractere de largura, entre máquinas, num texto
+que ninguém vai medir. Vale saber que existe.
+
+### 3.13 O texto é tinta, mas tinta tem um lado certo para cima
+
+§3.7 já decidiu que a marcação é tinta sobre a foto. O texto herda isso: fica em
+coordenadas da base, o recorte o corta e o giro o leva junto.
+
+**Mas rabisco não tem em pé, e frase tem.** E é aí que a herança direta produz um
+bug que não existia com a caneta:
+
+> A foto do documento chega deitada. O operador gira 90° para endireitá-la — que
+> é justamente a ordem certa de trabalhar — e então escreve "conferido". Com o
+> texto desenhado em coordenadas da base por dentro da matriz do giro, as letras
+> **correm para baixo**. Não é uma surpresa que aparece uma edição depois: é o
+> resultado imediato, na mesma sessão.
+
+Isso não é o modelo do papel, é um erro. No papel, quem endireita a foto e depois
+escreve escreve em pé. A regra completa que o papel descreve é: **o texto nasce
+em pé no quadro em que foi escrito, e um giro posterior o leva junto.**
+
+**A decisão:** cada texto guarda `turn`, o giro do quadro no momento em que foi
+criado. O desenho compõe a matriz da geometria com um quarto de volta inverso, e
+as duas metades saem de graça:
+
+```
+matrizDoTexto = matrizDaGeometria(base, geometria)
+              ∘ translação(texto.x, texto.y)
+              ∘ giro(−texto.turn)
+```
+
+- Escrito com o quadro girado em 90° e visto com o quadro em 90°: os dois giros
+  se cancelam e sobra **translação pura** — letra em pé.
+- Escrito em 0° e visto em 90°: sobra um quarto de volta — o texto **girou junto
+  com a foto**, como a tinta.
+
+O `∘ giro(−turn)` é composto **em aritmética, não empilhando `rotate`/`translate`
+no contexto**. Isso é de propósito: mantém uma chamada de transformação por
+objeto, mantém a matriz inteira visível ao teste — dá para afirmar determinante 1
+nos dezesseis pares (`turn`, giro) —, e é o que preserva a propriedade de §4.6 de
+que nada no editor reamostra pixel.
+
+**A alternativa rejeitada** é manter o texto sempre em pé na tela, contra-girando
+a cada giro. Ela conserta o caso acima e estraga o outro: quem circulou um rosto
+e escreveu ao lado veria a frase se desprender do que ela nomeia assim que a foto
+virasse. E exigiria relayout a cada giro, porque a caixa muda de orientação — o
+texto que cabia deixa de caber.
+
+**Duas consequências de contabilidade que custam pouco e economizam horas:**
+
+- A **caixa** do texto vive no quadro do próprio texto, com a âncora na origem. A
+  pegada na base sai da mesma matriz, e nos quartos ímpares ela tem largura e
+  altura trocadas. Usar largura e altura cruas para prender o texto dentro da
+  imagem erra exatamente aí, e o texto sai pela borda.
+- O que se prende é a **pegada**, não a âncora — a âncora anda pelo mesmo
+  deslocamento. Um texto escrito de lado se estende *para cima* a partir da
+  âncora; prender a âncora deixaria a metade de cima fora da foto.
+
+**A alça de seleção não tem geometria própria**: é a mesma matriz do desenho
+aplicada à mesma caixa. É isso que faz ela pousar sobre as letras em qualquer
+giro e qualquer recorte, sem um segundo conjunto de contas para errar.
+
+**E a alça de um texto que o recorte jogou para fora não é desenhada.** O recorte
+corta o texto como corta a tinta — isso é o modelo, e vale igual para os dois —,
+mas a alça é um `<button>` de verdade: deixada para trás, ela fica invisível (a
+camada tem `overflow: hidden`) e ainda assim na ordem do Tab, e um Delete ali
+apaga um texto que ninguém está vendo. Para trazer o texto de volta, desfaz-se o
+recorte, exatamente como se faria com um traço cortado.
+
+### 3.14 O texto vira pixel no envio, e o campo de digitação não fica sobre a imagem
+
+São duas perguntas que parecem uma, e a resposta separada é o que resolve.
+
+**Quando o texto vira pixel.** Nunca antes da exportação, exatamente como o
+traço, o giro e o recorte. O canvas desenha o texto a cada repintura — o canvas
+*é* a prévia —, mas o único momento em que pixel de texto entra num arquivo é o
+`toBlob` do Concluir. Confirmar o texto **não** o achata na imagem; ele continua
+sendo `{ frase, posição, corpo }` até o fim. É essa recusa em achatar que mantém
+a garantia de §3.5: reabrir o editor pela quinta vez ainda é uma recodificação,
+não cinco.
+
+**Onde o operador digita.** Num `<input>` comum, rotulado, na barra de
+ferramentas logo abaixo da moldura. **Não** num campo flutuante posicionado sobre
+o canvas.
+
+Essa é a decisão que mais parece preguiça e menos é. O campo flutuante é o que
+todo editor de foto faz, e traz três problemas de uma vez:
+
+1. **Acessibilidade.** Um campo posicionado em cima de um canvas, sem fluxo de
+   documento, com fonte escalada por transformação, é um trabalho por si só —
+   leitor de tela, IME de idioma asiático, teclado de celular que redimensiona a
+   viewport, e o cursor de texto que tem de acompanhar o zoom da moldura.
+2. **Duas verdades sobre a mesma frase.** O DOM renderiza texto com uma métrica e
+   o canvas com outra. Ou você desenha o texto duas vezes e ele fantasma, ou você
+   o esconde do canvas enquanto digita e ele "assenta" num salto ao confirmar.
+3. **Fonte divergente.** Fazer o campo parecer o desenho exige espelhar pilha de
+   fontes, peso e escala — e qualquer divergência aparece como a frase mudando de
+   tamanho no momento em que se confirma.
+
+Pondo o campo na barra, os três **deixam de existir** em vez de serem resolvidos.
+É um input comum: leitor de tela, IME e teclado de celular funcionam sem uma
+linha a respeito. E o canvas passa a ser a única fonte de verdade sobre a
+aparência da foto — não há segunda renderização com que divergir.
+
+**O preço, dito sem maquiagem:** o cursor de digitação não fica sobre a imagem. O
+operador digita num campo a alguns pixels abaixo da foto e vê a frase aparecer na
+foto em tempo real, a cada tecla. Num painel de 720 px com a barra encostada na
+moldura, a distância é curta e o retorno é imediato — mas é uma diferença real
+em relação a escrever *na* imagem, e quem quiser o campo flutuante vai ter de
+pagar os três problemas acima.
+
+Sobre o canvas fica **apenas a alça**: um `<button>` por texto, do tamanho da
+caixa, que serve para selecionar, arrastar e receber foco de teclado. É o mesmo
+padrão que as alças do recorte já usavam, e não pinta nada — quem desenha é o
+canvas por baixo.
+
+### 3.15 Um passo de histórico por gesto, não por tecla
+
+Digitar "urgente" são sete teclas. Se cada uma empilhar um passo, desfazer vira
+inútil: o operador aperta desfazer esperando tirar a palavra e tira uma letra.
+Segurar a seta para reposicionar é pior — a autorrepetição dispara uma tecla por
+quadro e enterra o histórico em sessenta passos que ninguém pediu.
+
+**A regra:** cada `commit` pode declarar uma **chave de agrupamento**. Passo com
+a mesma chave do passo anterior **substitui o topo** da pilha; chave diferente, ou
+chave nenhuma, empilha.
+
+| Ação | Chave | Efeito |
+| --- | --- | --- |
+| Criar a caixa e digitar | `text:<id>` | Um passo. O primeiro caractere substitui a caixa vazia, então desfazer some com o texto inteiro em vez de deixar uma caixa vazia para trás. |
+| Arrastar a régua de tamanho | `size:<id>` | Um passo por ajuste, não um por pixel de arrasto. |
+| Escolher a cor | `color:<id>` | Um passo por "recolori", não um por tentativa. |
+| Mover pelo teclado | `move:<id>` | Um passo por reposicionamento — o mesmo que o arrasto do ponteiro já custava. |
+| Arrastar, girar, recortar, riscar | nenhuma | Empilham sempre. |
+
+Três armadilhas, cada uma com o seu fecho:
+
+- **Sair do controle fecha o grupo.** Ajustar, ir fazer outra coisa e voltar a
+  ajustar tem de dar dois passos. Sem isso, dois ajustes separados por qualquer
+  coisa se fundiriam num só.
+- **Desfazer fecha o grupo.** Se a chave sobreviver ao desfazer, o próximo passo
+  com a mesma chave **substitui o passo que o desfazer acabou de restaurar** — e
+  o desfazer seguinte pula um estado inteiro. É a falha mais difícil de enxergar
+  das três, porque só aparece na sequência ajustar → desfazer → ajustar.
+- **A chave é do objeto selecionado, não da ação.** `text:3` e `text:4` são
+  grupos diferentes, e é por isso que **trocar de seleção fecha o grupo** — o Esc
+  que solta a seleção, a troca de ferramenta e o desfazer, todos. Reafirmar o
+  *mesmo* texto não fecha nada, e é essa distinção que deixa a seta repetida ser
+  um gesto de reposicionar em vez de um passo por tecla.
+
+Uma consequência que vale como regra: **enquanto houver chave, há seleção**.
+Todos os agrupamentos são de operações sobre um texto selecionado, então soltar a
+seleção é o único lugar que precisa fechar a chave — não cada caminho por onde a
+seleção se solta.
+
+### 3.16 Inserir texto sem mouse
+
+Um editor de foto é a peça mais dependente de ponteiro de um sistema de
+atendimento, e texto é a ferramenta que menos precisa ser. O caminho de teclado é
+completo, e cada peça dele reaproveita uma convenção que já existia no painel:
+
+| Ação | Sem mouse | Já existia em |
+| --- | --- | --- |
+| Criar | Botão **Adicionar texto**, que centra a caixa no que está à vista e **leva o foco ao campo** | — |
+| Digitar | O campo é um `<input>` comum, rotulado (§3.14) | — |
+| Encontrar um texto já criado | Tab: cada texto é um `<button>` rotulado com o próprio conteúdo | as oito alças do recorte |
+| Mover | Setas movem 1 px; com Shift, 10 | `nudge` das alças do recorte |
+| Editar o conteúdo | Enter na caixa leva o foco ao campo | — |
+| Apagar | Delete ou Backspace na caixa | — |
+| Cor e tamanho | Grupo de rádio e `<input type="range">` | a caneta |
+
+Cinco detalhes que decidem se isso funciona de verdade:
+
+- **O foco automático depois de criar.** Sem ele, quem usa teclado insere a caixa
+  e fica procurando o campo — o que anula o botão.
+- **O foco vai no quadro seguinte, não no mesmo.** O campo só deixa de estar
+  desabilitado quando a seleção chega ao render, e elemento desabilitado não
+  recebe foco. Mandar o foco no mesmo tique é escrever no vazio. Vale para o botão
+  de criar e para o Enter na caixa.
+- **Inserções repetidas descem uma linha.** Todo o cálculo da inserção é
+  determinístico: sem uma escada, dois cliques no botão largam duas caixas no
+  mesmo pixel, a segunda frase nasce por cima da primeira e as alças se sobrepõem
+  exatamente. A descida é medida na tela, não na base — numa foto girada, "uma
+  linha abaixo" aponta para outro eixo.
+- **Clicar numa alça também dá foco a ela.** O `preventDefault` que o arrasto
+  precisa impede o navegador de mover o foco, e sem foco a barra passa a falar de
+  um texto enquanto a seta e o Delete agem noutro.
+- **Setas e Delete só valem com foco na caixa.** No campo, seta move o cursor de
+  texto e Backspace apaga caractere, que é o que qualquer um espera. Dois donos
+  para a mesma tecla é como se perde a confiança num editor.
+
+E o **Esc é uma escada**, um passo por tecla: primeiro cancela o arrasto em
+curso, depois solta a seleção do texto, e só então fecha o painel. Fechar de uma
+vez a partir do campo de digitação descartaria a edição inteira de quem só queria
+sair do campo.
 
 ---
 
@@ -676,15 +969,20 @@ Guarde a edição como **descrição**, não como snapshots de pixels:
 ```ts
 type Ponto  = { x: number; y: number };
 type Traço  = { cor: string; espessura: number; pontos: Ponto[] };
-type Edição = { traços: Traço[]; giro: 0|90|180|270; recorte?: Retângulo };
+type Texto  = { id: number; frase: string; x: number; y: number;
+                corpo: number; cor: string; quadro: 0|90|180|270 };
+type Objeto = { tipo: "traço" } & Traço | { tipo: "texto" } & Texto;
+type Edição = { objetos: Objeto[]; giro: 0|90|180|270; recorte?: Retângulo };
 ```
 
 Repintar é sempre: fundo do tamanho da saída → aplica a geometria → imagem →
-cada traço na ordem. Desfazer e refazer são fatias da lista de edições (§3.9).
+cada objeto na ordem da lista, que é a ordem de empilhamento. Desfazer e refazer
+são fatias da lista de edições (§3.9).
 
 Guardar `ImageData` por passo custaria, num canvas de 5 MP, **20 MB por nível de
 histórico**. A lista de edições custa alguns kilobytes, porque os instantâneos
-compartilham os objetos de traço entre si.
+compartilham os objetos entre si — e é por compartilhá-los que mexer num objeto
+tem de ser trocá-lo na lista, nunca alterá-lo no lugar (§3.9).
 
 Uma armadilha do redimensionamento: girar e recortar mudam o tamanho do canvas, e
 **escrever em `canvas.width` ou `canvas.height` zera o contexto** — some o
@@ -733,6 +1031,32 @@ canvas trata igual a `0` mas que faz qualquer comparação estrutural de teste
 falhar de um jeito ilegível (`-0 !== 0` em `toEqual`). Some zero (`−x + 0`) e o
 problema some.
 
+### 4.7 O desenho do texto
+
+Três linhas de contabilidade, e uma delas não é óbvia.
+
+**A âncora é o canto superior esquerdo** (`textBaseline = "top"`), e não a linha
+de base. O motivo é a alça: é o canto de cima à esquerda que a caixa de seleção
+usa, e com a linha de base como âncora mover a alça um pixel moveria o texto um
+pixel e a caixa outro.
+
+**O contorno vem antes do preenchimento.** A paleta tem branco, e branco sobre
+céu branco não existe. Um `strokeText` escuro por baixo — largura em torno de um
+oitavo do corpo, `lineJoin: "round"` para as quinas não crescerem — separa a
+letra de qualquer fundo. Desenhar o contorno *depois* cobriria o miolo da letra
+com a cor do contorno, que é o mesmo erro com o resultado invertido.
+
+**A altura da linha é uma constante, não uma medida.** `measureText` devolve
+largura; altura confiável só sai de `actualBoundingBoxAscent`/`Descent`, que nem
+todo ambiente expõe. Um múltiplo do corpo (aqui, 1,28) cobre ascendente e
+descendente com folga, e é o que a caixa de seleção e o limite da imagem usam. É
+calibração, não medição — está declarado como tal.
+
+Uma armadilha de teste: **o `measureText` é a única parte do editor que depende
+de um canvas de verdade**. A aritmética da caixa fica testável passando o medidor
+como argumento — um medidor de mentira previsível no teste, o do contexto na
+aplicação. Sem essa injeção, metade de §3.13 vira código sem teste.
+
 ---
 
 ## 5. Implementação de referência
@@ -749,10 +1073,15 @@ export type Size     = { width: number; height: number };
 export type Rect     = { x: number; y: number; width: number; height: number };
 export type Rotation = 0 | 90 | 180 | 270;
 
-/** §3.7/§3.8 — o traço na base, o recorte no quadro girado. */
+/** §3.7/§3.8 — a marcação na base, o recorte no quadro girado. */
 export type Geometry  = { rotation: Rotation; crop?: Rect };
-export type ImageEdit = { strokes: readonly Stroke[]; rotation: Rotation; crop?: Rect };
-export const PRISTINE_EDIT: ImageEdit = { strokes: [], rotation: 0 };
+
+/** §3.12/§3.13 — `turn` é o quadro em que a frase foi escrita. */
+export type TextItem  = { id: number; text: string; x: number; y: number;
+                          size: number; color: string; turn: Rotation };
+export type EditItem  = ({ kind: "stroke" } & Stroke) | ({ kind: "text" } & TextItem);
+export type ImageEdit = { items: readonly EditItem[]; rotation: Rotation; crop?: Rect };
+export const PRISTINE_EDIT: ImageEdit = { items: [], rotation: 0 };
 
 /** Espelho da allowlist do servidor. Reexportar para fora dela devolve 415. */
 export const EDITABLE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
@@ -851,6 +1180,8 @@ export const toBasePoint = (point: Point, base: Size, geometry: Geometry): Point
 
 export const turnRotation = (rotation: Rotation, quarter: 1 | -1): Rotation =>
   ((((rotation + quarter * 90) % 360) + 360) % 360) as Rotation;   // −90 % 360 é −90
+export const oppositeRotation = (rotation: Rotation): Rotation =>
+  ((360 - rotation) % 360) as Rotation;      // o inverso de 0 é 0, não 360
 
 /** §3.8 — leva o recorte para o quadro que o giro acabou de criar. */
 export const turnRect = (rect: Rect, frame: Size, quarter: 1 | -1): Rect =>
@@ -870,9 +1201,113 @@ export const fitAspect = (rect: Rect, aspect: number): Rect => {
   };
 };
 
-/** §3.6 — sem traço, sem giro e sem recorte não há o que reexportar. */
+/* ---------- §3.12 e §3.13: o texto ---------- */
+
+export const TEXT_LEVELS = { min: 1, max: 6, default: 3 } as const;
+export const TEXT_SIZE_DIVISOR = 60;   // §3.12 — nível 3 em 5% do lado maior
+export const TEXT_MIN_SIZE = 12;       // piso em pixels da base
+export const TEXT_LINE_RATIO = 1.28;   // §4.7 — altura da caixa, calibração
+export const TEXT_MAX_LENGTH = 120;    // é legenda, não parágrafo
+/** A mesma pilha do tema. Declarar é obrigatório: o padrão do canvas é
+ *  `10px sans-serif`, e herdá-lo produz letra minúscula sem ninguém pedir. */
+export const TEXT_FONT_STACK = 'Inter, ui-sans-serif, system-ui, sans-serif';
+export const TEXT_HALO = "#000000b8";  // §4.7 — o contorno que separa da foto
+
+/** §4.7 — medir texto é a única parte que depende do canvas de verdade, então o
+ *  medidor entra como argumento e a aritmética continua testável sem ele. */
+export type TextMeasure = (text: string, size: number) => number;
+
+export const textSize = (level: number, longestSide: number): number =>
+  Math.max(TEXT_MIN_SIZE,
+    Math.round((Math.max(longestSide, 1) * clamp(level, TEXT_LEVELS.min, TEXT_LEVELS.max)) / TEXT_SIZE_DIVISOR));
+/** O caminho de volta, para a régua mostrar o corpo do texto selecionado. */
+export const textLevelOf = (size: number, longestSide: number): number =>
+  clamp(Math.round((size * TEXT_SIZE_DIVISOR) / Math.max(longestSide, 1)), TEXT_LEVELS.min, TEXT_LEVELS.max);
+
+/** §4.6 — `a` depois de `b`. Compor em aritmética, e não empilhando
+ *  `rotate`/`translate` no contexto, é o que mantém a matriz inteira conferível. */
+export const composeMatrix = (a: Matrix, b: Matrix): Matrix => [
+  a[0]*b[0] + a[2]*b[1], a[1]*b[0] + a[3]*b[1],
+  a[0]*b[2] + a[2]*b[3], a[1]*b[2] + a[3]*b[3],
+  a[0]*b[4] + a[2]*b[5] + a[4], a[1]*b[4] + a[3]*b[5] + a[5],
+];
+export const spinMatrix = (rotation: Rotation): Matrix =>
+  rotation ===  90 ? [0,  1, -1,  0, 0, 0] :
+  rotation === 180 ? [-1, 0,  0, -1, 0, 0] :
+  rotation === 270 ? [0, -1,  1,  0, 0, 0] : [1, 0, 0, 1, 0, 0];
+
+/** Quarto de volta mantém o retângulo alinhado aos eixos: dois cantos bastam. */
+export const mapRect = (matrix: Matrix, rect: Rect): Rect => {
+  const a = applyMatrix(matrix, { x: rect.x, y: rect.y });
+  const b = applyMatrix(matrix, { x: rect.x + rect.width, y: rect.y + rect.height });
+  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+           width: Math.abs(b.x - a.x), height: Math.abs(b.y - a.y) };
+};
+
+/** §3.13 — a caixa no quadro do PRÓPRIO texto, com a âncora na origem. Texto vazio
+ *  ainda tem caixa: senão a alça de quem acabou de criar nasce com zero pixel. */
+export const textBox = (item: TextItem, measure: TextMeasure): Rect => ({
+  x: 0, y: 0,
+  width:  Math.max(item.size / 2, measure(item.text || " ", item.size)),
+  height: Math.max(1, item.size * TEXT_LINE_RATIO),
+});
+
+/** §3.13 — quadro do texto → base: põe a âncora e DESFAZ o giro em que foi escrito. */
+export const textBaseMatrix = (item: TextItem): Matrix =>
+  composeMatrix([1, 0, 0, 1, item.x, item.y], spinMatrix(oppositeRotation(item.turn)));
+/** Quadro do texto → canvas. Uma matriz só, ainda rígida: a letra não reamostra. */
+export const textMatrix = (item: TextItem, base: Size, geometry: Geometry): Matrix =>
+  composeMatrix(geometryMatrix(base, geometry), textBaseMatrix(item));
+/** A pegada na base — largura e altura TROCADAS nos quartos ímpares. */
+export const textBaseRect = (item: TextItem, measure: TextMeasure): Rect =>
+  mapRect(textBaseMatrix(item), textBox(item, measure));
+/** §3.13 — a alça não tem geometria própria: é a matriz do desenho. */
+export const textOverlayRect = (item: TextItem, measure: TextMeasure,
+                                base: Size, geometry: Geometry): Rect =>
+  mapRect(textMatrix(item, base, geometry), textBox(item, measure));
+
+/** O pedaço da base que está à vista: a imagem, ou o recorte. */
+export const visibleBase = (base: Size, geometry: Geometry): Rect =>
+  mapRect(invertMatrix(geometryMatrix(base, geometry)), fullRect(outputSize(base, geometry)));
+
+/** §3.13 — deslocamento da TELA para deslocamento da base. Sem isto a seta para a
+ *  direita move o texto para baixo depois do primeiro giro. */
+export const canvasDeltaToBase = (delta: Point, base: Size, geometry: Geometry): Point => {
+  const inverse = invertMatrix(geometryMatrix(base, geometry));
+  const origin = applyMatrix(inverse, { x: 0, y: 0 });
+  const moved  = applyMatrix(inverse, delta);
+  return { x: moved.x - origin.x, y: moved.y - origin.y };
+};
+
+/** §3.13 — prende a PEGADA, e move a âncora pelo mesmo deslocamento. */
+export const clampTextPosition = (item: TextItem, measure: TextMeasure, bounds: Rect): Point => {
+  const rect = textBaseRect(item, measure);
+  const x = clamp(rect.x, bounds.x, Math.max(bounds.x, bounds.x + bounds.width  - rect.width));
+  const y = clamp(rect.y, bounds.y, Math.max(bounds.y, bounds.y + bounds.height - rect.height));
+  return { x: item.x + (x - rect.x), y: item.y + (y - rect.y) };
+};
+
+/** §3.13 — os dois se tocam? Uma alça fora da moldura seria um alvo de Tab que
+ *  ninguém vê, e um Delete ali apagaria um texto invisível. */
+export const rectsOverlap = (a: Rect, b: Rect): boolean =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/** §3.12 — id derivado da lista, não sorteado nem de contador global. */
+export const nextTextId = (items: readonly EditItem[]): number =>
+  items.reduce((max, i) => (i.kind === "text" ? Math.max(max, i.id) : max), 0) + 1;
+
+/** §3.9 — copy-on-write: os instantâneos do histórico compartilham os objetos. */
+export const updateTextItem = (edit: ImageEdit, id: number, patch: Partial<TextItem>): ImageEdit =>
+  ({ ...edit, items: edit.items.map((i) =>
+      i.kind === "text" && i.id === id ? { ...i, ...patch } : i) });
+
+/** §3.6 — traço sem ponto e texto sem conteúdo não põem pixel na imagem. */
+export const marksImage = (item: EditItem): boolean =>
+  item.kind === "stroke" ? item.points.length > 0 : item.text.trim().length > 0;
+
+/** §3.6 — sem marcação, sem giro e sem recorte não há o que reexportar. */
 export const isPristineEdit = (edit: ImageEdit): boolean =>
-  !edit.strokes.length && edit.rotation === 0 && !edit.crop;
+  edit.rotation === 0 && !edit.crop && !edit.items.some(marksImage);
 
 /** §4.3 — viewport → coordenadas do canvas, com guarda contra layout não medido. */
 export const canvasPoint = (canvas: HTMLCanvasElement, clientX: number, clientY: number): Point => {
@@ -919,14 +1354,29 @@ export const tracePath = (context: CanvasRenderingContext2D, stroke: Stroke): vo
   context.stroke();
 };
 
-/** §3.7 e §4.5 — repintura completa: fundo da SAÍDA, geometria, imagem e traços
- *  nas coordenadas da BASE. É esta ordem que responde "o traço acompanha o
- *  recorte?": acompanha, porque o traço é tinta sobre a foto e o recorte é a
+/** §4.7 — escreve na ORIGEM: quem posiciona é a matriz. O contorno vem antes do
+ *  preenchimento, senão ele cobre o miolo da letra. */
+export const drawText = (context: CanvasRenderingContext2D, item: TextItem): void => {
+  if (!item.text) return;
+  context.font = `700 ${Math.round(item.size)}px ${TEXT_FONT_STACK}`;
+  context.textAlign = "left";
+  context.textBaseline = "top";
+  context.lineJoin = "round";
+  context.lineWidth = Math.max(2, Math.round(item.size / 8));
+  context.strokeStyle = TEXT_HALO;
+  context.strokeText(item.text, 0, 0);
+  context.fillStyle = item.color;
+  context.fillText(item.text, 0, 0);
+};
+
+/** §3.7 e §4.5 — repintura completa: fundo da SAÍDA, geometria, imagem e objetos
+ *  nas coordenadas da BASE. É esta ordem que responde "a marcação acompanha o
+ *  recorte?": acompanha, porque a marcação é tinta sobre a foto e o recorte é a
  *  moldura por onde se olha para ela. */
 export const renderAnnotation = (
   context: CanvasRenderingContext2D,
   image: CanvasImageSource | undefined,
-  strokes: readonly Stroke[],
+  items: readonly EditItem[],
   base: Size,
   geometry: Geometry = { rotation: 0 },
 ): void => {
@@ -939,7 +1389,15 @@ export const renderAnnotation = (
   const m = geometryMatrix(base, geometry);
   context.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
   if (image) context.drawImage(image, 0, 0, base.width, base.height);
-  for (const stroke of strokes) tracePath(context, stroke);
+  for (const item of items) {                       // a ordem é o empilhamento
+    if (item.kind === "stroke") { tracePath(context, item); continue; }
+    // §3.13 — o texto tem quadro próprio. E a geometria VOLTA depois dele, senão o
+    // objeto seguinte herda o quadro do texto anterior.
+    const t = textMatrix(item, base, geometry);
+    context.setTransform(t[0], t[1], t[2], t[3], t[4], t[5]);
+    drawText(context, item);
+    context.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+  }
   context.restore();
 };
 
@@ -1048,23 +1506,29 @@ export const exportAnnotated = async (canvas: HTMLCanvasElement, source: File): 
 ### 5.2 O componente — portável na lógica, específico no markup
 
 ```tsx
-type Mode = "pen" | "crop";
+type Mode = "pen" | "text" | "crop";
 
 /** §3.9 — no modo recorte o canvas mostra o quadro INTEIRO: a seleção é uma
  *  moldura por cima, não um corte já aplicado. Só ao concluir — ou ao voltar
- *  para a caneta — o recorte entra na imagem. */
+ *  para a caneta ou o texto — o recorte entra na imagem.
+ *
+ *  O texto vê a mesma geometria que a caneta: escrever no pedaço que o recorte
+ *  joga fora seria trabalho perdido sem aviso. */
 const geometryOf = (edit: ImageEdit, mode: Mode): Geometry =>
   mode === "crop" ? { rotation: edit.rotation }
                   : { rotation: edit.rotation, crop: edit.crop };
 
 /** §3.9 — reconstrói um histórico plausível a partir da edição que voltou:
- *  primeiro a geometria, depois um passo por traço. */
+ *  primeiro a geometria, depois um passo por objeto. Objeto que não marca a
+ *  imagem não ganha passo, e não volta: um desfazer que não muda nada na tela
+ *  parece quebrado. */
 const seedHistory = (edit: ImageEdit): ImageEdit[] => {
-  const geometry: ImageEdit = { strokes: [], rotation: edit.rotation, crop: edit.crop };
+  const geometry: ImageEdit = { items: [], rotation: edit.rotation, crop: edit.crop };
   const entries: ImageEdit[] = [PRISTINE_EDIT];
   if (edit.rotation !== 0 || edit.crop) entries.push(geometry);
-  for (let i = 1; i <= edit.strokes.length; i += 1)
-    entries.push({ ...geometry, strokes: edit.strokes.slice(0, i) });
+  const marks = edit.items.filter(marksImage);
+  for (let i = 1; i <= marks.length; i += 1)
+    entries.push({ ...geometry, items: marks.slice(0, i) });
   return entries;
 };
 
@@ -1086,8 +1550,12 @@ export function ImageAnnotator({ file, initialEdit = PRISTINE_EDIT, onCancel, on
   const editRef   = useRef<ImageEdit>(seed.current[seed.current.length - 1]);
   const modeRef   = useRef<Mode>("pen");
   const liveCropRef = useRef<Rect>();
+  const liveTextRef = useRef<{ id: number; x: number; y: number }>();
+  const textFieldRef = useRef<HTMLInputElement>(null);
+  const groupRef  = useRef<string>();        // §3.15 — a chave do último passo
+  const contextRef = useRef<CanvasRenderingContext2D>();  // §4.7 — para medir texto
 
-  // §3.9 — um histórico só, para os três.
+  // §3.9 — um histórico só, para os quatro.
   const [history, setHistory] = useState(() =>
     ({ entries: seed.current, index: seed.current.length - 1 }));
   const [base,  setBase]  = useState<Size>({ width: 0, height: 0 });
@@ -1095,6 +1563,8 @@ export function ImageAnnotator({ file, initialEdit = PRISTINE_EDIT, onCancel, on
   const [aspect, setAspect] = useState<number>();
   const [liveCrop, setLiveCrop] = useState<Rect>();
   const [drag,  setDrag]  = useState<{ handle: CropHandle; pointerId: number; rect: Rect; point: Point }>();
+  const [liveText, setLiveText] = useState<{ id: number; x: number; y: number }>();
+  const [selectedText, setSelectedText] = useState<number>();   // e um ref-espelho
   const [color, setColor] = useState(PEN_COLORS[0].value);
   const [level, setLevel] = useState(3);
   const [ready, setReady] = useState(false);
@@ -1117,13 +1587,20 @@ export function ImageAnnotator({ file, initialEdit = PRISTINE_EDIT, onCancel, on
     if (canvas.height !== fitted.height) canvas.height = fitted.height;
     const context = canvas.getContext("2d");
     if (!context) return;
+    contextRef.current = context;
     renderAnnotation(context, imageRef.current,
-      live ? [...next.strokes, live] : next.strokes, size, geometry);
+      live ? [...next.items, { kind: "stroke", ...live }] : next.items, size, geometry);
   }, []);
-  const commit = useCallback((next: ImageEdit) => {
+  /** §3.15 — passo com a mesma chave do anterior SUBSTITUI o topo; chave diferente,
+   *  ou chave nenhuma, empilha. É o que faz uma palavra digitada ser um Desfazer e
+   *  não oito, sem que o histórico precise saber o que é digitar. */
+  const commit = useCallback((next: ImageEdit, group?: string) => {
+    const merge = Boolean(group) && group === groupRef.current;
+    groupRef.current = group;
     editRef.current = next;
     setHistory((cur) => ({
-      entries: [...cur.entries.slice(0, cur.index + 1), next], index: cur.index + 1,
+      entries: [...cur.entries.slice(0, merge ? cur.index : cur.index + 1), next],
+      index: merge ? cur.index : cur.index + 1,
     }));
   }, []);
   const commitCrop = useCallback((rect: Rect) => {
@@ -1192,7 +1669,14 @@ export function ImageAnnotator({ file, initialEdit = PRISTINE_EDIT, onCancel, on
   const pointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     // button > 0 é botão do meio/direito; toque e caneta chegam com 0.
-    if (!canvas || !ready || busy || event.button > 0 || modeRef.current !== "pen") return;
+    if (!canvas || !ready || busy || event.button > 0) return;
+    // §3.13 — tocar a imagem no modo texto põe a caixa ali e abre o campo.
+    if (modeRef.current === "text") {
+      event.preventDefault();
+      insertText(canvasPoint(canvas, event.clientX, event.clientY), "left");
+      return;
+    }
+    if (modeRef.current !== "pen") return;
     event.preventDefault();
     capturePointer(canvas, event.pointerId, true);
     // §4.4 — a espessura é medida no que está À VISTA, não na base.
@@ -1220,10 +1704,10 @@ export function ImageAnnotator({ file, initialEdit = PRISTINE_EDIT, onCancel, on
     if (canvasRef.current) capturePointer(canvasRef.current, event.pointerId, false);
     // Traço novo apaga o refazer: manter a pilha traria de volta um traço que
     // já não pertence ao desenho atual.
-    commit({ ...editRef.current, strokes: [...editRef.current.strokes, live.stroke] });
+    commit({ ...editRef.current, items: [...editRef.current.items, { kind: "stroke", ...live.stroke }] });
   };
 
-  /** §3.8 — girar não toca na lista de traços; o recorte, esse, tem de acompanhar. */
+  /** §3.8 — girar não toca na lista de objetos; o recorte, esse, tem de acompanhar. */
   const turn = (quarter: 1 | -1) => {
     const current = editRef.current;
     const before = frameSize(baseRef.current, current.rotation);
@@ -1235,11 +1719,68 @@ export function ImageAnnotator({ file, initialEdit = PRISTINE_EDIT, onCancel, on
     commit({ ...current, rotation, crop });
   };
 
+  /** §3.13 — põe uma caixa e abre o campo. `at` é um ponto do CANVAS, e `align` diz
+   *  que ponto da caixa cai ali: o toque quer a borda esquerda na altura do dedo, o
+   *  botão quer a caixa centrada. Como o texto nasce no quadro corrente, a matriz
+   *  dele é translação pura — e o canto da caixa em pixels do canvas vira a âncora na
+   *  base com uma conversão só, sem deslocamento para errar o sinal depois de girar. */
+  const insertText = (at: Point, align: "left" | "center") => {
+    const geometry = geometryOf(editRef.current, "text");
+    const fitted = outputSize(baseRef.current, geometry);   // §4.4 — mede no que se vê
+    const size = textSize(textLevel, Math.max(fitted.width, fitted.height));
+    const id = nextTextId(editRef.current.items);
+    const turn = editRef.current.rotation;
+    const empty = { id, text: "", x: 0, y: 0, size, color: textColor, turn };
+    const box = textBox(empty, measure);
+    const corner = { x: at.x - (align === "center" ? box.width / 2 : 0),
+                     y: at.y - box.height / 2 };
+    const bounds = visibleBase(baseRef.current, geometry);
+    // §3.16 — a escada, medida na TELA: duas inserções pelo botão cairiam no mesmo
+    // pixel, e a segunda frase nasceria por cima da primeira.
+    const step = canvasDeltaToBase({ x: 0, y: box.height }, baseRef.current, geometry);
+    let anchor = toBasePoint(corner, baseRef.current, geometry);
+    while (textsOf(editRef.current.items).some((o) => o.x === anchor.x && o.y === anchor.y))
+      anchor = { x: anchor.x + step.x, y: anchor.y + step.y };
+    const placed = { kind: "text" as const, ...empty,
+                     ...clampTextPosition({ ...empty, ...anchor }, measure, bounds) };
+    chooseText(id);
+    // §3.15 — criação e teclas na MESMA chave: o primeiro caractere substitui a
+    // caixa vazia, e um Desfazer some com o texto inteiro.
+    commit(addItem(editRef.current, placed), `text:${id}`);
+    // §3.16 — no quadro seguinte: até o React repintar o campo ainda está
+    // desabilitado, e elemento desabilitado não recebe foco.
+    queueMicrotask(() => textFieldRef.current?.focus());
+  };
+
+  /** §3.15 — a chave do agrupamento é do objeto selecionado, então trocar de seleção
+   *  fecha o grupo e reafirmar a mesma não fecha nada. Concentrar a regra aqui é o
+   *  que dispensa fechá-la em cada caminho por onde a seleção se solta. */
+  const chooseText = (id?: number) => {
+    if (id !== selectedRef.current) groupRef.current = undefined;
+    selectedRef.current = id;
+    setSelectedText(id);
+  };
+
+  /** §3.13 — remede e prende de volta a cada tecla: sem isto, frase longa perto da
+   *  borda cresce para fora da foto e o pedaço de fora some no envio. */
+  const reshapeText = (id: number, patch: Partial<TextItem>, group: string) => {
+    const item = textById(editRef.current.items, id);
+    if (!item) return;
+    const bounds = visibleBase(baseRef.current, geometryOf(editRef.current, "text"));
+    commit(updateTextItem(editRef.current, id, {
+      ...patch, ...clampTextPosition({ ...item, ...patch }, measure, bounds),
+    }), group);
+  };
+
   const step = (delta: number) => {                    // §3.9 — desfazer/refazer
     const index = history.index + delta;
     const next = history.entries[index];
     if (!next || busy) return;
     editRef.current = next;
+    // §3.12 — a seleção não pode sobreviver a um desfazer, porque o id é reaproveitado
+    // e ela passaria a falar de outro texto. E soltá-la fecha a chave do agrupamento
+    // (§3.15), sem o que o passo seguinte SUBSTITUIRIA o que acabou de ser restaurado.
+    chooseText(undefined);
     setHistory({ entries: history.entries, index });
   };
   /** §3.9 — descartar é um PASSO do histórico, não um reset: desfazer traz tudo
@@ -1295,6 +1836,16 @@ CSS mínimo. Nada aqui é cosmético — cada propriedade abaixo conserta um bug
   cursor: crosshair;
 }
 
+/* §3.14 — a camada do texto só tem alças; quem desenha é o canvas por baixo. */
+.editor-text-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.editor-text-item {
+  position: absolute;                  /* left/top/width/height em % da moldura */
+  border: 1px dashed;
+  background: transparent;
+  cursor: move; pointer-events: auto; touch-action: none;
+}
+.editor-text-item:focus-visible { outline: 2px solid; outline-offset: 2px; }
+
 /* A camada recorta a sombra que escurece o lado de fora da seleção. */
 .editor-crop { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .editor-crop-box {
@@ -1319,7 +1870,12 @@ Não copie sem trocar:
 
 | Item | Por que é específico |
 | --- | --- |
-| **Paleta de cores** | Seis cores escolhidas por já existirem no tema deste sistema, para o editor não inventar cor nova. As cores em si são arbitrárias; o que vale manter é que cubram foto clara e escura. |
+| **Paleta de cores** | Seis cores escolhidas por já existirem no tema deste sistema, para o editor não inventar cor nova. As cores em si são arbitrárias; o que vale manter é que cubram foto clara e escura. O texto usa **a mesma paleta** da caneta: duas paletas seriam duas coisas para manter. |
+| **Pilha de fontes do texto** | É a do `:root` deste projeto, para o texto na foto sair com a letra do produto. O que vale manter é que ela seja **declarada**: o padrão do canvas é `10px sans-serif`, e herdar isso produz letra minúscula sem ninguém pedir. |
+| **Divisor 60 e níveis 1–6 do corpo** | Calibração a olho, §3.12. O nível 3 cai em 5% do lado maior. |
+| **Altura de linha 1,28** | §4.7 — cobre ascendente e descendente com folga. Calibração, não medição. |
+| **Teto de 120 caracteres** | É legenda sobre foto, não parágrafo. Arbitrário. |
+| **Contorno preto translúcido** | §4.7 — o que vale manter é que ele exista e contraste com a paleta inteira; a cor é escolha. |
 | **Limite de 15 MB** | É a política do servidor **deste** projeto para imagem. Troque pelo do seu. |
 | **Allowlist `jpeg/png/webp`** | Idem: é o que o servidor daqui aceita, com checagem de *magic bytes*. |
 | **Nome `-editada`** | Convenção local. |
@@ -1332,41 +1888,52 @@ Não copie sem trocar:
 | **Alça de 15 px** | Tamanho de alvo de toque. Se o seu editor for só de desktop, dá para encolher; abaixo de ~10 px o dedo não acerta. |
 
 Portável sem alteração: `fitWithin`, `canvasPoint`, `pointerSamples`,
-`tracePath`, `renderAnnotation`, `exportPlan`, `exportAnnotated`, toda a
-geometria (`frameSize`, `clampCrop`, `normalizeCrop`, `outputSize`,
-`geometryMatrix`, `invertMatrix`, `toBasePoint`, `turnRotation`, `turnRect`,
-`fitAspect`, `dragCrop`), o modelo de histórico, e as decisões de §3.
+`tracePath`, `drawText`, `renderAnnotation`, `exportPlan`, `exportAnnotated`,
+toda a geometria (`frameSize`, `clampCrop`, `normalizeCrop`, `outputSize`,
+`geometryMatrix`, `invertMatrix`, `toBasePoint`, `turnRotation`,
+`oppositeRotation`, `turnRect`, `fitAspect`, `dragCrop`, `composeMatrix`,
+`spinMatrix`, `mapRect`), toda a aritmética do texto (`textBox`,
+`textBaseMatrix`, `textMatrix`, `textBaseRect`, `textOverlayRect`, `visibleBase`,
+`canvasDeltaToBase`, `clampTextPosition`, `nextTextId`, `marksImage`), o modelo
+de histórico com agrupamento, e as decisões de §3.
 
 ---
 
 ## 6. O que não está incluído
 
-Caneta, recorte e giro. Cada item abaixo ficou de fora por ser trabalho próprio,
-não por descuido — e cada um exige mais do que parece.
-
-**Texto.** Exige entrada de texto posicionada sobre o canvas, escolha de fonte e
-corpo, medição para não vazar da imagem, e edição de um texto já colocado
-(portanto, texto vira um objeto com posição e conteúdo, não um traço). Acessibilidade
-de um campo flutuante sobre canvas é trabalho por si só.
+Caneta, texto, recorte e giro. Cada item abaixo ficou de fora por ser trabalho
+próprio, não por descuido — e cada um exige mais do que parece.
 
 **Formas** (seta, retângulo, círculo). Estrutura parecida com a da caneta — dois
 pontos em vez de N —, mas cada forma tem seu desenho e suas alças de ajuste. A
-seta em particular precisa de cabeça proporcional à espessura.
+seta em particular precisa de cabeça proporcional à espessura. Depois de §3.12
+isto é bem mais barato do que era: já existe lista de objetos, seleção, alça,
+arrasto e agrupamento de histórico. O que falta é o desenho de cada forma.
 
-**Mosaico / desfoque.** O mais caro dos seis. Exige ler os pixels da região
-(`getImageData`), processar e escrever de volta — e isso é destrutivo, então não
-cabe no modelo de histórico por lista de traços de §4.5: ou você guarda a região
-original de cada aplicação, ou reprocessa tudo a cada repintura. Também é onde
-mais importa acertar: um desfoque fraco demais não esconde o dado que o operador
-quis esconder.
+**Mosaico / desfoque.** O mais caro dos cinco, e o único que a lista de objetos
+não ajuda. Exige ler os pixels da região (`getImageData`), processar e escrever
+de volta — e isso é destrutivo, então não cabe no modelo de §4.5: ou você guarda
+a região original de cada aplicação, ou reprocessa tudo a cada repintura. Também
+é onde mais importa acertar: um desfoque fraco demais não esconde o dado que o
+operador quis esconder.
 
-**Emoji e figurinha.** Exige um seletor, carregar a imagem do emoji, e
-posicionamento com arrastar/redimensionar — de novo, objetos, não traços.
+**Emoji e figurinha.** Um seletor, a imagem do emoji carregada, e posicionamento
+com arrastar e redimensionar. Estruturalmente é o texto com um `drawImage` no
+lugar do `fillText`: `TextItem` vira `ImageItem`, e §3.13 vale igual — inclusive
+o `turn`, porque emoji também tem um lado certo para cima.
 
-O padrão comum a todos: **a caneta é a única ferramenta cujo estado cabe numa
-lista imutável de pontos**. Qualquer coisa com posição ajustável depois de criada
-pede um modelo de objetos selecionáveis, e é essa mudança de modelo, não o
-desenho, que é o trabalho.
+**Múltiplas linhas num mesmo texto.** O texto é de uma linha só, de propósito: a
+caixa fica um retângulo, o Enter continua significando "pronto" no campo, e a
+colisão, o limite da imagem e o arrasto são uma conta só. Duas linhas viram dois
+textos. Se você precisar de parágrafo, o que muda é a caixa (altura por número de
+linhas) e a medição (a maior largura entre as linhas) — o resto de §3.13
+sobrevive.
+
+O padrão que mudou: **a caneta era a única ferramenta cujo estado cabia numa
+lista imutável de pontos**. O texto obrigou a troca para uma lista de objetos
+selecionáveis (§3.12), e era essa mudança de modelo, não o desenho, que era o
+trabalho. Feita ela, forma e emoji viraram acréscimos; o mosaico continua sendo
+outro problema.
 
 ---
 
@@ -1471,6 +2038,81 @@ ao desenho.
 `width`/`height` deixa dezenas de MB esperando o coletor. Em uso prolongado —
 várias fotos editadas em sequência — soma.
 
+**Texto deitado depois de endireitar a foto.** O caso de §3.13, e o mais fácil de
+não prever: o operador gira para endireitar e *então* escreve, e as letras correm
+para o lado. Não aparece na primeira versão do teste porque sem giro o quadro do
+texto é a identidade — o mesmo formato de armadilha do traço em §3.7, com o
+agravante de que aqui o resultado errado é imediato, e não uma edição depois.
+
+**Objeto de texto alterado no lugar.** O histórico é barato porque os
+instantâneos compartilham os objetos (§3.9). O traço nunca cobrou essa disciplina
+porque só entra pronto e nunca mais muda; o texto é reescrito e movido depois de
+criado. Um `objeto.x = novo` reescreve todos os passos anteriores de uma vez, e o
+modo de falha é o pior possível: desfazer recua o índice e a tela não muda.
+
+**Uma tecla, um passo de desfazer.** Sem o agrupamento de §3.15, escrever
+"urgente" deixa sete passos e segurar uma seta deixa sessenta. O operador aperta
+desfazer esperando tirar a palavra e tira uma letra — e conclui que o desfazer
+está quebrado, o que, para o que ele queria, está.
+
+**A chave de agrupamento que sobrevive ao desfazer.** A mais sutil das três de
+§3.15: o próximo passo com a mesma chave substitui o estado que o desfazer acabou
+de restaurar, e o desfazer seguinte pula um estado inteiro. Só aparece na
+sequência ajustar → desfazer → ajustar, que ninguém testa por acaso.
+
+**Seleção sobrevivendo a um desfazer.** O id do texto é o maior da lista mais um
+(§3.12), então apagar um texto devolve o crachá para o próximo. Uma seleção que
+atravessa o desfazer passa a apontar para outro texto, e o Delete seguinte apaga
+o errado. Soltar a seleção em todo desfazer é mais barato que rastrear a
+identidade pelo histórico inteiro.
+
+**Caixa de texto vazia contando como edição.** Tocar a imagem e desistir de
+digitar deixa um objeto na lista. Se `intocada` olhar "a lista está vazia" em vez
+de "algum objeto marca a imagem", concluir recomprime a foto, joga o EXIF fora e
+troca o nome do arquivo sem uma única marca visível (§3.6).
+
+**Texto que vaza pela borda.** `measureText` só é chamado se alguém o chamar: sem
+remedir a cada tecla e prender de volta, uma frase escrita perto da borda cresce
+para fora da foto, e o pedaço de fora simplesmente não vai no envio. O operador
+não vê o que perdeu — vê uma frase que acaba antes do fim.
+
+**Prender a âncora em vez da pegada.** Num texto escrito com o quadro girado, a
+caixa se estende *para cima* a partir da âncora (§3.13). Prender a âncora dentro
+da imagem deixa a metade de cima do texto do lado de fora, e a conta parece certa
+o tempo todo — até alguém escrever numa foto girada.
+
+**A régua de tamanho mentindo ao selecionar.** Selecionar um texto criado no
+nível 6 com a régua marcando 3 faz o primeiro arrasto dela encolher a frase para
+um tamanho que ninguém pediu. Sincronizar a régua com o objeto selecionado é uma
+linha; descobrir por que "a régua está mexendo sozinha" é uma tarde.
+
+**A régua saturando depois de um recorte apertado.** Aresta conhecida, e é
+consequência direta de §4.4: o corpo é fração do que está à vista. Recortar para
+um terço da imagem faz um texto de nível 3 passar a valer nível 9 naquela vista,
+a régua satura em 6, e o entalhe abaixo dela muda o corpo em quase metade. Não é
+erro de conta — é a mesma escala relativa que faz a caneta parecer constante —,
+mas o operador que mexer na régua depois de um recorte forte vai ver um salto.
+Desfazer devolve. Se isso incomodar no seu caso, a saída é medir o corpo contra a
+base em vez da saída, aceitando que a letra deixa de ser constante para quem olha.
+
+**O foco mandado no mesmo tique da seleção.** O campo de digitação só deixa de
+estar desabilitado depois que a seleção chega ao render, e elemento desabilitado
+não recebe foco. Quem chama `focus()` dentro do próprio manipulador escreve no
+vazio — e o pior é que **um teste em jsdom pode não pegar**: se houver um
+`focus()` agendado por outra ação ainda pendente na fila de microtasks, ele chega
+durante a espera do teste e dá o foco ao campo por conta própria, mascarando o
+defeito. Drene a fila antes de afirmar.
+
+**A alça deixada para trás pelo recorte.** Um texto que o recorte jogou para fora
+some do desenho, como qualquer tinta cortada — mas se a alça continuar sendo
+renderizada, ela vira um `<button>` invisível (a camada tem `overflow: hidden`)
+que o Tab ainda alcança, e um Delete ali apaga um texto que ninguém vê.
+
+**Duas caixas no mesmo pixel.** Toda a conta da inserção é determinística, então o
+botão de criar sem mouse larga a segunda caixa exatamente sobre a primeira, com as
+alças sobrepostas e sem nada que as distinga na tela. Uma escada de uma linha
+resolve — medida na tela, senão numa foto girada ela anda para o lado.
+
 ---
 
 ## Referências no código deste projeto
@@ -1482,5 +2124,6 @@ Para quem tiver acesso a este repositório:
 - `web/apps/dashboard/src/ui/imageAnnotation.test.ts` — testes da aritmética
 - `web/apps/dashboard/src/ui/InboxImageEditor.test.tsx` — caminho completo, do
   arquivo que entra ao `File` que sai
-- PR #56 (o editor), PR #62 (a tela de composição que o hospeda) e PR #71
-  (recorte e giro)
+- PR #56 (o editor), PR #62 (a tela de composição que o hospeda), PR #71
+  (recorte e giro) e PR #104 (texto, e a lista de traços virando lista de
+  objetos)
