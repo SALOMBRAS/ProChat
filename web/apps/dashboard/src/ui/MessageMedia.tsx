@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { InboxApi, InboxMessage } from "../api/inbox.js";
 import type { DomainApi } from "../api/domain.js";
 import { fileSizeLabel } from "./attachmentIntake.js";
@@ -10,13 +10,16 @@ import {
   isVoiceNote,
   mediaDuration,
   mediaFilename,
+  mediaKindLabel,
   locationOf,
   mapsUrl,
   mediaSize,
   phoneDigits,
   phoneDisplay,
+  probeMedia,
   voiceWaveform,
   type ContactCard,
+  type MediaFailure,
 } from "./messageMedia.js";
 
 /** Corpo das mensagens de mídia na conversa.
@@ -29,23 +32,73 @@ import {
 /** Um áudio por vez. Dois tocando ao mesmo tempo é sempre acidente. */
 let activeAudio: HTMLAudioElement | undefined;
 
-const useAudio = (message: InboxMessage) => {
+/** Descobre, depois de o elemento já ter falhado, se o arquivo sumiu de vez.
+ *
+ *  A pergunta só é feita quando há falha, e uma vez por mídia: perguntar no
+ *  render seria uma requisição por mensagem de mídia da conversa, que é o N+1 que
+ *  o projeto proíbe. No caminho feliz o custo é zero.
+ *
+ *  A Inbox não recebe `mediaPersistenceStatus` — o `InboxMessage` que a API
+ *  entrega não tem esse campo —, então o estado é descoberto pela única coisa
+ *  observável daqui: o que o proxy responde. */
+const useMediaFailure = (url: string) => {
+  const [failure, setFailure] = useState<MediaFailure>();
+  // A promessa fica guardada, e não só um "já perguntei": quem precisa da
+  // resposta para decidir o que fazer em seguida — o clique no documento — assim
+  // espera a mesma pergunta em vez de abrir outra.
+  const asked = useRef<{ url: string; answer: Promise<MediaFailure> }>();
+  const classify = useCallback(() => {
+    if (asked.current?.url !== url) asked.current = { url, answer: probeMedia(url).then((value) => { setFailure(value); return value; }) };
+    return asked.current.answer;
+  }, [url]);
+  return { failure, gone: failure === "gone", classify };
+};
+
+/** O cartão do arquivo que não volta.
+ *
+ *  Não é erro: é um fato sobre o histórico, e a linguagem tem de dizer isso. Não
+ *  oferece "tentar de novo", porque não há o que tentar. E carrega os metadados
+ *  que sobreviveram — nome, tamanho, duração —, que é o que ainda permite ao
+ *  operador saber do que a conversa estava falando. A legenda continua abaixo,
+ *  desenhada pelo balão. */
+const MediaGone = ({ message }: { message: InboxMessage }) => {
+  const kind = mediaKindLabel(message);
+  const filename = mediaFilename(message);
+  const seconds = mediaDuration(message);
+  const size = mediaSize(message);
+  const detail = [filename, seconds != null ? durationLabel(seconds) : undefined, size != null ? fileSizeLabel(size) : undefined].filter(Boolean).join(" · ");
+  return (
+    <div className="message-media-gone" role="status">
+      <span className="message-media-gone-mark" aria-hidden="true">⃠</span>
+      <span className="message-media-gone-copy">
+        <strong>{kind} indisponível</strong>
+        <small>O arquivo não chegou a ser guardado e o WhatsApp já o descartou.</small>
+        {detail && <small className="message-media-gone-meta">{detail}</small>}
+      </span>
+    </div>
+  );
+};
+
+const useAudio = (message: InboxMessage, url: string) => {
   const audio = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(mediaDuration(message) ?? 0);
   const [unavailable, setUnavailable] = useState(false);
+  const media = useMediaFailure(url);
   const toggle = async () => {
     const node = audio.current;
     if (!node) return;
     if (node.paused) {
       if (activeAudio && activeAudio !== node) activeAudio.pause();
       activeAudio = node;
-      try { await node.play(); } catch { setUnavailable(true); }
+      // Não tocar pode ser o arquivo que sumiu ou o navegador de agora: quem
+      // separa os dois é a pergunta ao proxy, não o `catch`.
+      try { await node.play(); } catch { setUnavailable(true); media.classify(); }
     } else node.pause();
   };
   const seek = (value: number) => { if (audio.current) audio.current.currentTime = value; setCurrent(value); };
-  return { audio, playing, current, duration, unavailable, toggle, seek };
+  return { audio, playing, current, duration, unavailable, media, toggle, seek };
 };
 
 /** Nota de voz: forma de onda e velocidade de reprodução.
@@ -54,18 +107,20 @@ const useAudio = (message: InboxMessage) => {
  *  decorativo nem amostragem feita aqui. Sem elas, cai numa barra de progresso
  *  simples em vez de fingir um traçado. */
 const VoiceNoteMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
-  const state = useAudio(message);
+  const state = useAudio(message, url);
   const wave = voiceWaveform(message);
   const total = state.duration || mediaDuration(message) || 0;
   const progress = total ? Math.min(1, state.current / total) : 0;
   const [speed, setSpeed] = useState(1);
   const changeSpeed = () => { const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1; setSpeed(next); if (state.audio.current) state.audio.current.playbackRate = next; };
+  if (state.media.gone) return <MediaGone message={message} />;
   return (
     <div className="voice-note" aria-label="Mensagem de voz">
       <audio ref={state.audio} preload="metadata" src={url}
         onLoadedMetadata={() => { const node = state.audio.current; if (node && Number.isFinite(node.duration)) node.dataset.ready = "1"; }}
+        onError={state.media.classify}
         onTimeUpdate={() => undefined} hidden />
-      {state.unavailable ? <span className="media-error" role="status">Áudio indisponível.</span> : <>
+      {state.unavailable ? <span className="media-error" role="status">Não foi possível reproduzir o áudio agora.</span> : <>
         <button type="button" className="voice-note-play" onClick={() => void state.toggle()} aria-label={state.playing ? "Pausar mensagem de voz" : "Reproduzir mensagem de voz"}>{state.playing ? "Ⅱ" : "▶"}</button>
         <div className="voice-note-track">
           {wave
@@ -83,14 +138,15 @@ const VoiceNoteMessage = ({ message, url }: { message: InboxMessage; url: string
 /** Arquivo de áudio: parece faixa. Nome, duração e um play — sem velocidade, que é
  *  gesto de quem ouve recado, não música. */
 const AudioFileMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
-  const state = useAudio(message);
+  const state = useAudio(message, url);
   const name = mediaFilename(message) ?? "Arquivo de áudio";
   const total = state.duration || mediaDuration(message) || 0;
   const size = mediaSize(message);
+  if (state.media.gone) return <MediaGone message={message} />;
   return (
     <div className="audio-track" aria-label="Arquivo de áudio">
-      <audio ref={state.audio} preload="metadata" src={url} onLoadedMetadata={() => undefined} hidden />
-      {state.unavailable ? <span className="media-error" role="status">Áudio indisponível.</span> : <>
+      <audio ref={state.audio} preload="metadata" src={url} onLoadedMetadata={() => undefined} onError={state.media.classify} hidden />
+      {state.unavailable ? <span className="media-error" role="status">Não foi possível reproduzir o áudio agora.</span> : <>
         <button type="button" className="audio-track-play" onClick={() => void state.toggle()} aria-label={state.playing ? "Pausar áudio" : "Reproduzir áudio"}>{state.playing ? "Ⅱ" : "▶"}</button>
         <span className="audio-track-mark" aria-hidden="true">♬</span>
         <div className="audio-track-copy">
@@ -106,12 +162,14 @@ const AudioFileMessage = ({ message, url }: { message: InboxMessage; url: string
 
 const ImageMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
   const [expanded, setExpanded] = useState(false);
+  const media = useMediaFailure(url);
   const filename = mediaFilename(message);
   const label = filename ?? "Imagem";
   const size = mediaSize(message);
+  if (media.gone) return <MediaGone message={message} />;
   return <>
     <div className="message-image-card">
-      <button type="button" className="message-image-preview" onClick={() => setExpanded(true)} aria-label={`Ampliar ${label}`}><img src={url} alt={label} /></button>
+      <button type="button" className="message-image-preview" onClick={() => setExpanded(true)} aria-label={`Ampliar ${label}`}><img src={url} alt={label} onError={media.classify} /></button>
       <div className={`message-media-footer${filename ? "" : " icon-only"}`}>
         {filename ? <span title={filename}>{filename}{size != null ? ` · ${fileSizeLabel(size)}` : ""}</span> : size != null ? <span>{fileSizeLabel(size)}</span> : null}
         <a href={url} download={filename ?? undefined} aria-label={`Baixar ${label}`} title="Baixar imagem">⇩</a>
@@ -123,12 +181,17 @@ const ImageMessage = ({ message, url }: { message: InboxMessage; url: string }) 
 
 const VideoMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
   const [playbackError, setPlaybackError] = useState<string>();
+  const media = useMediaFailure(url);
   const filename = mediaFilename(message);
   const seconds = mediaDuration(message);
   const size = mediaSize(message);
   const detail = [seconds != null ? durationLabel(seconds) : undefined, size != null ? fileSizeLabel(size) : undefined].filter(Boolean).join(" · ");
+  if (media.gone) return <MediaGone message={message} />;
+  // O erro do elemento não distingue "arquivo sumiu" de "formato que não toca", e
+  // dizer "formato inválido" sobre um arquivo que já não existe manda o operador
+  // procurar defeito onde não há. Por isso o `onError` também pergunta ao proxy.
   return <div className="message-video-card">
-    <video className="message-media video" controls preload="metadata" poster={message.thumbnailUrl ?? undefined} playsInline onLoadedMetadata={() => setPlaybackError(undefined)} onStalled={() => setPlaybackError("O vídeo está demorando para carregar.")} onError={() => setPlaybackError("Formato de vídeo inválido ou não suportado.")}>
+    <video className="message-media video" controls preload="metadata" poster={message.thumbnailUrl ?? undefined} playsInline onLoadedMetadata={() => setPlaybackError(undefined)} onStalled={() => setPlaybackError("O vídeo está demorando para carregar.")} onError={() => { setPlaybackError("Formato de vídeo inválido ou não suportado."); media.classify(); }}>
       <source src={url} type={message.mediaMimeType ?? undefined} />
     </video>
     <div className="message-media-footer">
@@ -139,12 +202,33 @@ const VideoMessage = ({ message, url }: { message: InboxMessage; url: string }) 
   </div>;
 };
 
+/** Documento é o único tipo sem carga passiva: um link não avisa que o destino
+ *  sumiu, e sem isto o operador clica e recebe um JSON de 404 na cara.
+ *
+ *  O primeiro clique pergunta antes de baixar — 0,1 s, medido —, e ou troca o
+ *  cartão pelo aviso ou repassa o clique ao próprio link, que baixa com a
+ *  semântica nativa do `download`. Perguntar na montagem seria uma requisição por
+ *  documento da conversa, que é o N+1 que o projeto proíbe. */
 const DocumentMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
   const filename = mediaFilename(message);
   const kind = documentKind(filename, message.mediaMimeType ?? (wahaMime(message) ?? null));
   const label = filename ?? `Documento ${kind.label}`;
   const size = mediaSize(message);
-  return <a className="message-document-card" href={url} download={filename ?? undefined} aria-label={`Baixar ${label}`}>
+  const media = useMediaFailure(url);
+  const anchor = useRef<HTMLAnchorElement>(null);
+  const [cleared, setCleared] = useState(false);
+  const check = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (cleared) return;
+    event.preventDefault();
+    void media.classify().then((failure) => {
+      // Sumiu: o próprio `classify` já marcou, e o cartão troca sozinho.
+      if (failure === "gone") return;
+      setCleared(true);
+      queueMicrotask(() => anchor.current?.click());
+    });
+  };
+  if (media.gone) return <MediaGone message={message} />;
+  return <a ref={anchor} className="message-document-card" href={url} download={filename ?? undefined} aria-label={`Baixar ${label}`} onClick={check}>
     <span className={`message-document-icon tone-${kind.tone}`}>{kind.label}</span>
     <span className="message-document-details">
       <strong title={label}>{label}</strong>

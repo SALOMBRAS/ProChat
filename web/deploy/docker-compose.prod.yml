@@ -23,22 +23,14 @@ services:
       NODE_ENV: production
       API_PORT: "3000"
       # Nomes de serviço da rede interna. Nada aqui atravessa a internet.
-      # O transporte interno do worker é tipado para escutar só em 127.0.0.1
-      # (`InternalTransportServerOptions.host` é o literal '127.0.0.1'), de
-      # propósito: ele não tem autenticação. Para a API alcançá-lo sem afrouxar
-      # isso, o worker compartilha o namespace de rede da API — então 127.0.0.1
-      # é o mesmo dos dois, e ninguém mais na rede o enxerga.
-      WORKER_TRANSPORT_URL: http://127.0.0.1:3101/internal/transport
+      WORKER_TRANSPORT_URL: http://worker:3101/internal/transport
       WAHA_BASE_URL: http://waha:3000
       # A origem é a do dashboard. Com o nginx encaminhando /api e /ws, o
       # navegador vê uma origem só — mas a variável precisa existir para o caso
       # de o dashboard ser servido de outro domínio.
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
-    volumes:
-      # Só usado com DATABASE_PROVIDER=sqlite. Com supabase fica ocioso, e é o
-      # que permite os dois provedores subirem pela mesma imagem.
-      - api-data:/data
     depends_on:
+      worker: {condition: service_started}
       waha: {condition: service_healthy}
     expose: ["3000"]
     healthcheck:
@@ -58,19 +50,11 @@ services:
       WORKER_TRANSPORT_PORT: "3101"
       WAHA_BASE_URL: http://waha:3000
       CHATPRO_DATA_DIR: /data
-    # Namespace de rede da API: é o que torna 127.0.0.1:3101 alcançável de lá
-    # sem publicar a porta para ninguém. Consequência: o worker não tem nome DNS
-    # próprio nem `expose` — quem precisa dele é só a API, pelo loopback.
-    network_mode: "service:api"
-    # A WAHA precisa responder antes, senão o worker cicla em `provider_creation`
-    # — observado no primeiro `up`.
-    depends_on:
-      api: {condition: service_started}
-      waha: {condition: service_healthy}
     volumes:
       # Estado 1 de 2: waha-sessions.json (única fonte dos aliases) e as
       # credenciais do provider. Perder isto repete o incidente de 31/07.
       - worker-data:/data
+    expose: ["3101"]
 
   waha:
     image: devlikeapro/waha:latest-2026.7.1
@@ -116,6 +100,5 @@ services:
     ports: ["${DASHBOARD_BIND:-127.0.0.1}:${DASHBOARD_PORT:-8080}:80"]
 
 volumes:
-  api-data:
   worker-data:
   waha-sessions:
