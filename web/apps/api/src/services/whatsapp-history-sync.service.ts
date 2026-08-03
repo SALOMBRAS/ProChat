@@ -351,7 +351,25 @@ export class SqliteWhatsAppHistorySyncStore implements SyncJobStore {
 export class SupabaseWhatsAppHistorySyncStore implements SyncJobStore {
   constructor(private readonly client: SupabaseClient) {}
   async get(workspaceId: string, wahaSession: string) { const { data, error } = await this.client.from('whatsapp_sync_jobs').select().eq('workspace_id', workspaceId).eq('waha_session', wahaSession).maybeSingle(); if (error) throw error; return data ? remoteJob(data) : undefined; }
-  async save(job: SyncJob) { const { error } = await this.client.from('whatsapp_sync_jobs').upsert({ id: job.id, workspace_id: job.workspaceId, waha_session: job.wahaSession, status: job.status, current_chat_id: job.currentChatId, chat_cursor: job.chatCursor, message_cursor: job.messageCursor, chats_processed: job.chatsProcessed, messages_processed: job.messagesProcessed, chats_total: job.chatsTotal, started_at: job.startedAt, completed_at: job.completedAt, last_error_safe: job.lastErrorSafe, updated_at: job.updatedAt }, { onConflict: 'workspace_id,waha_session' }); if (error) throw error; }
+  async save(job: SyncJob) {
+    const linha = { id: job.id, workspace_id: job.workspaceId, waha_session: job.wahaSession, status: job.status, current_chat_id: job.currentChatId, chat_cursor: job.chatCursor, message_cursor: job.messageCursor, chats_processed: job.chatsProcessed, messages_processed: job.messagesProcessed, chats_total: job.chatsTotal, started_at: job.startedAt, completed_at: job.completedAt, last_error_safe: job.lastErrorSafe, updated_at: job.updatedAt };
+    const { error } = await this.client.from('whatsapp_sync_jobs').upsert(linha, { onConflict: 'workspace_id,waha_session' });
+    if (!error) return;
+    if (!missingChatsTotal(error)) throw error;
+    // A migration que cria `chats_total` pode não ter chegado a este ambiente —
+    // foi o que aconteceu em produção, e o efeito não foi perder o denominador
+    // do banner: foi a sincronização inteira parar de funcionar, porque TODO
+    // checkpoint passa por aqui e o 42703 subia como 500 no `POST /sync/start`.
+    //
+    // O contador é ornamento; o job é o trabalho. Regravar sem ele preserva o
+    // trabalho e perde só a barra de progresso, que a Inbox já sabe exibir sem
+    // denominador. Repetir em vez de sondar uma vez é deliberado: a sondagem
+    // cacheada de `supabaseIdentifierHashReady` exige reiniciar o processo
+    // depois que a migration entra, e esta se cura sozinha na gravação seguinte.
+    const { chats_total: _semColuna, ...semContador } = linha;
+    const repetida = await this.client.from('whatsapp_sync_jobs').upsert(semContador, { onConflict: 'workspace_id,waha_session' });
+    if (repetida.error) throw repetida.error;
+  }
 }
 
 function sqliteJob(row: Record<string, unknown>): SyncJob { return row as unknown as SyncJob; }
@@ -367,6 +385,22 @@ function integerCursor(value: string | null): number { const number = Number(val
  * is already the bottleneck. Chat listings and offset 0 cost the same every
  * time, so a timeout there really is transient and stays worth retrying.
  */
+/**
+ * A coluna `chats_total` ausente do schema, nas DUAS formas que o PostgREST usa —
+ * e elas são diferentes, o que custou uma rodada de diagnóstico:
+ *
+ *   leitura   42703     column whatsapp_sync_jobs.chats_total does not exist
+ *   escrita   PGRST204  Could not find the 'chats_total' column of
+ *                       'whatsapp_sync_jobs' in the schema cache
+ *
+ * Casar só o código da leitura não pega o `upsert`, que é justamente onde dói.
+ * O nome da coluna entra no predicado de propósito: engolir qualquer PGRST204
+ * esconderia erro de verdade em qualquer outra coluna.
+ */
+function missingChatsTotal(error: { code?: string; message?: string } | null | undefined): boolean {
+  return (error?.code === '42703' || error?.code === 'PGRST204') && /chats_total/.test(error.message ?? '');
+}
+
 function retryable(code: string, chatId: string | undefined, offset: number): boolean {
   return transientCodes.has(code) && !(code === 'TIMEOUT' && chatId !== undefined && offset > 0);
 }
