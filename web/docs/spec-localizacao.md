@@ -43,7 +43,7 @@ ENVIO
   painel no compositor
     → POST /api/v1/inbox/conversations/:id/location      {latitude, longitude, title?}
     → InternalInboxService.sendLocation
-    → deliver()  ── o MESMO de texto e de anexo
+    → deliver()  ── o MESMO de texto e de cartão de contato
     → comando  message.sendContent  { content: { kind: 'location', … } }
     → transporte interno HTTP
     → waha-provider.sendContent  → ramo 'location'
@@ -143,6 +143,16 @@ return this.deliver(context, conversationId, {
 ```
 
 `apps/api/src/services/internal-inbox.service.ts:22-28`.
+
+> **`deliver()` não serve ao anexo.** Ele tem exatamente três chamadores —
+> `send` (texto), `sendLocation` e `sendVcard`
+> (`internal-inbox.service.ts:23`, `:37`, `:45`). O anexo segue outro caminho, com
+> serviço próprio, job de outbox e máquina de estados
+> (`attachment-outbox.service.ts`, e a especificação irmã
+> `spec-envio-documento.md`). A primeira versão desta seção dizia "texto e anexo",
+> e estava errada: a diferença importa porque o envio de localização é **síncrono**
+> — o HTTP do operador só responde depois que a WAHA respondeu — enquanto o anexo
+> é assíncrono e pode falhar depois de a tela já ter dito que aceitou.
 
 **Por que isso é o desenho certo aqui, e não preguiça:** a coluna `payload_json`
 já existe, já é gravada para toda mensagem, e já é devolvida ao cliente como

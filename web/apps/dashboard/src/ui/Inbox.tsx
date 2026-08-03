@@ -114,11 +114,40 @@ const geolocationErrorMessage = (error: unknown) => {
   if (code === 3) return "A localização demorou demais para responder. Tente de novo ou informe o ponto abaixo.";
   return "Não foi possível obter a localização. Informe o ponto abaixo.";
 };
-/** Aceita "lat, lon" e "lat lon", com vírgula ou ponto decimal, e valida a faixa:
- *  latitude fora de ±90 ou longitude fora de ±180 não é ponto nenhum. */
-const parseCoordinates = (value: string) => {
-  const parts = value.trim().split(/\s*[,;]\s*|\s+/).filter(Boolean);
+/** Lê "lat, lon" — e o problema é que, em português, a vírgula é ao mesmo tempo o
+ *  separador do par e o separador decimal.
+ *
+ *  A versão anterior separava por vírgula antes de converter, então `-7,115`
+ *  virava o par `{-7, 115}` — um ponto no Oceano Índico — e era ENVIADO, porque a
+ *  função devolvia um objeto e o botão de enviar só olha se ela devolveu algo.
+ *  Uma latitude sozinha, escrita no formato da própria língua, mandava o contato
+ *  para outro continente sem uma linha de erro.
+ *
+ *  A regra que desfaz a ambiguidade é a que as pessoas já usam ao escrever:
+ *
+ *    vírgula colada num dígito  ->  é DECIMAL     (-7,115)
+ *    vírgula seguida de espaço  ->  é SEPARADOR   (-7, 115)
+ *    ponto-e-vírgula ou espaço  ->  é SEPARADOR   (-7,115; -34,861)
+ *
+ *  Com ela `-7,115` tem uma leitura só — um número — e um número só não é um par:
+ *  é recusado, que era o objetivo. `-7, 115` continua valendo como par de
+ *  inteiros, e `-7,115, -34,861` é lido como o brasileiro escreve.
+ *
+ *  A alternativa era exigir ponto decimal e recusar toda vírgula. Foi descartada:
+ *  vírgula é o separador decimal da língua do produto, é o que sai de calculadora
+ *  e de planilha em pt-BR, e recusá-la empurraria o operador a converter à mão —
+ *  que é exatamente onde se erra um dígito.
+ *
+ *  Depois de separar, cada lado precisa ser um decimal simples. `Number` aceita
+ *  `0x10` (16), `1e2` e `Infinity`; nenhum é coordenada que alguém digitou
+ *  querendo, e `0x10, 0` passava antes. A faixa continua conferida: latitude fora
+ *  de ±90 ou longitude fora de ±180 não é ponto nenhum. */
+const DECIMAL_SIMPLES = /^[+-]?\d+(?:\.\d+)?$/;
+export const parseCoordinates = (value: string) => {
+  // A vírgula colada num dígito é decimal e vira ponto; a que sobrar é separador.
+  const parts = value.trim().replace(/,(?=\d)/g, ".").split(/[;,\s]+/).filter(Boolean);
   if (parts.length !== 2) return undefined;
+  if (!parts.every((part) => DECIMAL_SIMPLES.test(part))) return undefined;
   const [latitude, longitude] = parts.map(Number);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
   if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return undefined;
@@ -271,6 +300,11 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const editableAttachment = isEditableImage(attachmentSource?.type) ? attachmentSource : undefined;
   /** A tela de composição está no ar: a conversa deu lugar ao preview. */
   const stageOpen = Boolean(attachment) && STAGE_KINDS.includes(attachmentKind(attachment?.type) ?? "");
+  /** O ponto que o painel de localização vai enviar. Uma fonte só para as três
+   *  perguntas — habilitar o botão, montar o link de conferência e enviar —,
+   *  porque foram duas que fizeram o link conferir um ponto e o envio mandar
+   *  outro. */
+  const locationTarget = parseCoordinates(locationCoords);
   /** Há legenda ou edição de imagem a perder ao descartar. */
   const stageDirty = Boolean(composerText.trim()) || !isPristineEdit(attachmentEdit);
   /** Fechar devolve a legenda ao compositor: quem escreveu a frase ainda pode
@@ -1322,13 +1356,19 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                   {locationError && <p className="composer-location-error" role="alert">{locationError}</p>}
                   <label className="composer-location-field"><span>Latitude, longitude</span><input value={locationCoords} onChange={(event) => { setLocationCoords(event.target.value); setLocationError(""); }} placeholder="-7.115, -34.861" inputMode="decimal" aria-label="Latitude, longitude" /></label>
                   <label className="composer-location-field"><span>Nome do ponto (opcional)</span><input value={locationTitle} onChange={(event) => setLocationTitle(event.target.value)} placeholder="Loja centro" maxLength={120} aria-label="Nome do ponto" /></label>
-                  {locationPoint && <a className="composer-location-check" href={mapsUrl(locationPoint.latitude, locationPoint.longitude)} target="_blank" rel="noreferrer noopener">Conferir no mapa antes de enviar</a>}
+                  {/* O link confere o que VAI SER ENVIADO, e por isso lê o campo —
+                      a mesma fonte do botão de enviar. Lendo `locationPoint`, que
+                      só a geolocalização preenche, quem digitava a coordenada
+                      nunca via o link (a conferência faltava justamente na
+                      entrada que mais precisa dela), e quem usava o GPS e depois
+                      editava conferia o ponto antigo. */}
+                  {locationTarget && <a className="composer-location-check" href={mapsUrl(locationTarget.latitude, locationTarget.longitude)} target="_blank" rel="noreferrer noopener">Conferir no mapa antes de enviar</a>}
                   {/* Desabilitar só quando o campo está vazio deixava passar
                       "abc": o operador clicava e só então lia o erro. Agora o
                       botão exige coordenada que resolve, e a dica explica por
                       que ele está apagado — senão o botão morto não diz nada. */}
-                  {locationCoords.trim() && !parseCoordinates(locationCoords) && <p className="composer-location-error" role="status">Coordenadas inválidas. Use latitude, longitude — por exemplo -7.115, -34.861.</p>}
-                  <div className="composer-location-actions"><button type="button" onClick={closeLocation}>Cancelar</button><button type="button" className="composer-location-send" onClick={() => void confirmLocation()} disabled={!parseCoordinates(locationCoords)}>Enviar localização</button></div>
+                  {locationCoords.trim() && !locationTarget && <p className="composer-location-error" role="status">Coordenadas inválidas. Use latitude, longitude — por exemplo -7.115, -34.861.</p>}
+                  <div className="composer-location-actions"><button type="button" onClick={closeLocation}>Cancelar</button><button type="button" className="composer-location-send" onClick={() => void confirmLocation()} disabled={!locationTarget}>Enviar localização</button></div>
                 </div>}
                 {cameraOpen && <div className="composer-camera" role="dialog" aria-label="Capturar pela câmera">
                   <video ref={cameraVideoRef} className="composer-camera-preview" autoPlay playsInline muted aria-label="Prévia da câmera" />
