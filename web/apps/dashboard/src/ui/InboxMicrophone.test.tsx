@@ -257,17 +257,41 @@ describe("microphoneState", () => {
 
 describe("estilo", () => {
   it("reaproveita a moldura do tema e a escala da #47, sem hex novo", () => {
-    expect(stylesheet).toMatch(/\.chat-inbox \.mic-gate\s*\{/);
+    expect(stylesheet).toMatch(/^\.mic-gate\s*\{/m);
     // Título 17, corpo 13, apoio 11 — a escala da #47.
-    expect(stylesheet).toMatch(/\.chat-inbox \.mic-gate h2\s*\{[^}]*font-size:\s*17px/);
-    expect(stylesheet).toMatch(/\.chat-inbox \.mic-gate-copy\s*\{[^}]*font-size:\s*13px/);
+    expect(stylesheet).toMatch(/\.mic-gate h2\s*\{[^}]*font-size:\s*17px/);
+    expect(stylesheet).toMatch(/\.mic-gate-copy\s*\{[^}]*font-size:\s*13px/);
     // O primário ocupa a largura; negar é discreto. É a hierarquia do Meet.
     expect(stylesheet).toMatch(/\.mic-gate-allow\s*\{[^}]*width:\s*100%/);
     expect(stylesheet).toMatch(/\.mic-gate-dismiss\s*\{[^}]*background:\s*transparent/);
 
-    const bloco = stylesheet.slice(stylesheet.indexOf("/* Portão de permissão do microfone."));
-    const antes = stylesheet.slice(0, stylesheet.indexOf("/* Portão de permissão do microfone."));
+    // Comentário não pinta nada, e uma referência de PR ("#136") casa com a
+    // forma de um hex de três dígitos. Tira os comentários antes de varrer.
+    const semComentario = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, " ");
+    const corte = stylesheet.indexOf("/* Portão de permissão do microfone.");
+    const bloco = semComentario(stylesheet.slice(corte));
+    const antes = semComentario(stylesheet.slice(0, corte));
     for (const cor of new Set(bloco.match(/#[0-9a-f]{3,8}\b/gi) ?? []))
       expect(antes, `${cor} é uma cor nova`).toContain(cor);
   });
+
+  /** A #136 passou a montar o mesmo compositor dentro da janela de conversa sobre
+   *  o Kanban, e essa janela fica FORA da `<section class="page inbox chat-inbox">`.
+   *  Duas coisas quebravam ali, e nenhuma delas aparece no merge de texto. */
+  it("não depende de .chat-inbox: a janela do Kanban monta o compositor fora dela", () => {
+    const bloco = stylesheet.slice(stylesheet.indexOf("/* Portão de permissão do microfone."));
+    expect(bloco).not.toMatch(/\.chat-inbox\s+\.mic-gate/);
+    expect(bloco).not.toMatch(/\.chat-inbox\s+\.composer-recording-(level|silent)/);
+  });
+
+  it("fica acima da janela de conversa do Kanban, não atrás dela", () => {
+    const kanban = /\.kanban-conversation-backdrop\s*\{[^}]*z-index:\s*(\d+)/.exec(stylesheet);
+    const gate = /\.mic-gate-backdrop\s*\{[^}]*z-index:\s*(\d+)/.exec(stylesheet);
+    expect(kanban, "a janela do Kanban sumiu da folha").toBeTruthy();
+    expect(gate, "o portão precisa de z-index próprio").toBeTruthy();
+    // `.modal-backdrop` do tema é 10; a janela do Kanban é 60. Sem isto o portão
+    // — que bloqueia uma decisão — apareceria atrás dela.
+    expect(Number(gate![1])).toBeGreaterThan(Number(kanban![1]));
+  });
+
 });
