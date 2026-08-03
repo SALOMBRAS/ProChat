@@ -101,6 +101,47 @@ alguém retomá-lo: nada limpa a linha automaticamente. Um rótulo de falha anti
 portanto, não significa que a sincronização falhou de novo — confira `updatedAt`
 em `GET /api/v1/inbox/sync/status` antes de investigar.
 
+## Corrida longa: sobreviver ao terminal e ao reinício
+
+Uma conta grande leva horas. Três coisas precisavam mudar para que uma corrida
+dessas chegue ao fim sem ninguém olhando.
+
+**A WAHA era derrubada junto com o runtime.** `scripts/waha-runtime.mjs` chamava
+`docker compose stop` em `SIGINT`/`SIGTERM`. Isso não só para o contêiner: marca
+ele como parado de propósito, e é exatamente o que desliga o `restart:
+unless-stopped` declarado no compose — depois de um `stop` a WAHA não volta nem
+quando a máquina reinicia. Medido em 03/08/2026: o contêiner saiu com 143
+(SIGTERM) no meio de uma corrida, com os logs mostrando requisições completando
+normalmente até o último segundo. Não foi carga; foi o `stop`.
+
+A correção é uma opção explícita, `--keep-waha` (ou `npm run dev:waha:keep`), e
+não uma troca de política de restart. A política é global e não distingue as duas
+intenções: trocar `unless-stopped` por `always` faria a WAHA ressuscitar no boot
+mesmo depois de uma parada deliberada, comprando a corrida longa ao preço de
+tirar do operador a capacidade de desligar. Quem sabe qual intenção vale é quem
+invoca o runtime, então a escolha mora lá, com o comportamento de
+desenvolvimento — Ctrl-C derruba tudo junto — como padrão.
+
+**Nada retoma a sincronização sozinho.** Nenhum caminho de boot chama
+`historySync.start()`; o job só anda quando alguém bate em
+`POST /inbox/sync/start`. Mas esse POST é idempotente por construção:
+`createStart` devolve a visão do job sem relançar enquanto ele está `running` e
+teve checkpoint há menos de `staleRunningAfterMs` (5 min). Então um temporizador
+que bate de tempo em tempo é seguro e cobre os três casos — corrida saudável não
+faz nada, processo morto deixa o job velho e ele é adotado do cursor, job
+`failed` é retomado.
+
+Cinco minutos é o intervalo certo porque é o mesmo `staleRunningAfterMs`, e uma
+corrida saudável escreve checkpoint a cada página — a página mais lenta já medida
+levou 36 s, bem abaixo da janela.
+
+**Fechar o terminal mata a árvore.** O runtime roda em primeiro plano. Para
+sobreviver ao logout e ao reinício, ele precisa de uma unit de usuário com
+`loginctl enable-linger`; sem o linger, o gerenciador de sessão do usuário não
+sobe no boot e nada disso acontece. Uma unit de usuário não pode declarar
+dependência de `docker.service`, que é do sistema — em vez disso ela apenas
+falha e é reiniciada até o docker existir.
+
 ## Checklist de validação real
 
 1. Inicie API e worker e confirme a sessão `WORKING`.
