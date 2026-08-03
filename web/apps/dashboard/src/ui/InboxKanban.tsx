@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { WorkspaceUser } from "@chatpro/contracts";
 import { ApiError } from "../api/client.js";
-import { InboxApi, type KanbanBoard, type KanbanCard } from "../api/inbox.js";
+import { InboxApi, type InboxConversation, type KanbanBoard, type KanbanCard } from "../api/inbox.js";
+import { contactLabel, realName } from "./contactIdentity.js";
 import { connectRealtime } from "../api/realtime.js";
 import { WorkspaceApi } from "../api/workspace.js";
 
@@ -18,12 +19,39 @@ const priorityLabel: Record<KanbanCard["priority"], string> = {
   urgent: "Urgente",
 };
 
-function cardName(card: KanbanCard) {
-  return card.conversationType === "group" ? `Grupo · ${card.maskedId}` : card.maskedId;
+/** O nome que o card mostra.
+ *
+ *  Era `maskedId` — o JID com os dígitos trocados por bolinhas —, que é
+ *  identificador técnico e não podia estar em tela (regra 6 do `CLAUDE.md`).
+ *
+ *  A precedência é a **mesma** da Inbox, e é por isso que passa por
+ *  `contactLabel` em vez de repetir a regra aqui: nome de perfil do WhatsApp,
+ *  depois `pushName`, só então o nome ChatPro, depois o telefone real
+ *  normalizado, e por último `Contato sem identificação`.
+ *
+ *  `contactLabel` pede uma conversa; o card tem os mesmos campos com outros
+ *  nomes. `chatId` recebe o `maskedId` de propósito: se a cadeia chegar até o
+ *  telefone, `normalizedPhone` recusa o valor mascarado (as bolinhas deixam
+ *  menos de 8 dígitos) e o rótulo cai no texto de fallback — nunca no JID. */
+export function cardName(card: KanbanCard) {
+  const conversation = { conversationType: card.conversationType, identity: card.identity ?? undefined, chatId: card.maskedId } as unknown as InboxConversation;
+  // Grupo tem um caso a mais, e só no card. `contactLabel` responde "Grupo
+  // WhatsApp" para qualquer grupo — na Inbox isso basta, porque a lista ao lado
+  // distingue as conversas. No quadro não: dois cards de grupo ficariam com o
+  // mesmo rótulo e nada mais para diferenciá-los. O nome do grupo chega em
+  // `profileName` (é onde `identityFor` o coloca), e é nome do WhatsApp como
+  // qualquer outro — a precedência não muda, ganha um degrau antes do genérico.
+  if (card.conversationType === "group") return realName(card.identity?.profileName) ?? contactLabel(conversation);
+  return contactLabel(conversation);
 }
 
+/** As iniciais seguem o nome. Só caem para o telefone quando não há nome — o
+ *  que antes era sempre, porque o único insumo eram os dígitos do JID. */
 function initials(card: KanbanCard) {
-  const digits = card.maskedId.replace(/\D/g, "");
+  const name = cardName(card);
+  const words = name.split(/\s+/).filter(word => /\p{L}/u.test(word));
+  if (words.length) return ((words[0][0] ?? "") + (words.length > 1 ? words[words.length - 1][0] ?? "" : words[0][1] ?? "")).toUpperCase();
+  const digits = name.replace(/\D/g, "") || card.maskedId.replace(/\D/g, "");
   return (digits.slice(-2) || "CP").toUpperCase();
 }
 

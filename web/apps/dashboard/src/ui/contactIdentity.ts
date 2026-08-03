@@ -5,8 +5,26 @@ const technicalIdentifier = (value: string) =>
   /@(?:lid|s\.whatsapp\.net|g\.us|broadcast|newsletter)\b/i.test(value) ||
   /^(?:[a-z0-9_-]+:){2,}[a-z0-9_-]+$/i.test(value);
 
+/** Um nome só de dígitos não é nome.
+ *
+ *  Medido na base em 03/08/2026: **66 dos 93 contatos** têm `displayName`
+ *  idêntico ao telefone. Não é campo vazio — é uma cópia —, então testar por
+ *  vazio não pega nenhum deles.
+ *
+ *  O teste é a forma, não a igualdade com o telefone daquele contato: um nome
+ *  que é só algarismos e pontuação não vira nome por ser diferente do número
+ *  gravado ao lado.
+ *
+ *  Nasceu no `ContactPicker` (#129) e mora aqui desde que o card do Kanban
+ *  passou a precisar da mesma regra — duas cópias divergiriam. */
+export const realName = (value: string | null | undefined) => {
+  const name = value?.trim();
+  if (!name || /^[+(]?[\d\s().+-]+$/.test(name)) return undefined;
+  return name;
+};
+
 const safeName = (value: string | null | undefined) => {
-  const trimmed = value?.trim();
+  const trimmed = realName(value);
   return trimmed && !technicalIdentifier(trimmed) ? trimmed : undefined;
 };
 

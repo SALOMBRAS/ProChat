@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { normalizedPhone } from "./contactIdentity.js";
+import { normalizedPhone, realName } from "./contactIdentity.js";
 import { phoneDisplay } from "./messageMedia.js";
 
 /** Escolha de contato para enviar como cartão.
@@ -49,22 +49,6 @@ export const contactInitials = (displayName: string) => {
   const last = words.length > 1 ? words[words.length - 1]?.[0] ?? "" : "";
   const label = `${first}${last}`.toUpperCase();
   return label || "?";
-};
-
-/** Um nome só de dígitos não é nome.
- *
- *  Medido na base em 03/08/2026: **66 dos 93 contatos** têm `displayName`
- *  idêntico ao telefone. Não é campo vazio — é uma cópia —, então testar por
- *  vazio não pega nenhum deles, e era isso que fazia a linha mostrar
- *  "558592369359" em cima e "558592369359" embaixo.
- *
- *  O teste é a forma, não a igualdade com o telefone daquele contato: um nome
- *  que é só algarismos e pontuação não vira nome por ser diferente do número
- *  gravado ao lado. */
-const realName = (value: string | null | undefined) => {
-  const name = value?.trim();
-  if (!name || /^[+(]?[\d\s().+-]+$/.test(name)) return undefined;
-  return name;
 };
 
 /** O que a linha mostra. Uma linha, dois campos no máximo, e nunca o mesmo
