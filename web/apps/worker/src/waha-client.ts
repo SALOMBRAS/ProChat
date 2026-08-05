@@ -2,7 +2,10 @@ import { log } from './logging.js';
 import { remainingBudgetMs } from './request-deadline.js';
 
 export type WahaSession = { name: string; status: string };
-export type WahaSentMessage = { id?: string; pending: boolean };
+/** `url` é sempre a canônica quando existe; a thumbnail chega em base64 e viaja
+ *  como data URL, que é o formato que o contrato aceita. */
+export type WahaLinkPreview = { url: string; title?: string; description?: string; imageUrl?: string };
+export type WahaSentMessage = { id?: string; pending: boolean; linkPreview?: WahaLinkPreview };
 export type WahaAttachment = { type: 'image' | 'audio' | 'video' | 'document'; url: string; filename: string; mimeType: string; caption?: string; voiceNote?: boolean };
 export type WahaIdentity = { whatsappId: string; canonicalWhatsappId: string; phone: string | null; name: string | null; pushName: string | null; shortName: string | null; profilePictureUrl: string | null };
 export type WahaGroup = { chatId: string; name: string | null; pictureUrl: string | null; metadata: Record<string, unknown>; participants: Array<{ whatsappId: string; role: string | null }> };
@@ -36,17 +39,29 @@ export interface WahaClientPort {
   stopSession(name: string): Promise<void>;
   logoutSession(name: string): Promise<void>;
   removeSession(name: string): Promise<void>;
-  sendText(session: string, chatId: string, text: string): Promise<WahaSentMessage>;
+  sendText(session: string, chatId: string, text: string, mentions?: readonly string[], linkPreview?: boolean): Promise<WahaSentMessage>;
   sendAttachment(session: string, chatId: string, attachment: WahaAttachment): Promise<WahaSentMessage>;
   getIdentity(session: string, whatsappId: string): Promise<WahaIdentity>;
   getGroup(session: string, chatId: string): Promise<WahaGroup>;
   sendLocation(session: string, chatId: string, location: { latitude: number; longitude: number; title?: string }): Promise<WahaSentMessage>;
   sendContactVcard(session: string, chatId: string, contacts: ReadonlyArray<Record<string, unknown>>): Promise<WahaSentMessage>;
+  sendReaction(session: string, messageId: string, reaction: string): Promise<void>;
   listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage>;
   listMessages(session: string, chatId: string, offset: number, limit: number): Promise<WahaHistoryPage>;
+  listContacts(session: string, offset: number, limit: number): Promise<WahaHistoryPage>;
 }
 
 export class WahaHttpClient implements WahaClientPort {
+  /** Os endpoints de listagem materializam o store inteiro da sessão dentro da
+   *  WAHA (agenda, conversas, mensagens), e o padrão de 10 s pensado para envio
+   *  e QR estourava antes da resposta em qualquer base real — derrubando o sync
+   *  de histórico e o de contatos com `TIMEOUT` sistemático. 25 s fica abaixo
+   *  do orçamento de transporte de 30 s, então o limite continua sendo o da
+   *  WAHA, não o do envelope. `Math.max` respeita um `WAHA_TIMEOUT_MS` ainda
+   *  maior vindo do ambiente. */
+  private static readonly listingTimeoutMs = 25_000;
+  private get listingTimeout(): number { return Math.max(this.options.timeoutMs, WahaHttpClient.listingTimeoutMs); }
+
   constructor(private readonly options: { baseUrl: string; apiKey?: string; timeoutMs: number; fetchImpl?: typeof fetch }) {}
 
   async health(): Promise<void> { await this.request('/health'); }
@@ -64,11 +79,20 @@ export class WahaHttpClient implements WahaClientPort {
   async stopSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}/stop`, 'POST'); }
   async logoutSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}/logout`, 'POST'); }
   async removeSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}`, 'DELETE'); }
-  async sendText(session: string, chatId: string, text: string): Promise<WahaSentMessage> {
-    const response = await this.requestResponse('/api/sendText', 'POST', { session, chatId, text });
+  async sendText(session: string, chatId: string, text: string, mentions?: readonly string[], linkPreview?: boolean): Promise<WahaSentMessage> {
+    // É o próprio app que resolve o link, como acontece no cliente oficial: o
+    // default da WAHA já gera prévia, e os parâmetros tornam o pedido explícito
+    // (`HighQuality` é melhor esforço no engine WEBJS). O operador pode dispensar
+    // a prévia no compositor — aí o texto vai puro, sem nem pedir a versão
+    // de alta qualidade.
+    // `mentions` exige o `@dígitos` correspondente dentro de `text` — quem
+    // garante é a validação da API; aqui o array só viaja quando presente.
+    const withPreview = linkPreview !== false;
+    const response = await this.requestResponse('/api/sendText', 'POST', { session, chatId, text, linkPreview: withPreview, ...(withPreview ? { linkPreviewHighQuality: true } : {}), ...(mentions?.length ? { mentions: [...mentions] } : {}) });
     const id = messageId(response.data);
-    log('info', 'WAHA sendText accepted', { providerStatus: response.status, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
-    return id ? { id, pending: false } : { pending: true };
+    const preview = nativeLinkPreview(response.data, text);
+    log('info', 'WAHA sendText accepted', { providerStatus: response.status, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id), linkPreview: Boolean(preview), mentions: mentions?.length ?? 0 });
+    return { ...(id ? { id, pending: false } : { pending: true }), ...(preview ? { linkPreview: preview } : {}) };
   }
   async getIdentity(session: string, whatsappId: string): Promise<WahaIdentity> {
     const contact = object(await this.request(`/api/contacts?contactId=${encodeURIComponent(whatsappId)}&session=${encodeURIComponent(session)}`));
@@ -112,16 +136,44 @@ export class WahaHttpClient implements WahaClientPort {
     log('info', 'WAHA contact card accepted', { providerStatus: response.status, contacts: contacts.length, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
     return id ? { id, pending: false } : { pending: true };
   }
+  // `reaction` vazia é a remoção no protocolo WAHA — por isso o corpo a envia
+  // como está, sem trim nem validação de emoji. O `messageId` vai verbatim: é o
+  // mesmo id serializado que o webhook `message.reaction` reporta de volta.
+  async sendReaction(session: string, messageId: string, reaction: string): Promise<void> {
+    const response = await this.requestResponse('/api/reaction', 'PUT', { session, messageId, reaction });
+    log('info', 'WAHA reaction accepted', { providerStatus: response.status, removed: reaction.length === 0, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(',') });
+  }
   async listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage> {
-    const data = await this.request(`/api/${encodeURIComponent(session)}/chats?limit=${limit}&offset=${offset}&sortBy=conversationTimestamp&sortOrder=desc`);
+    const data = await this.request(`/api/${encodeURIComponent(session)}/chats?limit=${limit}&offset=${offset}&sortBy=conversationTimestamp&sortOrder=desc`, 'GET', undefined, this.listingTimeout);
     const items = Array.isArray(data) ? data.flatMap(value => value && typeof value === 'object' && !Array.isArray(value) ? [{ ...(value as Record<string, unknown>), id: serializedId((value as Record<string, unknown>).id) ?? (value as Record<string, unknown>).id }] : []) : [];
     const unsupported: string[] = []; const accepted = items.filter(item => { const id = stringValue(item.id); if (!id || id === 'status@broadcast' || (!id.endsWith('@c.us') && !id.endsWith('@lid') && !id.endsWith('@g.us'))) { if (id) unsupported.push(id); return false; } return true; });
     return { items: accepted, unsupported, hasMore: items.length === limit };
   }
   async listMessages(session: string, chatId: string, offset: number, limit: number): Promise<WahaHistoryPage> {
-    const data = await this.request(`/api/${encodeURIComponent(session)}/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}&offset=${offset}&downloadMedia=false`);
+    const data = await this.request(`/api/${encodeURIComponent(session)}/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}&offset=${offset}&downloadMedia=false`, 'GET', undefined, this.listingTimeout);
     const items = Array.isArray(data) ? data.flatMap(value => value && typeof value === 'object' && !Array.isArray(value) ? [value as Record<string, unknown>] : []) : [];
     return { items, unsupported: [], hasMore: items.length === limit };
+  }
+  /** A agenda carregada pela sessão (`GET /api/contacts/all`).
+   *
+   *  Não é a agenda do telefone inteira: a WAHA WEBJS só enxerga os contatos que
+   *  a sessão Web já carregou, e só usuários WhatsApp. Ordenar por `id` é o que
+   *  dá ao `offset` um cursor estável — a WAHA pagina um conjunto em memória, e
+   *  sem ordenação determinística uma página poderia repetir ou pular itens
+   *  entre duas chamadas do job.
+   *
+   *  Grupos e canais não são filtrados aqui de propósito: quem decide o que vira
+   *  contato na base é o serviço de sincronização, e esconder a rejeição aqui
+   *  apagaria a métrica de itens ignorados. Só entra em `unsupported` o que não
+   *  tem identificador utilizável.
+   *
+   *  `hasMore` vem de página cheia: a WAHA não informa total nem um flag, e
+   *  pedir a página seguinte é a única forma de saber que a agenda acabou. */
+  async listContacts(session: string, offset: number, limit: number): Promise<WahaHistoryPage> {
+    const data = await this.request(`/api/contacts/all?session=${encodeURIComponent(session)}&limit=${limit}&offset=${offset}&sortBy=id&sortOrder=asc`, 'GET', undefined, this.listingTimeout);
+    const items = Array.isArray(data) ? data.flatMap(value => value && typeof value === 'object' && !Array.isArray(value) ? [{ ...(value as Record<string, unknown>), id: serializedId((value as Record<string, unknown>).id) ?? (value as Record<string, unknown>).id }] : []) : [];
+    const unsupported: string[] = []; const accepted = items.filter(item => { const id = stringValue(item.id); if (!id) { unsupported.push('(sem id)'); return false; } return true; });
+    return { items: accepted, unsupported, hasMore: items.length === limit };
   }
 
   private async request(path: string, method = 'GET', body?: unknown, timeoutMs = this.options.timeoutMs): Promise<unknown> { return (await this.requestResponse(path, method, body, timeoutMs)).data; }
@@ -160,4 +212,21 @@ function phoneFromChat(chatId: string): string | null { const phone = chatId.spl
 function safeProviderMessage(value: string): string | undefined { const trimmed = value.replace(/(api[_-]?key|authorization|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]').replace(/\s+/g, ' ').trim(); return trimmed ? trimmed.slice(0, 200) : undefined; }
 function messageId(value: unknown): string | undefined { if (typeof value === 'string' && value.trim()) return value.trim(); if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined; const data = value as Record<string, unknown>; return stringValue(data.id) ?? stringValue(data.messageId) ?? stringValue(data.message_id) ?? (data.id && typeof data.id === 'object' ? stringValue((data.id as Record<string, unknown>)._serialized) : null) ?? (data.message && typeof data.message === 'object' ? messageId(data.message) : undefined) ?? undefined; }
 function responseType(value: unknown): string { return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value; }
+function firstHttpUrl(text: string): string | undefined { return text.match(/https?:\/\/\S+/)?.[0]; }
+/** A prévia nativa mora no `_data` do whatsapp-web.js (regra 7 do CLAUDE.md: a
+ *  raiz é uma vista parcial). Sem título, descrição e thumbnail não há prévia —
+ *  ausente é o estado normal, não um erro. */
+function nativeLinkPreview(value: unknown, text: string): WahaLinkPreview | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const data = (value as Record<string, unknown>)._data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return undefined;
+  const raw = data as Record<string, unknown>;
+  const title = stringValue(raw.title) ?? undefined;
+  const description = stringValue(raw.description) ?? undefined;
+  const thumbnail = stringValue(raw.thumbnail) ?? undefined;
+  if (!title && !description && !thumbnail) return undefined;
+  const url = stringValue(raw.canonicalUrl) ?? stringValue(raw.matchedText) ?? firstHttpUrl(text);
+  if (!url) return undefined;
+  return { url, ...(title ? { title } : {}), ...(description ? { description } : {}), ...(thumbnail ? { imageUrl: thumbnail.startsWith('data:') ? thumbnail : `data:image/jpeg;base64,${thumbnail}` } : {}) };
+}
 function responseKeys(value: unknown): string[] { return value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value as Record<string, unknown>).slice(0, 20).sort() : []; }

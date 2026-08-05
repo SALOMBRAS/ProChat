@@ -98,6 +98,35 @@ describe('internal worker transport server', () => {
     expect(executed.every(command => command.type === 'sendContent' && command.chatId === '1@c.us')).toBe(true);
   });
 
+  it('hands the reaction to the worker verbatim — the empty string is the removal', async () => {
+    const executed: any[] = [];
+    const url = await start(createWorkerTransportHandler({ execute: async (_context: unknown, command: unknown) => { executed.push(command); return { timestamp: '2026-08-05T20:00:00.000Z' }; } } as never));
+    for (const reaction of ['👍', '']) {
+      const body = await send(url, { ...request, command: { type: 'message.sendReaction', payload: { wahaSession: 'session-a', chatId: '1@c.us', messageId: 'false_1@c.us_A1', reaction } } });
+      expect(body).toMatchObject({ success: true, data: { reactionSent: { timestamp: '2026-08-05T20:00:00.000Z' } } });
+    }
+    expect(executed).toEqual([
+      { type: 'sendReaction', wahaSession: 'session-a', chatId: '1@c.us', messageId: 'false_1@c.us_A1', reaction: '👍' },
+      { type: 'sendReaction', wahaSession: 'session-a', chatId: '1@c.us', messageId: 'false_1@c.us_A1', reaction: '' },
+    ]);
+  });
+
+  /* Menções: o transporte repassa o array ao comando do worker sem tocar —
+   * presente viaja, ausente NÃO vira chave vazia (o provider decide o body). */
+  it('hands message.send mentions to the worker verbatim, and omits the key when absent', async () => {
+    const executed: any[] = [];
+    const url = await start(createWorkerTransportHandler({ execute: async (_context: unknown, command: unknown) => { executed.push(command); return { id: 'sent-a', timestamp: '2026-08-05T20:00:00.000Z' }; } } as never));
+    const sendText = (payload: Record<string, unknown>) => send(url, { ...request, command: { type: 'message.send', payload: { wahaSession: 'session-a', chatId: '120363@g.us', text: 'olá @5511999990001', ...payload } } });
+    await sendText({ mentions: ['5511999990001@c.us', '123456789012345@lid'] });
+    await sendText({});
+    expect(executed).toEqual([
+      { type: 'sendMessage', wahaSession: 'session-a', chatId: '120363@g.us', text: 'olá @5511999990001', mentions: ['5511999990001@c.us', '123456789012345@lid'] },
+      { type: 'sendMessage', wahaSession: 'session-a', chatId: '120363@g.us', text: 'olá @5511999990001' },
+    ]);
+    // Ausente chega como undefined — é o provider quem decide omitir a chave do body.
+    expect(executed[1].mentions).toBeUndefined();
+  });
+
   it('does not charge background provisioning to the budget of the command that started it', async () => {
     // Session creation is answered immediately and provisions WAHA afterwards.
     // That work outlives the command, so the command's budget must not end it.

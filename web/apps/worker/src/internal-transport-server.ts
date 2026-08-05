@@ -30,12 +30,16 @@ export function createWorkerTransportHandler(worker: WhatsAppWorkerPort): Intern
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { session: session as never } };
       }
       if (command.type === 'message.send') {
-        const sentMessage = await worker.execute(context, { type: 'sendMessage', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, text: command.payload.text });
+        const sentMessage = await worker.execute(context, { type: 'sendMessage', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, text: command.payload.text, mentions: command.payload.mentions, linkPreview: command.payload.linkPreview });
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { sentMessage: sentMessage as { id: string; timestamp: string } } };
       }
       if (command.type === 'message.sendContent') {
         const sentMessage = await worker.execute(context, { type: 'sendContent', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, content: command.payload.content });
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { sentMessage: sentMessage as { id: string; timestamp: string } } };
+      }
+      if (command.type === 'message.sendReaction') {
+        const reactionSent = await worker.execute(context, { type: 'sendReaction', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, messageId: command.payload.messageId, reaction: command.payload.reaction });
+        return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { reactionSent: reactionSent as { timestamp: string } } };
       }
       if (command.type === 'identity.sync') {
         const identitySync = await worker.execute(context, { type: 'syncIdentity', ...command.payload });
@@ -48,6 +52,10 @@ export function createWorkerTransportHandler(worker: WhatsAppWorkerPort): Intern
       if (command.type === 'history.page') {
         const historyPage = await worker.execute(context, { type: 'historyPage', ...command.payload });
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { historyPage: historyPage as never } };
+      }
+      if (command.type === 'contacts.page') {
+        const contactsPage = await worker.execute(context, { type: 'contactsPage', ...command.payload });
+        return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { contactsPage: contactsPage as never } };
       }
       const sessionId = command.payload.sessionId;
       if (command.type === 'session.status') {
