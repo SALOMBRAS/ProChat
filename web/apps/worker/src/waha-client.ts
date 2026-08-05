@@ -24,7 +24,8 @@ export interface WahaClientPort {
   stopSession(name: string): Promise<void>;
   logoutSession(name: string): Promise<void>;
   removeSession(name: string): Promise<void>;
-  sendText(session: string, chatId: string, text: string): Promise<WahaSentMessage>;
+  sendText(session: string, chatId: string, text: string, mentions?: readonly string[]): Promise<WahaSentMessage>;
+  sendReaction(session: string, messageId: string, reaction: string): Promise<void>;
   sendAttachment(session: string, chatId: string, attachment: WahaAttachment): Promise<WahaSentMessage>;
   getIdentity(session: string, whatsappId: string): Promise<WahaIdentity>;
   getGroup(session: string, chatId: string): Promise<WahaGroup>;
@@ -50,11 +51,18 @@ export class WahaHttpClient implements WahaClientPort {
   async stopSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}/stop`, 'POST'); }
   async logoutSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}/logout`, 'POST'); }
   async removeSession(name: string): Promise<void> { await this.request(`/api/sessions/${encodeURIComponent(name)}`, 'DELETE'); }
-  async sendText(session: string, chatId: string, text: string): Promise<WahaSentMessage> {
-    const response = await this.requestResponse('/api/sendText', 'POST', { session, chatId, text });
+  async sendText(session: string, chatId: string, text: string, mentions?: readonly string[]): Promise<WahaSentMessage> {
+    const response = await this.requestResponse('/api/sendText', 'POST', { session, chatId, text, ...(mentions?.length ? { mentions: [...mentions] } : {}) });
     const id = messageId(response.data);
     log('info', 'WAHA sendText accepted', { providerStatus: response.status, responseType: responseType(response.data), responseShape: responseKeys(response.data).join(','), idPresent: Boolean(id) });
     return id ? { id, pending: false } : { pending: true };
+  }
+  async sendReaction(session: string, messageId: string, reaction: string): Promise<void> {
+    // WAHA removes the reaction when the emoji is an empty string; the
+    // messageId is forwarded verbatim in the same serialized format the
+    // webhook stores as externalMessageId.
+    const response = await this.requestResponse('/api/reaction', 'PUT', { session, messageId, reaction });
+    log('info', 'WAHA reaction accepted', { providerStatus: response.status, removing: reaction.length === 0 });
   }
   async getIdentity(session: string, whatsappId: string): Promise<WahaIdentity> {
     const contact = object(await this.request(`/api/contacts?contactId=${encodeURIComponent(whatsappId)}&session=${encodeURIComponent(session)}`));

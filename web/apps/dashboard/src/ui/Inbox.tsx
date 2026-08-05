@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type {
   ConversationContext,
   ConversationEvent,
   ConversationPriority,
   ConversationStatus,
+  GroupParticipant,
   HistorySyncJob,
   InboxConversation,
   InboxMessage,
@@ -18,6 +19,8 @@ import type { Team, WorkspaceUser } from "@chatpro/contracts";
 import { InboxKanban } from "./InboxKanban.js";
 import { conversationIdFromLocation, inboxUrlForConversation } from "./conversationNavigation.js";
 import { contactLabel, conversationPhone, participantLabel } from "./contactIdentity.js";
+import { MentionAutocomplete } from "./MentionAutocomplete.js";
+import { filterParticipants, insertMention, mentionJidsOf, mentionTrigger, participantDisplay, serializeMentions, tokenizeMentions, type MentionRecord } from "./mentions.js";
 
 const defaultApi = new InboxApi();
 const workspaceApi = new WorkspaceApi();
@@ -187,17 +190,21 @@ const statusIcon = (status: InboxMessage["status"]) =>
       : status === "sending"
         ? "◌"
         : "✓";
-const MessageBubble = ({ message, api, showAuthor, highlighted = false }: { message: InboxMessage; api: InboxApi; showAuthor: boolean; highlighted?: boolean }) => (
+const MessageBubble = ({ message, api, showAuthor, highlighted = false, mentionResolve }: { message: InboxMessage; api: InboxApi; showAuthor: boolean; highlighted?: boolean; mentionResolve?: (jid: string) => string | undefined }) => {
+  const mentionJids = mentionJidsOf(message.metadata as Record<string, unknown> | undefined);
+  const body = message.content && mentionJids.length && mentionResolve ? tokenizeMentions(message.content, mentionJids, mentionResolve) : null;
+  return (
   <article id={`conversation-search-result-${message.id}`} className={`message-bubble ${message.direction}${highlighted ? " search-highlighted" : ""}`}>
     {showAuthor && <strong className="message-author">{senderName(message.senderWhatsappId)}:</strong>}
     <Media message={message} api={api} />
-    {message.content && <p>{message.content}</p>}
+    {message.content && <p>{body ? body.map((token, index) => typeof token === "string" ? token : <span key={index} className="message-mention">@{token.label}</span>) : message.content}</p>}
     <span className={`message-meta status-${message.status}`}>
       {message.direction === "outbound" && <b aria-label={`Status: ${message.status}`}>{statusIcon(message.status)}{" "}</b>}
       {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
     </span>
   </article>
-);
+  );
+};
 
 export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [conversationPage, setConversationPage] = useState<
@@ -214,6 +221,14 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
   const [attachmentPreview, setAttachmentPreview] = useState<string>();
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [composerText, setComposerText] = useState("");
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [mentionActive, setMentionActive] = useState(0);
+  const [participants, setParticipants] = useState<GroupParticipant[]>([]);
+  const [participantsState, setParticipantsState] = useState<"idle" | "loading" | "error">("idle");
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const participantsCache = useRef(new Map<string, GroupParticipant[]>());
+  const mentionsRef = useRef<MentionRecord[]>([]);
+  const participantsRequest = useRef(0);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [attachmentAccept, setAttachmentAccept] = useState<string>();
   const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -365,6 +380,21 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       if (activeConversationId.current === conversationId) setError(errorMessage(nextError));
     }
   };
+  const loadParticipants = async (conversationId: string) => {
+    if (!api.participants) return;
+    const request = ++participantsRequest.current;
+    setParticipantsState("loading");
+    try {
+      const result = await api.participants(conversationId);
+      participantsCache.current.set(conversationId, result.items);
+      if (activeConversationId.current === conversationId && request === participantsRequest.current) {
+        setParticipants(result.items);
+        setParticipantsState("idle");
+      }
+    } catch {
+      if (activeConversationId.current === conversationId && request === participantsRequest.current) setParticipantsState("error");
+    }
+  };
   useEffect(() => {
     void refreshConversations();
   }, [api]);
@@ -410,6 +440,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     activeConversationId.current = selected?.id;
     selectedRef.current = selected;
     contextRequest.current += 1;
+    participantsRequest.current += 1;
     setContext(undefined);
     setActivity([]);
     setSlaMetrics(undefined);
@@ -418,6 +449,13 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
     setNotes(draft ?? "");
     setNoteSaveState(draft === undefined ? "saved" : "editing");
     setTag("");
+    mentionsRef.current = [];
+    setMention(null);
+    setMentionActive(0);
+    const cachedParticipants = selected ? participantsCache.current.get(selected.id) : undefined;
+    setParticipants(cachedParticipants ?? []);
+    setParticipantsState("idle");
+    if (selected && isGroup(selected) && !cachedParticipants) void loadParticipants(selected.id);
     if (selected) { void loadContext(selected.id); void loadActivity(selected.id); void loadSla(selected.id); }
   }, [selected?.id, api]);
   useEffect(
@@ -541,6 +579,49 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
       });
     return () => controller.abort();
   }, [api, conversationPage.items, deepLinkAttempt, loadingConversations, requestedConversationId, selected?.id]);
+  const mentionItems = mention && selected && isGroup(selected) ? filterParticipants(participants, mention.query) : [];
+  const mentionActiveIndex = Math.min(mentionActive, Math.max(mentionItems.length - 1, 0));
+  const chooseMention = (participant: GroupParticipant) => {
+    if (!mention) return;
+    const display = participantDisplay(participant);
+    const caret = composerRef.current?.selectionStart ?? composerText.length;
+    const next = insertMention(composerText, caret, mention.start, display);
+    setComposerText(next.text);
+    mentionsRef.current = [...mentionsRef.current.filter((record) => record.jid !== participant.whatsappId || record.display !== display), { display, jid: participant.whatsappId }];
+    setMention(null);
+    setMentionActive(0);
+    requestAnimationFrame(() => {
+      const node = composerRef.current;
+      if (node) {
+        node.focus();
+        node.setSelectionRange(next.caret, next.caret);
+      }
+    });
+  };
+  const composerMentionKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!mention) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!mentionItems.length) return;
+      event.preventDefault();
+      setMentionActive((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + mentionItems.length) % mentionItems.length);
+    } else if (event.key === "Enter" || event.key === "Tab") {
+      const item = mentionItems[mentionActiveIndex];
+      if (!item) return;
+      event.preventDefault();
+      chooseMention(item);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      setMention(null);
+    }
+  };
+  const composerMentionChange = (value: string, caret: number) => {
+    setComposerText(value);
+    if (selected && isGroup(selected)) {
+      setMention(mentionTrigger(value, caret));
+      setMentionActive(0);
+    } else if (mention) setMention(null);
+  };
   const submitMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected || sending) return;
@@ -559,9 +640,17 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
             : "Anexo em processamento; aguardando confirmação",
         );
         setAttachment(undefined);
-      } else await api.sendMessage(selected.id, text);
+      } else {
+        // Mentions live only on the text branch: attachment captions never
+        // carry them, and the composer always produces the @digits WAHA needs.
+        const serialized = isGroup(selected) ? serializeMentions(text, mentionsRef.current) : { text, mentions: [] };
+        if (serialized.mentions.length) await api.sendMessage(selected.id, serialized.text, serialized.mentions);
+        else await api.sendMessage(selected.id, serialized.text);
+      }
       form.reset();
       setComposerText("");
+      mentionsRef.current = [];
+      setMention(null);
       await Promise.all([
         loadLatest(selected.id, true),
         refreshConversations(),
@@ -892,7 +981,7 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                           {dateLabel(item.timestamp)}
                         </div>
                       )}
-                      <MessageBubble message={item} api={api} showAuthor={isGroup(selected) && item.direction === "inbound"} highlighted={item.id === activeMatchId} />
+                      <MessageBubble message={item} api={api} showAuthor={isGroup(selected) && item.direction === "inbound"} highlighted={item.id === activeMatchId} mentionResolve={(jid) => { const participant = participants.find((entry) => entry.whatsappId === jid); return participant ? participantDisplay(participant) : undefined; }} />
                     </div>
                   ))
                 )}
@@ -918,8 +1007,19 @@ export default function Inbox({ api = defaultApi }: { api?: InboxApi }) {
                   </div>}
                 </div>
                 <button type="button" className="composer-action composer-emoji-action" title="Emojis serão disponibilizados em breve" aria-label="Escolher emoji" disabled={sending}><span aria-hidden="true">☺</span></button>
+                {mention && selected && isGroup(selected) && (
+                  <MentionAutocomplete
+                    items={mentionItems}
+                    activeIndex={mentionActiveIndex}
+                    loading={participantsState === "loading"}
+                    error={participantsState === "error"}
+                    onSelect={chooseMention}
+                    onHover={setMentionActive}
+                    onRetry={() => { participantsCache.current.delete(selected.id); void loadParticipants(selected.id); }}
+                  />
+                )}
                 <div className="composer-input-wrap">
-                  <textarea aria-label="Mensagem" name="text" value={composerText} onChange={(event) => setComposerText(event.target.value)} placeholder={attachment ? "Adicionar legenda (opcional)" : "Digite uma mensagem"} maxLength={4096} disabled={sending} />
+                  <textarea ref={composerRef} aria-label="Mensagem" name="text" value={composerText} onChange={(event) => composerMentionChange(event.target.value, event.target.selectionStart ?? event.target.value.length)} onKeyDown={composerMentionKeyDown} aria-expanded={mention ? true : undefined} aria-controls={mention ? "composer-mention-list" : undefined} placeholder={attachment ? "Adicionar legenda (opcional)" : "Digite uma mensagem"} maxLength={4096} disabled={sending} />
                   {attachmentStatus && <span className="attachment-status">{attachmentStatus}</span>}
                 </div>
                 {isRecording ? <button type="button" className="send-button composer-send-action" onClick={() => finishRecording()} aria-label="Concluir gravação">■</button> : composerText.trim() || attachment ? <button className="send-button composer-send-action" disabled={sending} aria-label={sending ? "Enviando mensagem" : "Enviar"}>{sending ? "…" : "➤"}</button> : <button type="button" className="composer-action composer-mic-action" onClick={() => void startRecording()} title="Gravar áudio" aria-label="Gravar áudio" disabled={sending}><span aria-hidden="true">♩</span></button>}

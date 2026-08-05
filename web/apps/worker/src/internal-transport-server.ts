@@ -29,7 +29,7 @@ export function createWorkerTransportHandler(worker: WhatsAppWorkerPort): Intern
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { session: session as never } };
       }
       if (command.type === 'message.send') {
-        const sentMessage = await worker.execute(context, { type: 'sendMessage', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, text: command.payload.text });
+        const sentMessage = await worker.execute(context, { type: 'sendMessage', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, text: command.payload.text, mentions: command.payload.mentions });
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { sentMessage: sentMessage as { id: string; timestamp: string } } };
       }
       if (command.type === 'identity.sync') {
@@ -39,6 +39,10 @@ export function createWorkerTransportHandler(worker: WhatsAppWorkerPort): Intern
       if (command.type === 'message.sendAttachment') {
         const sentMessage = await worker.execute(context, { type: 'sendAttachment', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, attachment: { type: command.payload.type, url: command.payload.url, filename: command.payload.filename, mimeType: command.payload.mimeType, ...(command.payload.caption ? { caption: command.payload.caption } : {}) } });
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { sentMessage: sentMessage as { id: string; timestamp: string } } };
+      }
+      if (command.type === 'message.sendReaction') {
+        const reactionSent = await worker.execute(context, { type: 'sendReaction', wahaSession: command.payload.wahaSession, chatId: command.payload.chatId, messageId: command.payload.messageId, reaction: command.payload.reaction });
+        return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { reactionSent: reactionSent as { timestamp: string } } };
       }
       if (command.type === 'history.page') {
         const historyPage = await worker.execute(context, { type: 'historyPage', ...command.payload });

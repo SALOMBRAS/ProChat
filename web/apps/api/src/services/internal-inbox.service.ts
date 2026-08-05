@@ -11,14 +11,14 @@ const statusFor = (code: string): number => ({ VALIDATION_ERROR: 400, NOT_FOUND:
 
 export class InternalInboxService {
   constructor(private readonly worker: InternalWorkerClient, private readonly conversations: ConversationStore, private readonly realtime: RealtimeHub, private readonly automation?: KanbanAutomationCoordinator, private readonly sla?: SlaMessageCoordinator) {}
-  async send(context: RequestContext, conversationId: string, text: string): Promise<InboxMessage> {
+  async send(context: RequestContext, conversationId: string, text: string, mentions?: string[]): Promise<InboxMessage> {
     const conversation = await this.conversations.getConversation(context.workspaceId, conversationId);
     if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
     const deliveryChatId = conversation.deliveryChatId ?? conversation.chatId;
     log('info', 'Inbox message send started', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId });
     let response;
     try {
-      response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, timeoutMs: 30_000, command: { type: 'message.send', payload: { wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId, text } } });
+      response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, timeoutMs: 30_000, command: { type: 'message.send', payload: { wahaSession: conversation.whatsappSessionId, chatId: deliveryChatId, text, ...(mentions?.length ? { mentions } : {}) } } });
     } catch (error) {
       log('error', 'Inbox outbound worker transport failed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, stage: 'worker_transport', ...errorDiagnostics(error) });
       throw error;
@@ -30,11 +30,11 @@ export class InternalInboxService {
     const sent = response.data as { sentMessage?: { id?: string; timestamp: string; pending?: boolean } };
     if (!sent.sentMessage) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Internal worker returned an invalid response');
     log('info', 'Inbox message send accepted', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id ?? null, pending: sent.sentMessage.pending === true });
-    if (!sent.sentMessage.id) return { id: `pending:${context.correlationId}`, direction: 'outbound', content: text, timestamp: sent.sentMessage.timestamp, status: 'sent', messageType: 'text', chatId: conversation.chatId, senderWhatsappId: conversation.chatId, metadata: { pending: true } };
+    if (!sent.sentMessage.id) return { id: `pending:${context.correlationId}`, direction: 'outbound', content: text, timestamp: sent.sentMessage.timestamp, status: 'sent', messageType: 'text', chatId: conversation.chatId, senderWhatsappId: conversation.chatId, metadata: { pending: true, ...(mentions?.length ? { mentions } : {}) } };
     log('info', 'Inbox outbound persistence started', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id, chatId: conversation.chatId });
     let persisted;
     try {
-      persisted = await this.conversations.recordOutbound({ workspaceId: context.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId, externalMessageId: sent.sentMessage.id, text, occurredAt: sent.sentMessage.timestamp });
+      persisted = await this.conversations.recordOutbound({ workspaceId: context.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId, externalMessageId: sent.sentMessage.id, text, occurredAt: sent.sentMessage.timestamp, mentions });
     } catch (error) {
       log('error', 'Inbox outbound persistence failed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, externalMessageId: sent.sentMessage.id, chatId: conversation.chatId, ...errorDiagnostics(error) });
       throw error;

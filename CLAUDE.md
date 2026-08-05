@@ -41,6 +41,17 @@ Supabase e `better-sqlite3`. O workspace `web/` usa npm workspaces.
 5. Respeite `workspaceId` em toda consulta, evento e mutação.
 6. Não exponha no frontend LID, JID, `@lid`, `@c.us`, UUID de conversa,
    `messageId` ou identificadores internos da WAHA.
+7. **SUPABASE: usar SEMPRE e APENAS as credenciais do `.env` / `.env.local` do projeto local. NUNCA acesse, modifique ou execute operações em qualquer instância Supabase externa, cloud ou cadastrada em mim mesmo. Qualquer operação de banco deve ser feita exclusivamente contra o ambiente configurado nas variáveis locais (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`).**
+
+1. Preserve compatibilidade entre SQLite e Supabase.
+2. Nunca crie migration, altere schema, aplique SQL remoto, faça push ou deploy
+   sem solicitação explícita.
+3. Não altere o ciclo de webhook/identidade/persistência sem testes de regressão.
+4. Não carregue listas inteiras, não percorra páginas para localizar uma conversa
+   e não introduza N+1 ou polling por item.
+5. Respeite `workspaceId` em toda consulta, evento e mutação.
+6. Não exponha no frontend LID, JID, `@lid`, `@c.us`, UUID de conversa,
+   `messageId` ou identificadores internos da WAHA.
 
 Identidade exibida sempre usa: nome WhatsApp (`profileName`/`pushName`), nome
 ChatPro, telefone real normalizado e, por último, `Contato sem identificação`.
