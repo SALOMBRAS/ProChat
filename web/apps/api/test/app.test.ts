@@ -17,6 +17,7 @@ class ControlledWorker implements WhatsAppWorkerPort {
       const now = new Date().toISOString(); const session = { id: command.sessionId, workspaceId: context.workspaceId, name: command.input.name ?? command.sessionId, status: 'disconnected' as const, createdAt: now, updatedAt: now }; this.sessions.set(key(command.sessionId), session); return session;
     }
     if (command.type === 'sendMessage' || command.type === 'sendAttachment') return { id: 'controlled-message', timestamp: new Date().toISOString() };
+    if (command.type === 'sendReaction') return;
     if (command.type === 'syncIdentity') return { identity: null, group: null };
     if (command.type === 'historyPage') return { kind: command.chatId ? 'messages' as const : 'chats' as const, items: [], unsupported: [], hasMore: false };
     const session = this.sessions.get(key(command.sessionId));

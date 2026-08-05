@@ -1,16 +1,27 @@
 import type { RequestHandler } from 'express';
 import { log } from '../logging.js';
-import { WahaWebhookValidationError, parseWebhook, verifyWahaWebhook, webhookRecord, type WahaWebhookStore } from '../services/waha-webhook.service.js';
+import { WahaWebhookValidationError, parseWebhook, reactionFrom, verifyWahaWebhook, webhookRecord, type ReactionStore, type WahaWebhookStore } from '../services/waha-webhook.service.js';
 import type { RealtimeHub } from '../realtime.js';
 import type { WhatsAppIdentitySyncService } from '../services/whatsapp-identity-sync.service.js';
 import type { WhatsAppMediaPersistenceService } from '../services/whatsapp-media-persistence.service.js';
 
 export class WahaWebhookController {
-  constructor(private readonly store: WahaWebhookStore, private readonly realtime: RealtimeHub, private readonly options: { hmacKey?: string; workspaceId?: string }, private readonly identitySync?: WhatsAppIdentitySyncService, private readonly onOutboundMessage?: (workspaceId: string, externalMessageId: string) => Promise<void>, private readonly mediaPersistence?: WhatsAppMediaPersistenceService) {}
+  constructor(private readonly store: WahaWebhookStore & ReactionStore, private readonly realtime: RealtimeHub, private readonly options: { hmacKey?: string; workspaceId?: string }, private readonly identitySync?: WhatsAppIdentitySyncService, private readonly onOutboundMessage?: (workspaceId: string, externalMessageId: string) => Promise<void>, private readonly mediaPersistence?: WhatsAppMediaPersistenceService) {}
   receive: RequestHandler = async (req, res, next) => { try {
     verifyWahaWebhook(req.rawBody ?? Buffer.alloc(0), { hmac: req.header('x-webhook-hmac') ?? undefined, algorithm: req.header('x-webhook-hmac-algorithm') ?? undefined, timestamp: req.header('x-webhook-timestamp') ?? undefined }, this.options.hmacKey);
     if (!this.options.workspaceId) throw new WahaWebhookValidationError(503, 'WAHA webhook workspace is not configured');
     const event = parseWebhook(req.body);
+    // Reactions branch before store.ingest: they update the target message
+    // payload and never write waha_webhook_events (the eventType CHECK does
+    // not include message.reaction and schema changes are not allowed).
+    if (event.event === 'message.reaction') {
+      const reaction = reactionFrom(webhookRecord(event, this.options.workspaceId));
+      if (!reaction) return res.status(202).json({ accepted: true, duplicate: false });
+      const result = await this.store.ingestReaction(reaction);
+      if (result.conversationId && result.action !== 'noop') this.realtime.publish(this.options.workspaceId, 'message.reaction.updated', { conversationId: result.conversationId, messageId: result.messageId, reactions: result.reactions });
+      log('info', 'WAHA reaction accepted', { correlationId: event.id, eventId: event.id, session: event.session, action: result.action, messageId: result.messageId, conversationId: result.conversationId ?? null, discardReason: result.action === 'orphan' ? 'message_not_found' : null });
+      return res.status(202).json({ accepted: true, duplicate: result.action === 'noop' });
+    }
     const result = await this.store.ingest(webhookRecord(event, this.options.workspaceId));
     if (event.event === 'message' || event.event === 'message.any') {
       const messageId = firstString(event.payload.id, nestedString(event.payload.key, 'id'));
