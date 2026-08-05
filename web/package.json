@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "dev": "npm run dev:api",
+    "dev": "node scripts/local-runtime.mjs",
     "dev:local": "node scripts/local-runtime.mjs",
     "dev:supabase": "node --env-file=.env.local scripts/supabase-runtime.mjs",
     "dev:whatsapp": "node --env-file=.env.local scripts/whatsapp-runtime.mjs",
