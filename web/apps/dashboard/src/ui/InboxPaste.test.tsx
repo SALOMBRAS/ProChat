@@ -128,13 +128,12 @@ describe("colar no compositor", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("colar formato não suportado explica o motivo, não falha calado", async () => {
+  it("colar GIF anexa como documento, sem alerta: formato deixou de ser recusa", async () => {
     const { composer } = await abrirConversa();
     colar(composer, transfer({ files: [file("animado.gif", "image/gif", GIF)] }));
-    const alerta = await screen.findByRole("alert");
-    expect(alerta.textContent ?? "").toContain("image/gif");
-    expect(alerta.textContent ?? "").toMatch(/aceita imagem JPEG, PNG ou WebP/);
-    expect(anexoPendente()).toBeNull();
+    // Paridade com o WhatsApp: o GIF vai como documento, não é recusado.
+    await screen.findByText("animado.gif");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("arquivo que mente sobre o tipo é recusado antes de subir", async () => {
@@ -256,11 +255,11 @@ describe("arrastar sobre a conversa", () => {
     expect(((client.sendAttachment as ReturnType<typeof vi.fn>).mock.calls[0][1] as File).type).toBe("application/pdf");
   });
 
-  it("soltar formato não suportado usa a mesma mensagem de colar", async () => {
+  it("soltar GIF também anexa: a recusa por formato não existe mais", async () => {
     const { conversa } = await abrirConversa();
     soltar(conversa, transfer({ files: [file("a.gif", "image/gif", GIF)] }));
-    const alerta = await screen.findByRole("alert");
-    expect(alerta.textContent ?? "").toContain("image/gif");
+    await screen.findByText("a.gif");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 
@@ -276,5 +275,49 @@ describe("estilo", () => {
     expect(usados.size).toBeGreaterThan(0);
     for (const token of usados)
       expect(stylesheet.split(token).length - 1, `${token} é uma cor nova`).toBeGreaterThan(1);
+  });
+});
+
+describe("progresso do upload", () => {
+  it("o envio passa o callback e a barra mostra o percentual enquanto sobe", async () => {
+    const client = api();
+    let resolver: (value: { id: string; status: string }) => void = () => undefined;
+    (client.sendAttachment as ReturnType<typeof vi.fn>).mockImplementation(
+      (_id: string, _file: File, _rid: string, _caption?: string, _voice?: boolean, onProgress?: (pct: number) => void) =>
+        new Promise<{ id: string; status: string }>((resolve) => { resolver = resolve; onProgress?.(40); }),
+    );
+    const { composer } = await abrirConversa(client);
+    colar(composer, transfer({ files: [file("contrato.pdf", "application/pdf", PDF)] }));
+    await screen.findByText("contrato.pdf");
+
+    fireEvent.click(screen.getByLabelText("Enviar"));
+    const progresso = await screen.findByRole("status", { name: "Progresso do envio" });
+    expect(progresso.textContent).toContain("Enviando… 40%");
+    // O callback é o sexto argumento — é ele que liga o XHR à barra.
+    expect((client.sendAttachment as ReturnType<typeof vi.fn>).mock.calls[0][5]).toBeInstanceOf(Function);
+
+    resolver({ id: "job-1", status: "pending" });
+    await waitFor(() => expect(anexoPendente()).toBeNull());
+  });
+
+  it("a barra chega a 100% e vira 'processamento' até a resposta chegar", async () => {
+    const client = api();
+    let avancar: (pct: number) => void = () => undefined;
+    let resolver: (value: { id: string; status: string }) => void = () => undefined;
+    (client.sendAttachment as ReturnType<typeof vi.fn>).mockImplementation(
+      (_id: string, _file: File, _rid: string, _caption?: string, _voice?: boolean, onProgress?: (pct: number) => void) =>
+        new Promise<{ id: string; status: string }>((resolve) => { resolver = resolve; avancar = (pct) => onProgress?.(pct); avancar(10); }),
+    );
+    const { composer } = await abrirConversa(client);
+    colar(composer, transfer({ files: [file("contrato.pdf", "application/pdf", PDF)] }));
+    await screen.findByText("contrato.pdf");
+
+    fireEvent.click(screen.getByLabelText("Enviar"));
+    await screen.findByRole("status", { name: "Progresso do envio" });
+    avancar(100);
+    await screen.findByText("Anexo em processamento…");
+
+    resolver({ id: "job-1", status: "pending" });
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Progresso do envio" })).toBeNull());
   });
 });

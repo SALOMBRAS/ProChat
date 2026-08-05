@@ -3,10 +3,14 @@ import type { InboxApi, InboxMessage } from "../api/inbox.js";
 import type { DomainApi } from "../api/domain.js";
 import { fileSizeLabel } from "./attachmentIntake.js";
 import {
+  browserOpenable,
   contactCards,
   coordinatesLabel,
   documentKind,
+  documentThumbnail,
+  downloadWithProgress,
   durationLabel,
+  formatTextPreview,
   isVoiceNote,
   mediaDuration,
   mediaFilename,
@@ -17,6 +21,7 @@ import {
   phoneDigits,
   phoneDisplay,
   probeMedia,
+  textPreviewable,
   voiceWaveform,
   type ContactCard,
   type MediaFailure,
@@ -202,40 +207,122 @@ const VideoMessage = ({ message, url }: { message: InboxMessage; url: string }) 
   </div>;
 };
 
+/** Entrega o blob ao navegador como arquivo.
+ *
+ *  A âncora ganha `rel="noopener"` como qualquer outra que este projeto abre — o
+ *  objectURL é interno, mas o hábito é barato e uniforme. A revogação espera um
+ *  segundo: revogar na hora cancela o download em alguns navegadores, porque o
+ *  clique só agenda a navegação. */
+const saveBlob = (blob: Blob, name: string) => {
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = name;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+};
+
+/** Janela de prévia de texto, aberta só quando o operador pede.
+ *
+ *  O conteúdo é buscado uma única vez — o arquivo já está no proxy e o `fetch`
+ *  não se repete a cada render. Reusa a moldura da imagem: mesma semântica de
+ *  diálogo, mesmo fechar no clique fora. */
+const DocumentTextPreview = ({ message, url, label, onClose }: { message: InboxMessage; url: string; label: string; onClose: () => void }) => {
+  const [content, setContent] = useState<string | null>();
+  useEffect(() => {
+    let active = true;
+    void fetch(url)
+      .then((response) => (response.ok ? response.text() : null))
+      .then((text) => { if (active) setContent(text == null ? null : formatTextPreview(text, message.mediaMimeType ?? (wahaMime(message) ?? null), mediaFilename(message))); })
+      .catch(() => { if (active) setContent(null); });
+    return () => { active = false; };
+  }, [message, url]);
+  return <div className="media-modal-backdrop" role="presentation" onClick={onClose}>
+    <section className="media-modal" role="dialog" aria-modal="true" aria-label={label} onClick={(event) => event.stopPropagation()}>
+      <div className="media-modal-head"><strong title={label}>{label}</strong><div><button type="button" onClick={onClose} aria-label="Fechar visualização">×</button></div></div>
+      {content === undefined
+        ? <span className="media-loading" role="status">Carregando conteúdo…</span>
+        : content === null
+          ? <span className="media-error" role="status">Não foi possível carregar o conteúdo.</span>
+          : <pre className="document-text-preview">{content}</pre>}
+    </section>
+  </div>;
+};
+
 /** Documento é o único tipo sem carga passiva: um link não avisa que o destino
  *  sumiu, e sem isto o operador clica e recebe um JSON de 404 na cara.
  *
- *  O primeiro clique pergunta antes de baixar — 0,1 s, medido —, e ou troca o
- *  cartão pelo aviso ou repassa o clique ao próprio link, que baixa com a
- *  semântica nativa do `download`. Perguntar na montagem seria uma requisição por
- *  documento da conversa, que é o N+1 que o projeto proíbe. */
+ *  O Baixar pergunta antes de ir — 0,1 s, medido —, e ou troca o cartão pelo
+ *  aviso ou baixa com barra de progresso, entregando o blob com o nome original.
+ *  Se a sondagem ou a leitura falharem, o clique seguinte vai direto à âncora
+ *  nativa: é o comportamento de sempre, degradado. Perguntar na montagem seria
+ *  uma requisição por documento da conversa, que é o N+1 que o projeto proíbe. */
 const DocumentMessage = ({ message, url }: { message: InboxMessage; url: string }) => {
   const filename = mediaFilename(message);
-  const kind = documentKind(filename, message.mediaMimeType ?? (wahaMime(message) ?? null));
+  const mime = message.mediaMimeType ?? (wahaMime(message) ?? null);
+  const kind = documentKind(filename, mime);
   const label = filename ?? `Documento ${kind.label}`;
   const size = mediaSize(message);
+  const thumbnail = documentThumbnail(message);
+  const openable = browserOpenable(filename, mime);
+  const previewable = textPreviewable(filename, mime);
+  // Etiqueta vem do tipo real; a extensão só vira chip quando conta algo a mais
+  // (relatorio.xlsx mostra XLS + XLSX; relatorio.xls mostra só XLS).
+  const extension = filename?.split(".").pop()?.toUpperCase();
+  const extensionChip = extension && extension !== kind.label ? extension : undefined;
   const media = useMediaFailure(url);
   const anchor = useRef<HTMLAnchorElement>(null);
-  const [cleared, setCleared] = useState(false);
+  const nativeFallback = useRef(false);
+  const [preview, setPreview] = useState(false);
+  const [download, setDownload] = useState<{ active: boolean; pct: number | null }>({ active: false, pct: null });
   const check = (event: ReactMouseEvent<HTMLAnchorElement>) => {
-    if (cleared) return;
+    // Depois de uma falha de rede o próximo clique vai direto à âncora, como
+    // sempre foi — não se segura o operador refém de uma sondagem quebrada.
+    if (nativeFallback.current || download.active) { if (download.active) event.preventDefault(); return; }
     event.preventDefault();
-    void media.classify().then((failure) => {
+    void media.classify().then(async (failure) => {
       // Sumiu: o próprio `classify` já marcou, e o cartão troca sozinho.
       if (failure === "gone") return;
-      setCleared(true);
-      queueMicrotask(() => anchor.current?.click());
+      try {
+        setDownload({ active: true, pct: null });
+        const blob = await downloadWithProgress(url, size ?? undefined, (pct) => setDownload({ active: true, pct }));
+        saveBlob(blob, label);
+      } catch {
+        nativeFallback.current = true;
+        anchor.current?.click();
+      } finally {
+        setDownload({ active: false, pct: null });
+      }
     });
   };
   if (media.gone) return <MediaGone message={message} />;
-  return <a ref={anchor} className="message-document-card" href={url} download={filename ?? undefined} aria-label={`Baixar ${label}`} onClick={check}>
+  return <div className="message-document-card">
+    {thumbnail && <img className="message-document-thumb" src={thumbnail} alt="" loading="lazy" />}
     <span className={`message-document-icon tone-${kind.tone}`}>{kind.label}</span>
     <span className="message-document-details">
       <strong title={label}>{label}</strong>
-      <span><small>{kind.label}</small><small>{size != null ? fileSizeLabel(size) : "Tamanho não informado"}</small></span>
+      <span>
+        <small>{kind.label}</small>
+        {extensionChip && <small>{extensionChip}</small>}
+        <small>{size != null ? fileSizeLabel(size) : "Tamanho não informado"}</small>
+      </span>
+      {download.active && (
+        <span className="document-progress" role="status">
+          <span className="document-progress-track"><i style={download.pct == null ? undefined : { width: `${download.pct}%` }} /></span>
+          {download.pct == null ? "Baixando…" : `${download.pct}%`}
+        </span>
+      )}
     </span>
-    <span className="message-document-download" aria-hidden="true">⇩</span>
-  </a>;
+    <span className="message-document-actions">
+      {openable && <a href={url} target="_blank" rel="noopener noreferrer" aria-label={`Abrir ${label} em nova aba`} title="Abrir em nova aba">↗</a>}
+      {previewable && <button type="button" onClick={() => setPreview(true)} aria-label={`Visualizar ${label}`} title="Visualizar conteúdo">≡</button>}
+      <a ref={anchor} href={url} download={filename ?? undefined} onClick={check} aria-label={`Baixar ${label}`} title="Baixar">⇩</a>
+    </span>
+    {preview && <DocumentTextPreview message={message} url={url} label={label} onClose={() => setPreview(false)} />}
+  </div>;
 };
 const wahaMime = (message: InboxMessage) => {
   const value = (message.metadata as { _data?: { mimetype?: unknown } } | undefined)?._data?.mimetype;

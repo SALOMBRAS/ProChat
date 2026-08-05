@@ -121,24 +121,124 @@ export const durationLabel = (seconds?: number): string => {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 };
 
-/** Um documento é reconhecido pela extensão e, quando ela falta, pelo mime — que a
- *  coluna também não traz, mas `_data.mimetype` traz. `tone` só escolhe a cor da
- *  etiqueta; o rótulo é o que o operador lê. */
+/** Um documento é reconhecido pela extensão primeiro — é o que o operador vê no
+ *  nome do arquivo — e, quando ela falta, pelo mime de retaguarda: medido na
+ *  base real, 88 de 89 documentos sem `media_filename`, com o mime em
+ *  `_data.mimetype` como o que salva. `tone` só escolhe a cor da etiqueta; o
+ *  rótulo é o que o operador lê. */
+const EXTENSION_KINDS: Record<string, { label: string; tone: string }> = {
+  pdf: { label: "PDF", tone: "pdf" },
+  txt: { label: "TXT", tone: "txt" }, log: { label: "TXT", tone: "txt" }, md: { label: "MD", tone: "txt" },
+  json: { label: "JSON", tone: "code" }, xml: { label: "XML", tone: "code" },
+  csv: { label: "CSV", tone: "xls" },
+  svg: { label: "SVG", tone: "img" },
+  doc: { label: "DOC", tone: "doc" }, docx: { label: "DOC", tone: "doc" }, odt: { label: "DOC", tone: "doc" }, rtf: { label: "DOC", tone: "doc" },
+  xls: { label: "XLS", tone: "xls" }, xlsx: { label: "XLS", tone: "xls" }, ods: { label: "XLS", tone: "xls" },
+  ppt: { label: "PPT", tone: "ppt" }, pptx: { label: "PPT", tone: "ppt" }, odp: { label: "PPT", tone: "ppt" },
+  zip: { label: "ZIP", tone: "zip" }, rar: { label: "RAR", tone: "zip" }, "7z": { label: "7Z", tone: "zip" }, gz: { label: "ZIP", tone: "zip" }, tar: { label: "ZIP", tone: "zip" },
+  apk: { label: "APK", tone: "app" },
+  psd: { label: "PSD", tone: "design" }, ai: { label: "AI", tone: "design" }, fig: { label: "FIG", tone: "design" },
+  epub: { label: "EPUB", tone: "book" },
+  png: { label: "IMG", tone: "img" }, jpg: { label: "IMG", tone: "img" }, jpeg: { label: "IMG", tone: "img" }, webp: { label: "IMG", tone: "img" }, gif: { label: "IMG", tone: "img" },
+};
+const xmlMime = (mime: string) => mime === "application/xml" || mime === "text/xml" || mime.endsWith("+xml");
 export const documentKind = (filename?: string | null, mimeType?: string | null): { label: string; tone: string } => {
-  const extension = filename?.split(".").pop()?.toLowerCase() ?? "";
+  const extension = filename?.toLowerCase().split(".").pop() ?? "";
   const mime = (mimeType ?? "").toLowerCase();
-  if (mime.includes("pdf") || extension === "pdf") return { label: "PDF", tone: "pdf" };
-  if (["doc", "docx", "odt", "rtf"].includes(extension) || mime.includes("wordprocessing")) return { label: "DOC", tone: "doc" };
-  if (["xls", "xlsx", "csv", "ods"].includes(extension) || mime.includes("spreadsheet")) return { label: "XLS", tone: "xls" };
-  if (["ppt", "pptx", "odp"].includes(extension) || mime.includes("presentation")) return { label: "PPT", tone: "ppt" };
-  if (["zip", "rar", "7z", "gz", "tar"].includes(extension) || mime.includes("zip")) return { label: "ZIP", tone: "zip" };
-  if (["txt", "log", "md"].includes(extension) || mime.startsWith("text/")) return { label: "TXT", tone: "txt" };
+  if (extension && EXTENSION_KINDS[extension]) return EXTENSION_KINDS[extension];
+  if (mime.includes("pdf")) return { label: "PDF", tone: "pdf" };
+  if (mime.includes("wordprocessing") || mime === "application/msword") return { label: "DOC", tone: "doc" };
+  if (mime.includes("spreadsheet") || mime === "application/vnd.ms-excel") return { label: "XLS", tone: "xls" };
+  if (mime.includes("presentation") || mime === "application/vnd.ms-powerpoint") return { label: "PPT", tone: "ppt" };
+  if (mime === "text/csv") return { label: "CSV", tone: "xls" };
+  if (mime === "text/markdown") return { label: "MD", tone: "txt" };
+  if (mime.includes("json")) return { label: "JSON", tone: "code" };
+  // svg antes do xmlMime: 'image/svg+xml' também termina em '+xml'.
+  if (mime === "image/svg+xml") return { label: "SVG", tone: "img" };
+  if (xmlMime(mime)) return { label: "XML", tone: "code" };
+  if (mime.includes("rar")) return { label: "RAR", tone: "zip" };
+  if (mime.includes("7z")) return { label: "7Z", tone: "zip" };
+  // epub antes do includes("zip"): 'application/epub+zip' contém "zip".
+  if (mime === "application/epub+zip") return { label: "EPUB", tone: "book" };
+  if (mime.includes("zip")) return { label: "ZIP", tone: "zip" };
+  if (mime === "application/vnd.android.package-archive") return { label: "APK", tone: "app" };
+  if (mime.includes("photoshop")) return { label: "PSD", tone: "design" };
+  if (mime === "application/postscript") return { label: "AI", tone: "design" };
+  if (mime.startsWith("text/")) return { label: "TXT", tone: "txt" };
   // Mídia mandada como documento acontece: o exemplo real na base é um
   // `document` com `_data.mimetype = image/jpeg`.
-  if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif"].includes(extension)) return { label: "IMG", tone: "img" };
+  if (mime.startsWith("image/")) return { label: "IMG", tone: "img" };
   if (mime.startsWith("audio/")) return { label: "AUD", tone: "aud" };
   if (mime.startsWith("video/")) return { label: "VID", tone: "vid" };
   return { label: "ARQ", tone: "file" };
+};
+
+/** A primeira página de um PDF, por exemplo — em base64, na mesma forma da
+ *  miniatura de localização. Só recebidos a trazem (`_data.thumbnail`). */
+export const documentThumbnail = (message: Pick<InboxMessage, "metadata">): string | undefined => {
+  const thumbnail = text(wahaData(message).thumbnail);
+  if (!thumbnail) return undefined;
+  return thumbnail.startsWith("data:") ? thumbnail : `data:image/jpeg;base64,${thumbnail}`;
+};
+
+const BROWSER_OPENABLE_EXTENSIONS = ["pdf", "txt", "md", "json", "xml", "svg", "csv", "log"];
+/** O que o navegador abre direto numa aba. `xmlMime` compara por igualdade ou
+ *  sufixo `+xml` — `includes("xml")` pegaria `vnd.openxmlformats-officedocument`,
+ *  e planilha não abre em aba. */
+export const browserOpenable = (filename?: string | null, mimeType?: string | null): boolean => {
+  const extension = filename?.toLowerCase().split(".").pop() ?? "";
+  if (BROWSER_OPENABLE_EXTENSIONS.includes(extension)) return true;
+  const mime = (mimeType ?? "").toLowerCase();
+  return mime === "application/pdf" || mime === "image/svg+xml" || mime.startsWith("text/") || mime.includes("json") || xmlMime(mime);
+};
+
+const TEXT_PREVIEWABLE_EXTENSIONS = ["md", "txt", "json", "xml", "csv", "log"];
+/** Subconjunto texto do abrível: PDF e SVG o navegador renderiza melhor que um
+ *  `<pre>`. */
+export const textPreviewable = (filename?: string | null, mimeType?: string | null): boolean => {
+  const extension = filename?.toLowerCase().split(".").pop() ?? "";
+  if (TEXT_PREVIEWABLE_EXTENSIONS.includes(extension)) return true;
+  const mime = (mimeType ?? "").toLowerCase();
+  return mime.startsWith("text/") || mime.includes("json") || xmlMime(mime);
+};
+
+export const TEXT_PREVIEW_LIMIT = 200 * 1024;
+/** JSON que parseia ganha indentação; JSON quebrado mostra cru — truncado não é
+ *  JSON. Acima do teto: corta e avisa. */
+export const formatTextPreview = (raw: string, mimeType?: string | null, filename?: string | null): string => {
+  const mime = (mimeType ?? "").toLowerCase();
+  const extension = filename?.toLowerCase().split(".").pop() ?? "";
+  let body = raw;
+  if (mime.includes("json") || extension === "json") {
+    try { body = JSON.stringify(JSON.parse(raw), null, 2); } catch { /* cru mesmo */ }
+  }
+  if (body.length > TEXT_PREVIEW_LIMIT) body = `${body.slice(0, TEXT_PREVIEW_LIMIT)}\n…\n(Conteúdo truncado. Baixe o arquivo para ver inteiro.)`;
+  return body;
+};
+
+/** Download com barra. A URL assinada pode não liberar CORS para `fetch` — aí a
+ *  promessa rejeita e quem chamou cai na âncora nativa, que sempre funcionou. */
+export const downloadWithProgress = async (
+  url: string,
+  expectedSize: number | undefined,
+  onProgress: (percent: number | null) => void,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Blob> => {
+  const response = await fetchImpl(url);
+  if (!response.ok) throw new Error(`download failed: ${response.status}`);
+  const total = Number(response.headers.get("content-length")) || expectedSize || 0;
+  if (!response.body) { onProgress(null); return response.blob(); }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.byteLength;
+    onProgress(total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : null);
+  }
+  return new Blob(chunks as BlobPart[], { type: response.headers.get("content-type") ?? undefined });
 };
 
 export type ContactCard = { fullName?: string; phoneNumber?: string; organization?: string };

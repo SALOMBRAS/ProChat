@@ -46,13 +46,15 @@ describe("allowlist espelhada", () => {
     expect(attachmentKind("application/pdf")).toBe("document");
   });
 
-  it("recusa o que o servidor recusaria com 415", () => {
-    // HEIC do iPhone, GIF e SVG não estão na allowlist.
-    expect(attachmentKind("image/heic")).toBeUndefined();
-    expect(attachmentKind("image/gif")).toBeUndefined();
-    expect(attachmentKind("image/svg+xml")).toBeUndefined();
-    expect(attachmentKind("")).toBeUndefined();
-    expect(attachmentKind(undefined)).toBeUndefined();
+  it("trata como documento o que antes sairia com 415", () => {
+    // HEIC do iPhone, GIF, SVG e tipo ausente agora viajam como documento —
+    // paridade com o WhatsApp, que anexa qualquer arquivo.
+    expect(attachmentKind("image/heic")).toBe("document");
+    expect(attachmentKind("image/gif")).toBe("document");
+    expect(attachmentKind("image/svg+xml")).toBe("document");
+    expect(attachmentKind("application/x-msdownload")).toBe("document");
+    expect(attachmentKind("")).toBe("document");
+    expect(attachmentKind(undefined)).toBe("document");
   });
 
   it("normaliza parâmetro e caixa antes de comparar", () => {
@@ -64,7 +66,8 @@ describe("allowlist espelhada", () => {
     expect(ATTACHMENT_POLICY.image.max).toBe(15 * 1024 * 1024);
     expect(ATTACHMENT_POLICY.video.max).toBe(50 * 1024 * 1024);
     expect(ATTACHMENT_POLICY.audio.max).toBe(25 * 1024 * 1024);
-    expect(ATTACHMENT_POLICY.document.max).toBe(25 * 1024 * 1024);
+    // O documento coringa herdou o teto do bucket: 50 MB.
+    expect(ATTACHMENT_POLICY.document.max).toBe(50 * 1024 * 1024);
   });
 });
 
@@ -96,8 +99,25 @@ describe("magic bytes", () => {
     expect(magicMatches("text/plain", bytes([0x6f, 0x00, 0x69]))).toBe(false);
   });
 
-  it("não inventa formato fora da allowlist", () => {
-    expect(magicMatches("image/gif", bytes([0x47, 0x49, 0x46, 0x38]))).toBe(false);
+  it.each([
+    ["application/vnd.rar", [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07]],
+    ["application/x-7z-compressed", [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]],
+    ["image/vnd.adobe.photoshop", [0x38, 0x42, 0x50, 0x53]],
+    ["application/msword", [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]],
+    ["application/vnd.android.package-archive", [0x50, 0x4b, 3, 4]],
+    ["application/epub+zip", [0x50, 0x4b, 3, 4]],
+    ["application/postscript", [0x25, 0x21, 0x50, 0x53]],
+  ])("reconhece os formatos novos do documento coringa: %s", (mime, head) => {
+    expect(magicMatches(mime, bytes(head))).toBe(true);
+  });
+
+  it("confere assinatura conhecida e deixa desconhecida passar", () => {
+    // GIF não tem assinatura conferida: passa, e o servidor decide o resto.
+    expect(magicMatches("image/gif", bytes([0x47, 0x49, 0x46, 0x38]))).toBe(true);
+    expect(magicMatches("application/x-msdownload", bytes([0x4d, 0x5a]))).toBe(true);
+    // Mas assinatura conhecida errada continua recusada.
+    expect(magicMatches("application/vnd.rar", bytes([0x50, 0x4b, 3, 4]))).toBe(false);
+    expect(magicMatches("application/x-7z-compressed", bytes([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07]))).toBe(false);
   });
 });
 
@@ -118,10 +138,11 @@ describe("leitura do DataTransfer", () => {
     expect(readTransfer(transfer({ items: [{ kind: "string", getAsFile: () => null }], text: "oi" })).accepted).toHaveLength(0);
   });
 
-  it("separa o que a allowlist recusa, sem repetir o tipo", () => {
+  it("aceita todos os arquivos: recusa por formato não existe mais", () => {
     const intake = readTransfer(transfer({ files: [file("a.gif", "image/gif"), file("b.gif", "image/gif"), file("c.png", "image/png", PNG)] }));
-    expect(intake.accepted.map((item) => item.name)).toEqual(["c.png"]);
-    expect(intake.rejected).toEqual(["image/gif"]);
+    expect(intake.accepted.map((item) => item.name)).toEqual(["a.gif", "b.gif", "c.png"]);
+    // `rejected` fica de molho: a mensagem de formato não pode reaparecer.
+    expect(intake.rejected).toEqual([]);
   });
 
   it("detecta imagem que veio só como marcação da página", () => {
@@ -165,8 +186,17 @@ describe("aceitação do arquivo", () => {
     expect((verdict as { file: File }).file.type).toBe("image/png");
   });
 
-  it("recusa tipo fora da allowlist antes de ler byte nenhum", async () => {
-    expect(await acceptAttachment(file("a.gif", "image/gif"))).toEqual({ ok: false, reason: "type" });
+  it("aceita GIF como documento, sem recusa por tipo", async () => {
+    expect(await acceptAttachment(file("a.gif", "image/gif", [0x47, 0x49, 0x46, 0x38]))).toMatchObject({ ok: true, kind: "document" });
+  });
+
+  it("aceita executável como documento: assinatura desconhecida passa", async () => {
+    expect(await acceptAttachment(file("run.exe", "application/x-msdownload", [0x4d, 0x5a]))).toMatchObject({ ok: true, kind: "document" });
+  });
+
+  it("mantém o teto de 50 MB do documento coringa", async () => {
+    const grande = sized(file("a.zip", "application/zip", [0x50, 0x4b, 3, 4]), ATTACHMENT_POLICY.document.max + 1);
+    expect(await acceptAttachment(grande)).toMatchObject({ ok: false, reason: "size", kind: "document" });
   });
 
   it("recusa acima do limite da família", async () => {

@@ -227,3 +227,27 @@ describe("mídia que o WhatsApp já descartou", () => {
       expect(stylesheet.split(token).length - 1, `${token} é uma cor nova`).toBeGreaterThan(1);
   });
 });
+
+describe("download do documento com barra", () => {
+  it("pergunta com HEAD, baixa com GET e entrega o blob com o nome original", async () => {
+    const criouURL = vi.fn().mockReturnValue("blob:download");
+    Object.defineProperty(URL, "createObjectURL", { value: criouURL, configurable: true });
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      sondas.push({ url: String(url), method: init?.method });
+      if (init?.method === "HEAD") return Promise.resolve({ status: 200, ok: true } as Response);
+      return Promise.resolve(new Response(new Uint8Array([1, 2, 3, 4]), { status: 200, headers: { "content-type": "application/pdf", "content-length": "4" } }));
+    }));
+    await abrirConversa([message({ id: "m-1", messageType: "document", mediaMimeType: "application/pdf", mediaFilename: "vivo.pdf", mediaSize: 4 })]);
+
+    fireEvent.click(await screen.findByLabelText("Baixar vivo.pdf"));
+
+    await waitFor(() => expect(sondas).toHaveLength(2));
+    expect(sondas[0].method).toBe("HEAD");
+    expect(sondas[1].method).toBeUndefined();
+    // O blob baixado virou object URL para a âncora de download.
+    await waitFor(() => expect(criouURL).toHaveBeenCalled());
+    // Sem resíduo: a barra some quando o download termina, e nenhum aviso aparece.
+    await waitFor(() => expect(document.querySelector(".document-progress")).toBeNull());
+    expect(screen.queryByText(/indisponível/)).toBeNull();
+  });
+});

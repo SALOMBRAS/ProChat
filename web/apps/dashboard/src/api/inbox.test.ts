@@ -42,3 +42,28 @@ describe('InboxApi.sendAttachment', () => {
     expect((body.get('file') as File).name).toBe('musica.mp3');
   });
 });
+
+describe('InboxApi.sendAttachment progresso e prévia', () => {
+  it('com callback de progresso, sobe pelo transporte XHR', async () => {
+    const calls: string[] = [];
+    const http = { postForm: vi.fn(), postFormProgress: vi.fn().mockImplementation((path: string) => { calls.push(path); return Promise.resolve({ id: 'job-a', status: 'pending' }); }) };
+    const api = new InboxApi(http as never);
+    await api.sendAttachment('c1', file(), requestId, undefined, undefined, () => undefined);
+    expect(http.postFormProgress).toHaveBeenCalledTimes(1);
+    expect(http.postForm).not.toHaveBeenCalled();
+    expect(calls[0]).toBe('/api/v1/inbox/conversations/c1/attachments');
+  });
+
+  it('sem callback, segue no transporte de sempre', async () => {
+    const { calls, api } = stub();
+    await api.sendAttachment('c1', file(), requestId);
+    expect(calls[0][0]).toBe('/api/v1/inbox/conversations/c1/attachments');
+  });
+
+  it('pede a prévia de link com a URL codificada', async () => {
+    const get = vi.fn().mockResolvedValue({ url: 'https://example.com/a?b=c', title: 'T' });
+    const api = new InboxApi({ get } as never);
+    await expect(api.linkPreview('https://example.com/a?b=c')).resolves.toMatchObject({ title: 'T' });
+    expect(get.mock.calls[0][0]).toBe(`/api/v1/inbox/link-preview?url=${encodeURIComponent('https://example.com/a?b=c')}`);
+  });
+});

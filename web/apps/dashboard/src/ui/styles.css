@@ -515,6 +515,16 @@
 .chat-inbox .composer-contact-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-inbox .composer-contact-head strong { font-size: 13px; }
 .chat-inbox .composer-contact-head button { padding: 2px 7px !important; border: 0 !important; background: transparent !important; color: #c6b9d0 !important; font-size: 19px !important; }
+/* O botão de sincronizar divide o cabeçalho com o ×, então precisa desfazer a
+   regra do × (acima) em vez de herdar: texto de 19px transparente era o formato
+   do fechar, não de uma ação com rótulo. */
+.chat-inbox .composer-contact-head .composer-contact-sync { margin-left: auto; padding: 4px 9px !important; border: 1px solid #a855f744 !important; border-radius: 8px !important; background: #a855f722 !important; color: #cda5ff !important; font-size: 10px !important; font-weight: 700; }
+.chat-inbox .composer-contact-head .composer-contact-sync:disabled { opacity: .56; }
+.chat-inbox .composer-contact-sync-state { margin: 0; color: #a697b4; font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.4; }
+.chat-inbox .composer-contact-sync-state.failed { color: #ff9c9c; }
+/* Concluído com ressalva (ex.: veio das conversas, não da agenda): não é erro,
+   mas o operador precisa saber que a lista pode estar menor que a agenda. */
+.chat-inbox .composer-contact-sync-state.warn { color: #f0c674; }
 .chat-inbox .composer-contact-search { display: grid; gap: 4px; color: #a697b4; font-size: 10px; font-weight: 700; }
 .chat-inbox .composer-contact-search input { padding: 8px 10px; border: 1px solid #a855f744; border-radius: 9px; background: #0d0c15; color: #efe8f5; font-size: 13px; }
 .chat-inbox .composer-contact-error { margin: 0; color: #ff9c9c; font-size: 11px; line-height: 1.4; }
@@ -546,6 +556,55 @@
 .chat-inbox .composer-contact-actions .composer-contact-send { border-color: #d8b4fe88 !important; background: #a855f744 !important; color: #fff !important; }
 .chat-inbox .composer-contact-actions .composer-contact-send:disabled { opacity: .48; }
 @media (max-width: 760px) { .chat-inbox .composer-contact { width: 100%; } }
+
+/* Janela flutuante (modal) do envio de contato: o painel saiu de dentro do
+   composer para uma camada própria, como no WhatsApp. O overlay cobre a tela e
+   fecha no clique fora; o painel em si para a propagação no JSX. */
+.chat-inbox .composer-contact-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 18px; background: #07060cd2; backdrop-filter: blur(2px); }
+.chat-inbox .composer-contact-overlay .composer-contact { width: min(680px, 100%); max-height: min(640px, 100%); overflow-y: auto; }
+/* Abertura vazia: nenhuma lista antes da sincronização. O botão primário é o
+   de sincronizar; o atalho de carregar o que já está sincronizado fica em
+   segundo plano, para o caso de a sessão WhatsApp estar fora do ar. */
+.chat-inbox .composer-contact-empty { display: grid; justify-items: center; gap: 8px; padding: 26px 14px; text-align: center; }
+.chat-inbox .composer-contact-empty p { margin: 0; color: #f3eff8; font-size: 13px; }
+.chat-inbox .composer-contact-hint { color: #a697b4 !important; font-size: 11px !important; line-height: 1.5; max-width: 380px; }
+.chat-inbox .composer-contact-sync-primary { padding: 10px 18px !important; border: 1px solid #d8b4fe88 !important; border-radius: 10px !important; background: #a855f744 !important; color: #fff !important; font-size: 13px !important; font-weight: 700; }
+.chat-inbox .composer-contact-load { padding: 4px 8px !important; border: 0 !important; background: transparent !important; color: #cda5ff !important; font-size: 11px !important; text-decoration: underline; }
+/* As duas colunas por origem: agenda do celular de um lado, histórico de
+   conversas do outro. Cada coluna rola sozinha. */
+.chat-inbox .composer-contact-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.chat-inbox .composer-contact-column { display: grid; gap: 6px; min-width: 0; }
+.chat-inbox .composer-contact-column h3 { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0; padding: 0 2px; color: #cda5ff; font-size: 11px; font-weight: 700; }
+.chat-inbox .composer-contact-count { padding: 1px 7px; border-radius: 999px; background: #a855f722; color: #a697b4; font-size: 10px; font-variant-numeric: tabular-nums; }
+.chat-inbox .composer-contact-column .composer-contact-list { max-height: 340px; border: 1px solid #ffffff14; border-radius: 11px; padding: 3px; }
+@media (max-width: 640px) { .chat-inbox .composer-contact-columns { grid-template-columns: 1fr; } }
+
+/* ==========================================================================
+   Autocomplete de menções (composer-mention) + destaque no corpo + membros
+   Mesma disciplina do bloco acima: tudo junto, cores que já existiam. O popup
+   é absoluto dentro de .composer-input-wrap (position:relative aqui) e abre
+   PARA CIMA do campo, como o @ do WhatsApp Web.
+   ========================================================================== */
+.chat-inbox .composer-input-wrap { position: relative; }
+.chat-inbox .composer-mention { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 6; display: grid; gap: 1px; width: min(360px, 100%); max-height: 264px; overflow-y: auto; padding: 6px; border: 1px solid #a855f755; border-radius: 14px; background: linear-gradient(145deg, #201631, #12111e); box-shadow: 0 10px 24px #00000032, 0 0 18px #8b5cf61c; color: #f3eff8; }
+.chat-inbox .composer-mention-empty { padding: 10px 8px; color: #a697b4; font-size: 12px; }
+.chat-inbox .composer-mention-item { display: flex; flex-direction: row; align-items: center; gap: 10px; min-height: 46px; padding: 5px 8px !important; border: 1px solid transparent !important; border-radius: 11px !important; background: transparent !important; color: inherit !important; font-size: 13px !important; text-align: left; cursor: pointer; }
+.chat-inbox .composer-mention-item:hover { background: #ffffff0b !important; }
+.chat-inbox .composer-mention-item.active { border-color: #d8b4fe88 !important; background: #a855f744 !important; }
+.chat-inbox .composer-mention-item img, .chat-inbox .composer-mention-item i { flex: none; overflow: hidden; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #a855f744; color: #efe8f5; font-size: 11px; font-style: normal; font-weight: 700; }
+.chat-inbox .composer-mention-item img { object-fit: cover; }
+.chat-inbox .composer-mention-item > span { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.chat-inbox .composer-mention-item strong { overflow: hidden; color: #f3eff8; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-inbox .composer-mention-item small { overflow: hidden; color: #a697b4; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-inbox .composer-mention-item em { flex: none; padding: 2px 6px; border: 1px solid #d8b4fe88; border-radius: 999px; color: #cda5ff; font-size: 9px; font-style: normal; font-weight: 700; text-transform: uppercase; }
+/* Destaque da menção no corpo da mensagem — o mesmo roxo do autor do grupo. */
+.chat-inbox .message-mention { padding: 0 2px; border: 1px solid #d8b4fe88; border-radius: 4px; background: #a855f744; color: #d9bdff; font-weight: 700; }
+/* Membros do grupo no painel lateral: nome em destaque, número + selo abaixo. */
+.chat-inbox .customer-members { gap: 8px; }
+.chat-inbox .customer-members-hint { margin: 0; color: #a697b4; font-size: 11px; line-height: 1.4; }
+.chat-inbox .customer-member { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid #ffffff0d; border-radius: 10px; background: #ffffff04; }
+.chat-inbox .customer-member strong { overflow: hidden; color: #f0eaf5; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-inbox .customer-member span { color: #8c819b; font-size: 9px; text-transform: none; letter-spacing: 0; }
 
 /* A faixa de sincronização. O tom é a única coisa que muda entre estados; o texto
    vem inteiro de syncProgress.ts, para a redação ficar testável sem DOM. */
@@ -632,3 +691,100 @@
 .composer-recording-level i { display: block; width: 100%; height: 100%; border-radius: 999px; background: #25d366; transform-origin: left center; transform: scaleX(0); transition: transform .09s linear; }
 .composer-recording-silent { order: -2; width: min(430px, 100%); margin: 0; padding: 9px 11px; border: 1px solid #ef6d823d; border-radius: 9px; background: #4b17231f; color: #ffabb9; font-size: 11px; line-height: 1.45; }
 @media (max-width: 760px) { .composer-recording-silent { width: 100%; } .composer-recording-level { width: 32px; } }
+
+/* Reações (T1): badges agrupados por emoji sob a bolha, gatilho que só aparece
+   no hover/focus (como no WhatsApp Web) e seletor rápido flutuando acima da
+   bolha. `.mine` marca a reação da própria conta com o roxo do outbound. */
+.message-bubble { position: relative; }
+.message-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.message-reaction-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid #ffffff0d; border-radius: 999px; background: #ffffff0b; color: #eeeaff; font-size: 13px; line-height: 1.3; transition: .15s; }
+.message-reaction-badge:hover:not(:disabled) { border-color: #c084fc55; }
+.message-reaction-badge.mine { border-color: #7c3aed; background: #7c3aed40; }
+.reaction-count { color: #d9bdff; font-size: 10px; font-weight: 700; }
+.reaction-trigger { position: absolute; top: -12px; right: 8px; z-index: 4; display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid #ffffff0d; border-radius: 999px; background: #181827; font-size: 14px; opacity: 0; transition: opacity .15s; }
+.message-bubble:hover .reaction-trigger, .reaction-trigger:focus-visible, .reaction-trigger[aria-expanded="true"] { opacity: 1; }
+.reaction-picker { position: absolute; bottom: calc(100% + 16px); right: 8px; z-index: 5; display: flex; gap: 2px; padding: 4px 6px; border: 1px solid #ffffff0d; border-radius: 999px; background: #181827; box-shadow: 0 8px 24px #00000066; }
+.reaction-picker button { padding: 3px 5px; border-radius: 999px; background: transparent; font-size: 17px; line-height: 1.2; transition: .12s; }
+.reaction-picker button:hover:not(:disabled) { background: #7c3aed40; transform: scale(1.15); }
+.message-reaction-error { position: absolute; top: -10px; left: 8px; z-index: 4; color: #ff9aa8; font-size: 12px; }
+
+/* ─── T4: documentos ricos, links vivos e prévias ──────────────────────────
+   Nenhuma cor nova: todos os tons já existiam na folha. */
+
+/* Link no corpo da mensagem: clicável, mas ainda texto da conversa. */
+.chat-inbox .message-link { color: #8ac7ff; text-decoration: none; overflow-wrap: anywhere; }
+.chat-inbox .message-link:hover { text-decoration: underline; }
+
+/* Cartão de prévia: o acento à esquerda muda com o provedor, como o WhatsApp
+   muda o cartão de YouTube para o de Instagram. Layout compacto, com a
+   miniatura lateral do WhatsApp — banner largo esticava a imagem pequena que
+   o provedor devolve e parecia "baixa resolução". */
+.chat-inbox .link-preview-card { display: flex; align-items: stretch; margin-top: 6px; width: min(360px, 100%); border: 1px solid #c084fc55; border-left: 3px solid #c084fc; border-radius: 12px; background: linear-gradient(135deg, #241a35, #11101a); box-shadow: 0 6px 18px #8b5cf622; overflow: hidden; color: inherit; text-decoration: none; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.chat-inbox .link-preview-card:hover { border-color: #d8b4feb3; box-shadow: 0 12px 27px #8b5cf644; transform: translateY(-2px); }
+.chat-inbox .link-preview-card.is-youtube { border-left-color: #fb7185; }
+.chat-inbox .link-preview-card.is-spotify, .chat-inbox .link-preview-card.is-google-drive { border-left-color: #25d366; }
+.chat-inbox .link-preview-card.is-github, .chat-inbox .link-preview-card.is-notion { border-left-color: #a697b4; }
+.chat-inbox .link-preview-card.is-tiktok, .chat-inbox .link-preview-card.is-figma { border-left-color: #c084fc; }
+.chat-inbox .link-preview-card.is-instagram, .chat-inbox .link-preview-card.is-facebook, .chat-inbox .link-preview-card.is-dropbox { border-left-color: #8ac7ff; }
+.chat-inbox .link-preview-image { position: relative; display: block; flex: 0 0 92px; width: 92px; }
+.chat-inbox .link-preview-image img { display: block; width: 92px; height: 100%; min-height: 92px; object-fit: cover; }
+.chat-inbox .link-preview-duration { position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; border-radius: 6px; background: #11101a; color: #f6f0fa; font-size: 10px; font-variant-numeric: tabular-nums; }
+.chat-inbox .link-preview-body { display: grid; gap: 4px; padding: 9px 11px; min-width: 0; }
+.chat-inbox .link-preview-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: #f6f0fa; font-size: 12px; font-weight: 700; line-height: 1.35; }
+.chat-inbox .link-preview-author { color: #d7c3ff; font-size: 10px; font-weight: 600; }
+.chat-inbox .link-preview-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 0; color: #c7bad2; font-size: 11px; line-height: 1.45; }
+.chat-inbox .link-preview-footer { display: flex; align-items: center; gap: 5px; }
+.chat-inbox .link-preview-favicon { width: 13px; height: 13px; border-radius: 3px; }
+.chat-inbox .link-preview-site { overflow: hidden; color: #a697b4; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.chat-inbox .link-preview-domain { overflow: hidden; color: #a697b4; font-size: 10px; letter-spacing: .05em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.chat-inbox .link-preview-url { padding: 0 11px 8px; overflow: hidden; color: #a697b4; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Esqueleto enquanto a retaguarda OG responde. */
+.chat-inbox .link-preview-card.is-loading { display: block; pointer-events: none; }
+.chat-inbox .link-preview-card.is-loading i { display: block; height: 10px; margin: 10px 11px 0; border-radius: 5px; background: linear-gradient(90deg, #ffffff0b 25%, #c084fc22 50%, #ffffff0b 75%); background-size: 200% 100%; animation: link-preview-shimmer 1.2s linear infinite; }
+.chat-inbox .link-preview-card.is-loading i:last-child { margin-bottom: 10px; width: 55%; }
+@keyframes link-preview-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* Prévia do link no compositor: aparece antes do envio, como no WhatsApp, e o
+   X manda o link puro, sem cartão. Reusa as peças do cartão da conversa. */
+.chat-inbox .composer-link-preview { order: -1; display: flex; align-items: stretch; width: min(430px, 100%); margin: 0 0 8px; border: 1px solid #c084fc55; border-left: 3px solid #c084fc; border-radius: 12px; background: linear-gradient(135deg, #241a35, #11101a); overflow: hidden; }
+.chat-inbox .composer-link-preview .link-preview-image { flex: 0 0 72px; width: 72px; }
+.chat-inbox .composer-link-preview .link-preview-image img { display: block; width: 72px; height: 100%; min-height: 72px; object-fit: cover; }
+.chat-inbox .composer-link-preview .link-preview-body { display: grid; gap: 3px; flex: 1; min-width: 0; align-content: center; padding: 8px 10px; }
+.chat-inbox .composer-link-preview .link-preview-card.is-loading { flex: 1; margin-top: 0; border: 0; box-shadow: none; background: transparent; }
+.chat-inbox .composer-link-preview-dismiss { align-self: flex-start; padding: 6px 9px; border: 0; background: transparent; color: #a697b4; font-size: 17px; line-height: 1; cursor: pointer; }
+.chat-inbox .composer-link-preview-dismiss:hover:not(:disabled) { color: #eeeaff; }
+@media (max-width: 760px) { .chat-inbox .composer-link-preview { width: 100%; } }
+
+/* Miniatura nativa do WhatsApp no cartão de documento (recebidos com
+   `_data.thumbnail`): ocupa a largura toda, acima do ícone. */
+.chat-inbox .message-document-thumb { grid-column: 1 / -1; width: 100%; max-height: 170px; border-radius: 10px; object-fit: cover; }
+
+/* Coluna de ações do documento: Abrir / Visualizar / Baixar. Mesmo formato do
+   botão de download que já existia, agora são três. */
+.chat-inbox .message-document-actions { display: grid; gap: 6px; align-content: center; }
+.chat-inbox .message-document-actions a, .chat-inbox .message-document-actions button { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #c084fc77; border-radius: 9px; background: linear-gradient(145deg, #a855f744, #8b5cf622); color: #f2e8ff; font-size: 15px; text-decoration: none; cursor: pointer; transition: background .16s ease, box-shadow .16s ease, transform .16s ease; }
+.chat-inbox .message-document-actions a:hover, .chat-inbox .message-document-actions button:hover { background: linear-gradient(145deg, #a855f766, #8b5cf644); box-shadow: 0 4px 12px #7c3aed40; transform: translateY(-1px); }
+
+/* Barra de progresso do download, dentro dos detalhes do cartão. */
+.chat-inbox .document-progress { display: flex; align-items: center; gap: 7px; color: #c7bad2; font-size: 9px; font-variant-numeric: tabular-nums; }
+.chat-inbox .document-progress-track { flex: 1; height: 4px; border-radius: 999px; background: #ffffff0b; overflow: hidden; }
+.chat-inbox .document-progress-track i { display: block; width: 40%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #a855f7, #c084fc); transition: width .12s linear; }
+
+/* Prévia de texto na moldura da imagem: monoespaçada, rolável, sem sair da
+   conversa. */
+.chat-inbox .document-text-preview { max-height: calc(100vh - 140px); margin: 0; padding: 12px 14px; overflow: auto; color: #eeeaff; font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Etiquetas dos tipos novos que o documento coringa passou a aceitar. */
+.chat-inbox .message-document-icon.tone-txt { border-color: #c7bad2; background: linear-gradient(145deg, #a697b4, #11101a); color: #eeeaff; }
+.chat-inbox .message-document-icon.tone-code { border-color: #c084fc; background: linear-gradient(145deg, #a855f722, #11101a); color: #c084fc; }
+.chat-inbox .message-document-icon.tone-zip { border-color: #f9da82; background: linear-gradient(145deg, #fbbf2422, #11101a); color: #f9da82; }
+.chat-inbox .message-document-icon.tone-app { border-color: #8be2a6; background: linear-gradient(145deg, #25d36622, #11101a); color: #8be2a6; }
+.chat-inbox .message-document-icon.tone-design { border-color: #c084fc; background: linear-gradient(145deg, #ec489922, #11101a); color: #c084fc; }
+.chat-inbox .message-document-icon.tone-book { border-color: #ffb162; background: linear-gradient(145deg, #fbbf2422, #11101a); color: #ffb162; }
+.chat-inbox .message-document-icon.tone-file { border-color: #a697b4; background: linear-gradient(145deg, #a697b4, #11101a); color: #c7bad2; }
+
+/* Progresso do upload no chip de anexo pendente do compositor. */
+.chat-inbox .composer-upload-progress { display: flex; align-items: center; gap: 7px; color: #c7bad2; font-size: 9px; font-variant-numeric: tabular-nums; }
+.chat-inbox .composer-upload-progress-track { flex: 1; height: 4px; border-radius: 999px; background: #ffffff0b; overflow: hidden; }
+.chat-inbox .composer-upload-progress-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #a855f7, #c084fc); transition: width .12s linear; }

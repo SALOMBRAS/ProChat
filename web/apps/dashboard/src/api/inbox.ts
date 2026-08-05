@@ -1,5 +1,6 @@
 import { ApiClient } from './client';
-import type { InboxConversation as SharedInboxConversation, InboxMessage as SharedInboxMessage, InboxOutboxJob, PersistenceContact } from '@chatpro/contracts';
+import type { InboxConversation as SharedInboxConversation, InboxMessage as SharedInboxMessage, InboxOutboxJob, LinkPreview, MessageReaction, PersistenceContact, GroupParticipant } from '@chatpro/contracts';
+export type { LinkPreview, MessageReaction, GroupParticipant } from '@chatpro/contracts';
 export type InboxConversation = SharedInboxConversation;
 export type InboxMessage = SharedInboxMessage;
 export type Page<T> = { items:T[]; page:number; pageSize:number; total:number; nextCursor?: string | null; hasMore?: boolean };
@@ -21,15 +22,25 @@ export class InboxApi {
   conversation=(id:string,signal?:AbortSignal)=>this.http.get<InboxConversation>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}`,signal);
   messages=(id:string,page=1,pageSize=50,cursor?:string)=>this.http.get<Page<InboxMessage>>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages?page=${page}&pageSize=${pageSize}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
   mediaUrl=(messageId:string)=>this.http.get<{ url: string; expiresAt: string }>(`/api/v1/inbox/messages/${encodeURIComponent(messageId)}/media/access`);
-  sendMessage=(id:string,text:string)=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages`, { text });
+  sendMessage=(id:string,text:string,mentions?:string[],linkPreview?:boolean)=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/messages`, { text, ...(mentions?.length ? { mentions } : {}), ...(linkPreview === false ? { linkPreview: false } : {}) });
+  /** Participantes do grupo: 1× por conversa (o Inbox cacheia), serve ao
+   *  autocomplete de menções e ao painel de membros. */
+  participants=(id:string)=>this.http.get<{ items: GroupParticipant[] }>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/participants`);
+  react=(conversationId:string,messageId:string,emoji:string)=>this.http.post<{ messageId: string; reactions: MessageReaction[] }>(`/api/v1/inbox/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/reactions`, { emoji });
   sendLocation=(conversationId:string,body:{latitude:number;longitude:number;title?:string})=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${conversationId}/location`,body);
   sendVcard=(conversationId:string,contactIds:string[])=>this.http.post<InboxMessage>(`/api/v1/inbox/conversations/${conversationId}/vcard`,{ contactIds });
   /** `voiceNote: false` sends an audio as a music file instead of a recorded
-   *  note. Omitted, the send keeps the behaviour the recorder has always had. */
-  sendAttachment=(id:string,file:File,clientRequestId:string,caption?:string,voiceNote?:boolean)=>{ const body = new FormData(); body.set('file', file); body.set('clientRequestId', clientRequestId); if (caption?.trim()) body.set('caption', caption.trim()); if (voiceNote !== undefined) body.set('voiceNote', String(voiceNote)); return this.http.postForm<InboxOutboxJob>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/attachments`, body); };
+   *  note. Omitted, the send keeps the behaviour the recorder has always had.
+   *
+   *  `onProgress` troca o transporte para XHR, o único que relata o upload. */
+  sendAttachment=(id:string,file:File,clientRequestId:string,caption?:string,voiceNote?:boolean,onProgress?:(percent:number)=>void)=>{ const body = new FormData(); body.set('file', file); body.set('clientRequestId', clientRequestId); if (caption?.trim()) body.set('caption', caption.trim()); if (voiceNote !== undefined) body.set('voiceNote', String(voiceNote)); const path = `/api/v1/inbox/conversations/${encodeURIComponent(id)}/attachments`; return onProgress ? this.http.postFormProgress<InboxOutboxJob>(path, body, onProgress) : this.http.postForm<InboxOutboxJob>(path, body); };
+  linkPreview=(url:string)=>this.http.get<LinkPreview>(`/api/v1/inbox/link-preview?url=${encodeURIComponent(url)}`);
   outbox=(jobId:string)=>this.http.get<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}`);
   cancelOutbox=(jobId:string)=>this.http.post<InboxOutboxJob>(`/api/v1/inbox/outbox/${encodeURIComponent(jobId)}/cancel`);
   markRead=(id:string)=>this.http.post<void>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/read`);
+  /** Toggle no servidor: reagir com o emoji que a conta já tem remove. A
+   *  resposta traz a lista completa recalculada — é ela quem reconcilia a
+   *  atualização otimista da bolha. */
   createContact=(id:string,body:{displayName:string;phoneNumber?:string;email?:string|null;company?:string|null})=>this.http.post<{contact:PersistenceContact;conversation:InboxConversation}>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/contact`,body);
   context=(id:string)=>this.http.get<ConversationContext>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/context`);
   updateContext=(id:string, input: { notes?: string; tags?: string[] })=>this.http.patch<ConversationContext>(`/api/v1/inbox/conversations/${encodeURIComponent(id)}/context`, input);

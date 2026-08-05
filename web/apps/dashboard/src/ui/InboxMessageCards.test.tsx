@@ -206,12 +206,16 @@ describe("documento", () => {
       messageType: "document", mediaUrl: "s3://doc", mediaFilename: null, mediaSize: null, mediaMimeType: null,
       metadata: { _data: { filename: "contrato-2026.pdf", size: 98_301, mimetype: "application/pdf" } },
     })]);
-    const cartao = await screen.findByLabelText("Baixar contrato-2026.pdf");
-    expect(within(cartao).getByText("contrato-2026.pdf")).toBeTruthy();
-    expect(within(cartao).getByText("96 KB")).toBeTruthy();
+    const baixar = await screen.findByLabelText("Baixar contrato-2026.pdf");
+    const cartao = baixar.closest(".message-document-card")!;
+    expect(within(cartao as HTMLElement).getByText("contrato-2026.pdf")).toBeTruthy();
+    expect(within(cartao as HTMLElement).getByText("96 KB")).toBeTruthy();
     expect(cartao.querySelector(".message-document-icon")!.className).toContain("tone-pdf");
-    expect(cartao.getAttribute("href")).toBe("https://cdn.test/arquivo");
-    expect(cartao.getAttribute("download")).toBe("contrato-2026.pdf");
+    expect(baixar.getAttribute("href")).toBe("https://cdn.test/arquivo");
+    expect(baixar.getAttribute("download")).toBe("contrato-2026.pdf");
+    // PDF abre no navegador, mas não vira prévia de texto.
+    expect(within(cartao as HTMLElement).getByLabelText("Abrir contrato-2026.pdf em nova aba")).toBeTruthy();
+    expect(within(cartao as HTMLElement).queryByLabelText("Visualizar contrato-2026.pdf")).toBeNull();
   });
 
   it("sem nome nenhum, usa o mime para o ícone em vez de dizer só Documento", async () => {
@@ -219,9 +223,50 @@ describe("documento", () => {
       messageType: "document", mediaUrl: "s3://doc",
       metadata: { _data: { size: 2048, mimetype: "image/jpeg" } },
     })]);
-    const cartao = await screen.findByLabelText("Baixar Documento IMG");
+    const baixar = await screen.findByLabelText("Baixar Documento IMG");
+    const cartao = baixar.closest(".message-document-card")!;
     expect(cartao.querySelector(".message-document-icon")!.textContent).toBe("IMG");
-    expect(within(cartao).getByText("2 KB")).toBeTruthy();
+    expect(within(cartao as HTMLElement).getByText("2 KB")).toBeTruthy();
+  });
+
+  it("xlsx mostra a etiqueta XLS com o chip da extensão real, sem Abrir nem Visualizar", async () => {
+    await abrirConversa([message({
+      messageType: "document", mediaUrl: "s3://doc", mediaFilename: "planilha.xlsx", mediaMimeType: "application/octet-stream",
+    })]);
+    const baixar = await screen.findByLabelText("Baixar planilha.xlsx");
+    const cartao = baixar.closest(".message-document-card")!;
+    expect(cartao.querySelector(".message-document-icon")!.textContent).toBe("XLS");
+    const chips = [...cartao.querySelectorAll(".message-document-details small")].map((chip) => chip.textContent);
+    expect(chips).toContain("XLS");
+    expect(chips).toContain("XLSX");
+    expect(within(cartao as HTMLElement).queryByLabelText(/em nova aba/)).toBeNull();
+    expect(within(cartao as HTMLElement).queryByLabelText("Visualizar planilha.xlsx")).toBeNull();
+  });
+
+  it("a miniatura nativa do WhatsApp aparece no cartão quando o _data a traz", async () => {
+    await abrirConversa([message({
+      messageType: "document", mediaUrl: "s3://doc", mediaMimeType: "application/pdf",
+      metadata: { _data: { filename: "edital.pdf", mimetype: "application/pdf", thumbnail: "QUJD" } },
+    })]);
+    const baixar = await screen.findByLabelText("Baixar edital.pdf");
+    const thumb = baixar.closest(".message-document-card")!.querySelector(".message-document-thumb");
+    expect(thumb).toBeTruthy();
+    expect(thumb!.getAttribute("src")).toBe("data:image/jpeg;base64,QUJD");
+  });
+
+  it("markdown oferece Visualizar e abre a janela com o conteúdo buscado uma vez", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("# Edital\n\nTexto do edital.", { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+    await abrirConversa([message({
+      messageType: "document", mediaUrl: "s3://doc", mediaFilename: "notas.md", mediaMimeType: "text/markdown",
+    })]);
+    fireEvent.click(await screen.findByLabelText("Visualizar notas.md"));
+    const janela = await screen.findByRole("dialog");
+    await waitFor(() => expect(janela.querySelector(".document-text-preview")!.textContent).toContain("Texto do edital."));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][0]).toBe("https://cdn.test/arquivo");
+    fireEvent.click(screen.getByLabelText("Fechar visualização"));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
