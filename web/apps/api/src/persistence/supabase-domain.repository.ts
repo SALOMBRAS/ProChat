@@ -65,7 +65,38 @@ export class SupabaseDomainRepository implements DomainRepository {
     // page. Re-count so the caller still learns the real total.
     if (queryError?.code === 'PGRST103') { const { count: total, error: countError } = await this.contactQuery(w, filters, true); error(countError); return { items: [], page: filters.page, pageSize: filters.pageSize, total: total ?? 0 }; }
     error(queryError);
-    return { items: (data ?? []).map(contactRow), page: filters.page, pageSize: filters.pageSize, total: count ?? 0 };
+    return { items: await this.withContactOrigin(w, await this.withWhatsAppIdentity(w, (data ?? []).map(contactRow) as Record<string, unknown>[])), page: filters.page, pageSize: filters.pageSize, total: count ?? 0 };
+  }
+  /** Origem do contato para as duas colunas do picker: 'phonebook' quando algum
+   *  identificador dele nasceu da agenda do WhatsApp ('waha_contact_sync'),
+   *  'history' nos demais casos (conversas, webhook, cadastro manual). Uma
+   *  consulta em lote por página — mesma disciplina do enriquecimento de
+   *  identidade. Falha aberta: sem a tabela de identificadores a listagem volta
+   *  sem origem em vez de derrubar a tela. */
+  private async withContactOrigin<T extends Record<string, unknown>>(workspaceId: string, items: T[]): Promise<T[]> {
+    const ids = [...new Set(items.map(item => item.id).filter((value): value is string => typeof value === 'string' && value.length > 0))];
+    if (!ids.length) return items;
+    const { data, error: identifiersError } = await this.client.from('contact_identifiers').select('contact_id, source').eq('workspace_id', workspaceId).in('contact_id', ids);
+    if (identifiersError) return items;
+    const phonebook = new Set((data ?? []).filter(row => row.source === 'waha_contact_sync').map(row => String(row.contact_id)));
+    return items.map(item => ({ ...item, origin: phonebook.has(String(item.id)) ? 'phonebook' : 'history' }));
+  }
+  /** Anexa foto/nome WhatsApp da identidade canônica de cada telefone da página.
+   *  Uma segunda consulta em lote — nunca uma por linha — com o mesmo efeito do
+   *  LEFT JOIN do provider SQLite: a identidade mais recente por telefone.
+   *  Falha aberta: se a tabela de identidades não responder, a listagem volta
+   *  sem enriquecimento em vez de derrubar a tela de contatos. */
+  private async withWhatsAppIdentity<T extends Record<string, unknown>>(workspaceId: string, items: T[]): Promise<T[]> {
+    const phones = [...new Set(items.map(item => item.phoneNumber).filter((value): value is string => typeof value === 'string' && value.length > 0))];
+    if (!phones.length) return items;
+    const { data, error: identityError } = await this.client.from('whatsapp_identities').select('phone, name, push_name, profile_picture_url, updated_at').eq('workspace_id', workspaceId).in('phone', phones).order('updated_at', { ascending: false });
+    if (identityError) return items;
+    const byPhone = new Map<string, { name: string | null; push_name: string | null; profile_picture_url: string | null }>();
+    for (const row of data ?? []) { if (row.phone && !byPhone.has(row.phone)) byPhone.set(row.phone, row); }
+    return items.map(item => {
+      const identity = typeof item.phoneNumber === 'string' ? byPhone.get(item.phoneNumber) : undefined;
+      return identity ? { ...item, photoUrl: identity.profile_picture_url ?? null, whatsappName: identity.name ?? null, whatsappPushName: identity.push_name ?? null } : item;
+    });
   }
   contact(w: string, id: string) { return this.one('contacts', w, id); }
   async contactTags(w: string, id: string): Promise<string[]> {

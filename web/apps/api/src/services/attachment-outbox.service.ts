@@ -13,11 +13,14 @@ export type OutboxJob = { id: string; workspaceId: string; conversationId: strin
 type Conversation = { id: string; whatsappSessionId: string; chatId: string; deliveryChatId?: string };
 export type UploadFile = { buffer: Buffer; originalname: string; mimetype: string; size: number };
 
-const policy: Record<AttachmentKind, { mimes: readonly string[]; max: number }> = {
+const policy: Record<AttachmentKind, { mimes: readonly string[] | null; max: number }> = {
   image: { mimes: ['image/jpeg', 'image/png', 'image/webp'], max: 15 * 1024 * 1024 },
   audio: { mimes: ['audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/webm'], max: 25 * 1024 * 1024 },
   video: { mimes: ['video/mp4', 'video/webm'], max: 50 * 1024 * 1024 },
-  document: { mimes: ['application/pdf', 'application/zip', 'application/x-zip-compressed', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], max: 25 * 1024 * 1024 },
+  // `mimes: null` é o catch-all: o tipo cai em `document` quando não bate em
+  // nenhuma lista de mídia acima — paridade com o WhatsApp, que aceita qualquer
+  // arquivo como documento. O teto continua valendo (50 MB, como o bucket).
+  document: { mimes: null, max: 50 * 1024 * 1024 },
 };
 export const attachmentPolicy = policy;
 
@@ -26,7 +29,18 @@ export interface AttachmentOutboxStore { create(job: OutboxJob): Promise<OutboxJ
 
 export class SupabaseTemporaryAttachmentStorage implements TemporaryAttachmentStorage {
   constructor(private readonly client: SupabaseClient, private readonly bucket = TEMPORARY_ATTACHMENT_BUCKET) {}
-  async upload(path: string, file: UploadFile): Promise<void> { const { error } = await this.client.storage.from(this.bucket).upload(path, file.buffer, { contentType: file.mimetype, upsert: false }); if (error) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Temporary attachment storage is unavailable'); }
+  async upload(path: string, file: UploadFile): Promise<void> {
+    const { error } = await this.client.storage.from(this.bucket).upload(path, file.buffer, { contentType: file.mimetype, upsert: false });
+    if (error) {
+      // O cliente recebe um 503 genérico e seguro, mas sem o código do Storage no
+      // log a causa real desaparece — foi assim que uma restrição de mime do
+      // bucket se disfarçou de "storage indisponível". Só campos estruturados: a
+      // mensagem livre do provedor pode carregar o path, que contém o filename.
+      const detail = error as { statusCode?: string; error?: string };
+      log('error', 'Temporary attachment upload rejected by storage', { statusCode: detail.statusCode ?? null, providerError: detail.error ?? null, mimeType: file.mimetype });
+      throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Temporary attachment storage is unavailable');
+    }
+  }
   async signedUrl(path: string, expiresInSeconds: number): Promise<string> { const { data, error } = await this.client.storage.from(this.bucket).createSignedUrl(path, expiresInSeconds); if (error || !data?.signedUrl) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Temporary attachment storage is unavailable'); return data.signedUrl; }
   async remove(path: string): Promise<void> { const { error } = await this.client.storage.from(this.bucket).remove([path]); if (error) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Temporary attachment cleanup failed'); }
 }
@@ -80,7 +94,10 @@ export class AttachmentOutboxService {
     await this.sessionActivity?.assertActive(context, conversation.whatsappSessionId);
     const existing = await this.store.findByClientRequest(context.workspaceId, clientRequestId); if (existing) return existing;
     const type = validateFile(file); const id = randomUUID(); const filename = sanitizeFilename(file.originalname); const now = new Date().toISOString(); const path = `${context.workspaceId}/${conversationId}/${id}/${filename}`;
-    const job: OutboxJob = { id, workspaceId: context.workspaceId, conversationId, wahaSession: conversation.whatsappSessionId, clientRequestId, type, storageObjectPath: path, filename, mimeType: file.mimetype, sizeBytes: file.size, caption: caption?.trim() || null, status: 'pending', attemptCount: 0, externalMessageId: null, providerAcceptedAt: null, lastErrorSafe: null, createdAt: now, updatedAt: now };
+    // O mime guardado é o que a WAHA entrega ao WhatsApp: quando o navegador
+    // declara vazio ou octet-stream, a extensão do nome resolve a identidade do
+    // arquivo — um `.apk` deixa de chegar anônimo ao destinatário.
+    const job: OutboxJob = { id, workspaceId: context.workspaceId, conversationId, wahaSession: conversation.whatsappSessionId, clientRequestId, type, storageObjectPath: path, filename, mimeType: canonicalDocumentMime(filename, file.mimetype), sizeBytes: file.size, caption: caption?.trim() || null, status: 'pending', attemptCount: 0, externalMessageId: null, providerAcceptedAt: null, lastErrorSafe: null, createdAt: now, updatedAt: now };
     try { await this.store.create(job); } catch (error) { const duplicate = await this.store.findByClientRequest(context.workspaceId, clientRequestId); if (duplicate) return duplicate; throw error; }
     try { await this.storage.upload(path, file); } catch (error) { await this.store.update(context.workspaceId, id, { status: 'failed', lastErrorSafe: 'Temporary upload failed' }); throw error; }
     // This process dispatches only the job it has just persisted. It never
@@ -97,8 +114,22 @@ export class AttachmentOutboxService {
   private async dispatch(context: RequestContext, id: string, voiceNote?: boolean): Promise<void> { const candidate = await this.store.get(context.workspaceId, id); if (!candidate || candidate.createdAt < this.startupCutoff) return; const processing = await this.store.claim(context.workspaceId, id); if (!processing || !processing.storageObjectPath || !processing.filename || !processing.mimeType) return; try { const conversation = await this.conversations.getConversation(context.workspaceId, processing.conversationId); if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found'); const url = await this.storage.signedUrl(processing.storageObjectPath, 300); const response = await this.worker.send({ correlationId: context.correlationId, workspaceId: context.workspaceId, command: { type: 'message.sendAttachment', payload: { wahaSession: processing.wahaSession, chatId: conversation.deliveryChatId ?? conversation.chatId, type: processing.type, url, filename: processing.filename, mimeType: processing.mimeType, ...(processing.caption ? { caption: processing.caption } : {}), ...(voiceNote === undefined ? {} : { voiceNote }) } } }); if (!response.success) throw new AppError(workerStatus(response.error.code), response.error.code, response.error.message); const sent = response.data as { sentMessage?: { id?: string } }; await this.store.update(context.workspaceId, id, { status: 'sent', externalMessageId: sent.sentMessage?.id ?? null, providerAcceptedAt: new Date().toISOString(), lastErrorSafe: null }); } catch (error) { await this.store.update(context.workspaceId, id, { status: 'failed', lastErrorSafe: safeError(error) }); } }
   private async safeRemove(path: string) { try { await this.storage.remove(path); } catch { /* cleanup is retried by the scheduled sweep; never expose storage diagnostics */ } }
 }
-function validateFile(file: UploadFile): AttachmentKind { const type = (Object.keys(policy) as AttachmentKind[]).find(kind => policy[kind].mimes.includes(file.mimetype)); if (!type) throw new AppError(415, 'VALIDATION_ERROR', 'Tipo de arquivo não permitido'); if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > policy[type].max) throw new AppError(413, 'VALIDATION_ERROR', 'Arquivo excede o limite permitido'); if (!magicMatches(file.buffer, file.mimetype)) throw new AppError(400, 'VALIDATION_ERROR', 'Arquivo inválido'); return type; }
-function magicMatches(data: Buffer, mime: string) { const start = data.subarray(0, 12); const zip = start[0] === 0x50 && start[1] === 0x4b; if (mime === 'image/jpeg') return start[0] === 0xff && start[1] === 0xd8 && start[2] === 0xff; if (mime === 'image/png') return start.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])); if (mime === 'image/webp') return start.subarray(0, 4).toString() === 'RIFF' && data.subarray(8, 12).toString() === 'WEBP'; if (mime === 'audio/ogg') return start.subarray(0, 4).toString() === 'OggS'; if (mime === 'audio/mpeg') return start.subarray(0, 3).toString() === 'ID3' || start[0] === 0xff; if (mime === 'audio/mp4' || mime === 'video/mp4') return data.subarray(4, 8).toString() === 'ftyp'; if (mime === 'audio/webm' || mime === 'video/webm') return start.subarray(0, 4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3])); if (mime === 'application/pdf') return start.subarray(0, 5).toString() === '%PDF-'; if (mime === 'application/zip' || mime === 'application/x-zip-compressed' || mime.includes('openxmlformats')) return zip; if (mime === 'text/plain') return !data.subarray(0, Math.min(data.length, 8_192)).includes(0); return false; }
+function validateFile(file: UploadFile): AttachmentKind { const type = (Object.keys(policy) as AttachmentKind[]).find(kind => policy[kind].mimes?.includes(file.mimetype)) ?? 'document'; if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > policy[type].max) throw new AppError(413, 'VALIDATION_ERROR', 'Arquivo excede o limite permitido'); if (!magicMatches(file.buffer, file.mimetype)) throw new AppError(400, 'VALIDATION_ERROR', 'Arquivo inválido'); return type; }
+const ZIP_FAMILY = ['application/zip', 'application/x-zip-compressed', 'application/vnd.android.package-archive', 'application/epub+zip'];
+const OLE2_FAMILY = ['application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint'];
+const RAR_FAMILY = ['application/vnd.rar', 'application/x-rar-compressed'];
+const PSD_FAMILY = ['image/vnd.adobe.photoshop', 'application/x-photoshop'];
+const TEXT_FAMILY = ['text/plain', 'text/csv', 'text/markdown', 'application/json', 'application/xml', 'text/xml', 'image/svg+xml'];
+/** Assinatura conhecida é conferida; desconhecida passa — paridade com o
+ *  WhatsApp, que aceita qualquer arquivo como documento. O documento nunca é
+ *  executado pelo sistema: viaja como anexo e o destinatário decide abrir. */
+function magicMatches(data: Buffer, mime: string) { const start = data.subarray(0, 12); const zip = start[0] === 0x50 && start[1] === 0x4b; if (mime === 'image/jpeg') return start[0] === 0xff && start[1] === 0xd8 && start[2] === 0xff; if (mime === 'image/png') return start.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])); if (mime === 'image/webp') return start.subarray(0, 4).toString() === 'RIFF' && data.subarray(8, 12).toString() === 'WEBP'; if (mime === 'audio/ogg') return start.subarray(0, 4).toString() === 'OggS'; if (mime === 'audio/mpeg') return start.subarray(0, 3).toString() === 'ID3' || start[0] === 0xff; if (mime === 'audio/mp4' || mime === 'video/mp4') return data.subarray(4, 8).toString() === 'ftyp'; if (mime === 'audio/webm' || mime === 'video/webm') return start.subarray(0, 4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3])); if (mime === 'application/pdf') return start.subarray(0, 5).toString() === '%PDF-'; if (ZIP_FAMILY.includes(mime) || mime.includes('openxmlformats')) return zip; if (OLE2_FAMILY.includes(mime)) return start.subarray(0, 8).equals(Buffer.from([0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1])); if (RAR_FAMILY.includes(mime)) return start.subarray(0, 6).toString() === 'Rar!\x1a\x07'; if (mime === 'application/x-7z-compressed') return start.subarray(0, 6).equals(Buffer.from([0x37,0x7a,0xbc,0xaf,0x27,0x1c])); if (PSD_FAMILY.includes(mime)) return start.subarray(0, 4).toString() === '8BPS'; if (mime === 'application/postscript') return start.subarray(0, 4).toString() === '%!PS' || start.subarray(0, 5).toString() === '%PDF-'; if (TEXT_FAMILY.includes(mime)) return !data.subarray(0, Math.min(data.length, 8_192)).includes(0); return true; }
+/** Mime canônico por extensão, para o arquivo não chegar sem identidade ao
+ *  destinatário quando o navegador declara vazio ou octet-stream. `fig` mapeia
+ *  conscientemente para octet-stream: formato proprietário sem mime registrado —
+ *  chega sem identidade mesmo, mas agora por decisão explícita. */
+export const documentExtensionMimes: Record<string, string> = { doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', md: 'text/markdown', json: 'application/json', xml: 'application/xml', zip: 'application/zip', rar: 'application/vnd.rar', '7z': 'application/x-7z-compressed', apk: 'application/vnd.android.package-archive', psd: 'image/vnd.adobe.photoshop', ai: 'application/postscript', fig: 'application/octet-stream', svg: 'image/svg+xml', epub: 'application/epub+zip' };
+export function canonicalDocumentMime(filename: string, declaredMime?: string | null): string { const declared = (declaredMime ?? '').trim().toLowerCase(); if (declared && declared !== 'application/octet-stream') return declared; const extension = filename.toLowerCase().split('.').pop() ?? ''; return documentExtensionMimes[extension] ?? 'application/octet-stream'; }
 const FILENAME_MAX = 180;
 const FILENAME_FALLBACK = 'attachment';
 /** Only an ASCII extension means anything to the receiving device, and a long

@@ -28,6 +28,8 @@ class CountingSlaStore implements SlaStore {
 }
 
 const directories: string[] = [];
+// No Windows o handle do SQLite segura o arquivo: fechar antes do rmSync.
+const databases: SqlitePersistenceDatabase[] = [];
 const migrations = join(process.cwd(), 'migrations');
 const inboundAt = '2026-07-23T10:00:00.000Z';
 const now = '2026-07-23T12:00:00.000Z';
@@ -36,7 +38,7 @@ function setup() {
   const directory = mkdtempSync(join(tmpdir(), 'chatpro-sla-reads-'));
   directories.push(directory);
   const database = new SqlitePersistenceDatabase(join(directory, 'db.sqlite'), migrations);
-  database.migrate();
+  database.migrate(); databases.push(database);
   const store = new CountingSlaStore(new SqliteSlaStore(database.sqlite));
   return { database, store, service: new SlaService(store, new RealtimeHub()) };
 }
@@ -76,7 +78,7 @@ function dueConversations(database: SqlitePersistenceDatabase, workspaceId: stri
 const dueConversation = (database: SqlitePersistenceDatabase, workspaceId: string, index: number) =>
   dueConversations(database, workspaceId, index, index + 1)[0]!;
 
-afterEach(() => { vi.useRealTimers(); directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })); });
+afterEach(() => { vi.useRealTimers(); databases.splice(0).forEach((database) => database.close()); directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })); });
 
 describe('leituras de configuração de SLA por operação', () => {
   // O tick roda a cada 60 s sobre todas as conversas não congeladas de todos os

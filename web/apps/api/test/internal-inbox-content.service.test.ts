@@ -6,7 +6,7 @@ import { SqlitePersistenceDatabase } from '../src/persistence/database.js';
 import { SqliteWahaWebhookStore } from '../src/services/waha-webhook.service.js';
 import { InternalInboxService } from '../src/services/internal-inbox.service.js';
 import type { InternalWorkerClient } from '../src/internal-worker-client.js';
-import type { ConversationStore } from '../src/services/waha-webhook.service.js';
+import type { ConversationStore, ReactionStore } from '../src/services/waha-webhook.service.js';
 import type { RealtimeHub } from '../src/realtime.js';
 
 const context = { workspaceId: 'workspace-a', correlationId: 'correlation-a', userId: 'user-a' } as never;
@@ -14,7 +14,7 @@ const conversation = { id: 'conversation-a', chatId: '5585999990001@c.us', deliv
 const accepted = { success: true as const, correlationId: 'c', workspaceId: 'workspace-a', data: { sentMessage: { id: 'wamid-a', timestamp: '2026-07-28T12:00:00.000Z' } } };
 
 function service(send: ReturnType<typeof vi.fn>, recordOutbound: ReturnType<typeof vi.fn>) {
-  const store = { getConversation: vi.fn().mockResolvedValue(conversation), recordOutbound } as unknown as ConversationStore;
+  const store = { getConversation: vi.fn().mockResolvedValue(conversation), recordOutbound } as unknown as ConversationStore & ReactionStore;
   return new InternalInboxService({ send } as unknown as InternalWorkerClient, store, { publish: vi.fn() } as unknown as RealtimeHub);
 }
 const persisted = (overrides: Record<string, unknown> = {}) => ({ id: 'wamid-a', direction: 'outbound', content: null, timestamp: '2026-07-28T12:00:00.000Z', status: 'sent', messageType: 'location', chatId: conversation.chatId, metadata: {}, persistence: { messageInserted: true, conversationId: 'conversation-a', duplicate: false }, ...overrides });
@@ -44,6 +44,15 @@ describe('Inbox location send', () => {
     await service(send, recordOutbound).send(context, 'conversation-a', 'Olá');
     expect(send.mock.calls[0][0].command).toMatchObject({ type: 'message.send', payload: { text: 'Olá' } });
     expect(recordOutbound.mock.calls[0][0]).toMatchObject({ type: 'text', text: 'Olá' });
+  });
+
+  it('travels linkPreview:false only when the operator dismissed the composer card', async () => {
+    const send = vi.fn().mockResolvedValue(accepted);
+    const recordOutbound = vi.fn().mockResolvedValue(persisted({ messageType: 'text', content: 'Olá' }));
+    await service(send, recordOutbound).send(context, 'conversation-a', 'veja https://example.com/a', undefined, false);
+    expect(send.mock.calls[0][0].command.payload).toMatchObject({ text: 'veja https://example.com/a', linkPreview: false });
+    await service(send, recordOutbound).send(context, 'conversation-a', 'veja https://example.com/b');
+    expect(send.mock.calls[1][0].command.payload.linkPreview).toBeUndefined();
   });
 
   it('asks the worker for a vcard content command and stores it as a contact', async () => {
@@ -112,5 +121,25 @@ describe('Inbox location persistence (SQLite, the shape both providers share)', 
       expect(stored.messageType).toBe('contact');
       expect(stored.metadata).toEqual({ contacts });
     } finally { database.close(); }
+  });
+});
+
+/** A prévia nativa que o WhatsApp gerou no envio volta do worker e vira payload
+ *  da mensagem — é o que o dashboard lê para desenhar o cartão sem chamar a
+ *  retaguarda OG. */
+describe('Inbox text send link preview', () => {
+  it('grava a prévia no payload quando o worker a devolve', async () => {
+    const linkPreview = { url: 'https://example.com/materia', domain: 'example.com', title: 'Matéria', provider: 'generic' };
+    const send = vi.fn().mockResolvedValue({ success: true as const, correlationId: 'c', workspaceId: 'workspace-a', data: { sentMessage: { id: 'wamid-a', timestamp: '2026-07-28T12:00:00.000Z', linkPreview } } });
+    const recordOutbound = vi.fn().mockResolvedValue(persisted({ messageType: 'text', content: 'Veja https://example.com/materia', metadata: { linkPreview } }));
+    await service(send, recordOutbound).send(context, 'conversation-a', 'Veja https://example.com/materia');
+    expect(recordOutbound.mock.calls[0][0]).toMatchObject({ type: 'text', payload: { linkPreview } });
+  });
+
+  it('não grava payload num texto sem prévia', async () => {
+    const send = vi.fn().mockResolvedValue(accepted);
+    const recordOutbound = vi.fn().mockResolvedValue(persisted({ messageType: 'text', content: 'Olá' }));
+    await service(send, recordOutbound).send(context, 'conversation-a', 'Olá');
+    expect(recordOutbound.mock.calls[0][0].payload).toBeUndefined();
   });
 });

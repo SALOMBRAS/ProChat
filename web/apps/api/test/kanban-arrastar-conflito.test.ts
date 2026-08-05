@@ -11,12 +11,14 @@ import { SupabaseKanbanService } from '../src/services/supabase-kanban.service.j
 
 const usuario = '00000000-0000-4000-8000-000000000001';
 const diretorios: string[] = [];
-afterEach(() => diretorios.splice(0).forEach(caminho => rmSync(caminho, { recursive: true, force: true })));
+// No Windows o handle do SQLite segura o arquivo: fechar antes do rmSync.
+const bancos: Array<{ close(): void }> = [];
+afterEach(() => { bancos.splice(0).forEach(banco => banco.close()); diretorios.splice(0).forEach(caminho => rmSync(caminho, { recursive: true, force: true })); });
 const temporario = (prefixo: string) => { const caminho = mkdtempSync(join(tmpdir(), prefixo)); diretorios.push(caminho); return caminho; };
 
 function local() {
   const database = new SqlitePersistenceDatabase(join(temporario('chatpro-arrastar-'), 'db.sqlite'), join(process.cwd(), 'migrations'));
-  database.migrate();
+  database.migrate(); bancos.push(database);
   const sla = { status: async () => undefined, reopen: async () => undefined, applyOperationalStatus: async () => undefined } as any;
   return { database, service: new KanbanService(database.sqlite, new RealtimeHub(), sla) };
 }
@@ -40,6 +42,7 @@ describe('arrastar cartão: o que a API aceita e quem ganha o conflito', () => {
     const app = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: 'http://127.0.0.1:1/internal/transport', workerTransportTimeoutMs: 20, databaseProvider: 'sqlite', databasePath: join(temporario('chatpro-arrastar-http-'), 'api.sqlite'), developmentUserId: usuario });
     const workspaceId = 'workspace-a';
     const database = app.locals.persistenceDatabase as SqlitePersistenceDatabase;
+    bancos.push(database);
     const [quadro] = (await request(app).get('/api/v1/inbox/kanban/boards').set('x-workspace-id', workspaceId).set('x-user-id', usuario).expect(200)).body;
     const destino = quadro.stages.find((etapa: any) => etapa.key === 'in_progress');
 

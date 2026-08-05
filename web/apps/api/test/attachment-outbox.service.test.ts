@@ -26,7 +26,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 
 describe('AttachmentOutboxService', () => {
   it('stores an allowed private upload, dispatches it, and waits for webhook confirmation', async () => { const store = new MemoryStore(), storage = new MemoryStorage(); const service = new AttachmentOutboxService(conversation, store, storage, worker as never); const job = await service.create(context, '00000000-0000-4000-8000-000000000001', { buffer: jpeg, originalname: '../../photo.jpg', mimetype: 'image/jpeg', size: jpeg.length }, '00000000-0000-4000-8000-000000000010', 'foto'); expect(storage.paths[0]).toMatch(/^workspace-a\/00000000-0000-4000-8000-000000000001\//); expect(storage.paths[0]).not.toContain('..'); await flush(); expect((await service.get(context, job.id)).status).toBe('sent'); await service.confirm('workspace-a', 'waha-file-a'); expect((await service.get(context, job.id)).status).toBe('confirmed'); expect(storage.removed).toHaveLength(1); });
-  it('rejects blocked MIME types and oversized files before storage', async () => { const storage = new MemoryStorage(); const service = new AttachmentOutboxService(conversation, new MemoryStore(), storage, worker as never); await expect(service.create(context, '00000000-0000-4000-8000-000000000001', { buffer: Buffer.from('MZ'), originalname: 'run.exe', mimetype: 'application/octet-stream', size: 2 }, '00000000-0000-4000-8000-000000000011')).rejects.toMatchObject({ status: 415, message: 'Tipo de arquivo não permitido' }); await expect(service.create(context, '00000000-0000-4000-8000-000000000001', { buffer: jpeg, originalname: 'big.jpg', mimetype: 'image/jpeg', size: 16 * 1024 * 1024 }, '00000000-0000-4000-8000-000000000012')).rejects.toMatchObject({ status: 413, message: 'Arquivo excede o limite permitido' }); expect(storage.paths).toEqual([]); });
+  it('rejects oversized files before storage', async () => { const storage = new MemoryStorage(); const service = new AttachmentOutboxService(conversation, new MemoryStore(), storage, worker as never); await expect(service.create(context, '00000000-0000-4000-8000-000000000001', { buffer: jpeg, originalname: 'big.jpg', mimetype: 'image/jpeg', size: 16 * 1024 * 1024 }, '00000000-0000-4000-8000-000000000012')).rejects.toMatchObject({ status: 413, message: 'Arquivo excede o limite permitido' }); expect(storage.paths).toEqual([]); });
   it('accepts PDF, ZIP and MP4 as their correct media kinds', async () => { const service = new AttachmentOutboxService(conversation, new MemoryStore(), new MemoryStorage(), worker as never); const conversationId = '00000000-0000-4000-8000-000000000001'; await expect(service.create(context, conversationId, { buffer: pdf, originalname: 'invoice.pdf', mimetype: 'application/pdf', size: pdf.length }, '00000000-0000-4000-8000-000000000016')).resolves.toMatchObject({ type: 'document' }); await expect(service.create(context, conversationId, { buffer: zip, originalname: 'archive.zip', mimetype: 'application/zip', size: zip.length }, '00000000-0000-4000-8000-000000000017')).resolves.toMatchObject({ type: 'document' }); await expect(service.create(context, conversationId, { buffer: mp4, originalname: 'clip.mp4', mimetype: 'video/mp4', size: mp4.length }, '00000000-0000-4000-8000-000000000018')).resolves.toMatchObject({ type: 'video' }); });
   it('returns a safe 503 on temporary storage failure without dispatching', async () => { const store = new MemoryStore(); const storage: TemporaryAttachmentStorage = { upload: async () => { throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Temporary attachment storage is unavailable'); }, signedUrl: async () => '', remove: async () => undefined }; let calls = 0; const service = new AttachmentOutboxService(conversation, store, storage, { send: async () => { calls += 1; return { success: true, correlationId: context.correlationId, workspaceId: context.workspaceId, data: {} }; } } as never); await expect(service.create(context, '00000000-0000-4000-8000-000000000001', { buffer: jpeg, originalname: 'photo.jpg', mimetype: 'image/jpeg', size: jpeg.length }, '00000000-0000-4000-8000-000000000019')).rejects.toMatchObject({ status: 503 }); expect(calls).toBe(0); expect([...store.jobs.values()][0]).toMatchObject({ status: 'failed', lastErrorSafe: 'Temporary upload failed' }); });
   it('isolates jobs by workspace and removes a cancelled temporary object', async () => { const storage = new MemoryStorage(); const service = new AttachmentOutboxService(conversation, new MemoryStore(), storage, worker as never); const job = await service.create(context, '00000000-0000-4000-8000-000000000001', { buffer: jpeg, originalname: 'photo.jpg', mimetype: 'image/jpeg', size: jpeg.length }, '00000000-0000-4000-8000-000000000013'); await expect(service.get({ ...context, workspaceId: 'workspace-b' }, job.id)).rejects.toMatchObject({ status: 404 }); expect((await service.cancel(context, job.id)).status).toBe('cancelled'); expect(storage.removed).toHaveLength(1); });
@@ -71,5 +71,67 @@ describe('AttachmentOutboxService audio intent', () => {
     await service.create(context, conversationId, audio, '00000000-0000-4000-8000-000000000022', undefined, true);
     await flush();
     expect(sent[0]).toMatchObject({ voiceNote: true });
+  });
+});
+
+/** Documento é o coringa: qualquer formato até 50 MB, paridade com o WhatsApp.
+ *  Assinatura conhecida é conferida; desconhecida passa. */
+describe('AttachmentOutboxService document policy', () => {
+  const conversationId = '00000000-0000-4000-8000-000000000001';
+  let request = 0;
+  const id = () => `00000000-0000-4000-8000-${String(++request + 100).padStart(12, '0')}`;
+  const service = () => new AttachmentOutboxService(conversation, new MemoryStore(), new MemoryStorage(), worker as never);
+
+  it.each([
+    ['rar4 ok', Buffer.from('Rar!\x1a\x07\x00'), 'application/vnd.rar', true],
+    ['rar errado', Buffer.from('PK\x03\x04'), 'application/vnd.rar', false],
+    ['rar5 ok', Buffer.from('Rar!\x1a\x07\x01\x00'), 'application/x-rar-compressed', true],
+    ['7z ok', Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]), 'application/x-7z-compressed', true],
+    ['7z errado', Buffer.from('Rar!\x1a\x07'), 'application/x-7z-compressed', false],
+    ['psd ok', Buffer.from('8BPS\x00\x01'), 'image/vnd.adobe.photoshop', true],
+    ['psd errado', Buffer.from('8BIM\x00\x01'), 'image/vnd.adobe.photoshop', false],
+    ['ole2 doc ok', Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), 'application/msword', true],
+    ['ole2 xls errado', Buffer.from('%PDF-1.7'), 'application/vnd.ms-excel', false],
+    ['apk zip ok', Buffer.from([0x50, 0x4b, 0x03, 0x04]), 'application/vnd.android.package-archive', true],
+    ['apk errado', Buffer.from('MZ'), 'application/vnd.android.package-archive', false],
+    ['epub ok', Buffer.from([0x50, 0x4b, 0x03, 0x04]), 'application/epub+zip', true],
+    ['pdf ok', Buffer.from('%PDF-1.7'), 'application/pdf', true],
+    ['pdf errado', Buffer.from([0xd0, 0xcf, 0x11, 0xe0]), 'application/pdf', false],
+    ['ai %!PS', Buffer.from('%!PS-Adobe-3.0'), 'application/postscript', true],
+    ['ai %PDF-', Buffer.from('%PDF-1.5'), 'application/postscript', true],
+    ['ai errado', Buffer.from([0x50, 0x4b]), 'application/postscript', false],
+    ['csv texto', Buffer.from('a;b;c\n1;2;3'), 'text/csv', true],
+    ['csv com NUL', Buffer.from([0x61, 0x00, 0x62]), 'text/csv', false],
+    ['svg ok', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), 'image/svg+xml', true],
+  ])('magic bytes: %s', async (_label, buffer, mimetype, ok) => {
+    const outcome = service().create(context, conversationId, { buffer, originalname: 'arquivo.bin', mimetype, size: buffer.length }, id());
+    if (ok) await expect(outcome).resolves.toMatchObject({ type: 'document' });
+    else await expect(outcome).rejects.toMatchObject({ status: 400, message: 'Arquivo inválido' });
+  });
+
+  it('aceita qualquer mime declarado como documento, até um executável', async () => {
+    await expect(service().create(context, conversationId, { buffer: Buffer.from('MZ'), originalname: 'run.exe', mimetype: 'application/x-msdownload', size: 2 }, id())).resolves.toMatchObject({ type: 'document', mimeType: 'application/x-msdownload' });
+    await expect(service().create(context, conversationId, { buffer: Buffer.from([0xde, 0xad]), originalname: 'desconhecido.xyz', mimetype: 'application/octet-stream', size: 2 }, id())).resolves.toMatchObject({ type: 'document' });
+  });
+
+  it('mantém o teto de 50 MB no documento coringa', async () => {
+    const buffer = Buffer.from([0x50, 0x4b]);
+    await expect(service().create(context, conversationId, { buffer, originalname: 'a.zip', mimetype: 'application/zip', size: 50 * 1024 * 1024 }, id())).resolves.toMatchObject({ type: 'document' });
+    await expect(service().create(context, conversationId, { buffer, originalname: 'a.zip', mimetype: 'application/zip', size: 50 * 1024 * 1024 + 1 }, id())).rejects.toMatchObject({ status: 413 });
+  });
+
+  it.each([
+    ['modelo.fig', 'application/octet-stream'],
+    ['app.apk', 'application/vnd.android.package-archive'],
+    ['notas.md', 'text/markdown'],
+    ['sem-extensao', 'application/octet-stream'],
+    ['planilha.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+    ['livro.epub', 'application/epub+zip'],
+  ])('mime canônico por extensão quando o navegador declara octet-stream: %s', async (originalname, mimeType) => {
+    await expect(service().create(context, conversationId, { buffer: Buffer.from([0x00, 0x01]), originalname, mimetype: 'application/octet-stream', size: 2 }, id())).resolves.toMatchObject({ mimeType });
+  });
+
+  it('o declarado específico vence a extensão: relatorio.bin que é PDF chega como PDF', async () => {
+    await expect(service().create(context, conversationId, { buffer: Buffer.from('%PDF-1.7'), originalname: 'relatorio.bin', mimetype: 'application/pdf', size: 8 }, id())).resolves.toMatchObject({ mimeType: 'application/pdf' });
   });
 });
