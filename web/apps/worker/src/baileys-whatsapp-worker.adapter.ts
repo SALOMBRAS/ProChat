@@ -10,6 +10,7 @@ export class BaileysWhatsAppWorkerAdapter implements WhatsAppWorkerPort {
     if (command.type === 'sendMessage' || command.type === 'sendAttachment') throw new WorkerOperationError('NOT_IMPLEMENTED', 'Manual messaging is available only for the WAHA provider', context.correlationId);
     if (command.type === 'historyPage') throw new WorkerOperationError('NOT_IMPLEMENTED', 'History synchronization is available only for the WAHA provider', context.correlationId);
     if (command.type === 'contactsPage') throw new WorkerOperationError('NOT_IMPLEMENTED', 'Contact synchronization is available only for the WAHA provider', context.correlationId);
+    if (command.type === 'lidsPage') throw new WorkerOperationError('NOT_IMPLEMENTED', 'Contact synchronization is available only for the WAHA provider', context.correlationId);
     if (command.type === 'sendContent') throw new WorkerOperationError('NOT_IMPLEMENTED', 'Location, contact card and poll are available only for the WAHA provider', context.correlationId, { kind: command.content.kind });
     if (command.type === 'sendReaction') throw new WorkerOperationError('NOT_IMPLEMENTED', 'Message reactions are available only for the WAHA provider', context.correlationId);
     if (command.type === 'syncIdentity') throw new WorkerOperationError('NOT_IMPLEMENTED', 'Identity synchronization is available only for the WAHA provider', context.correlationId);

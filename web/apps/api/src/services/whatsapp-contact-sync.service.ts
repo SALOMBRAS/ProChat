@@ -3,7 +3,7 @@ import type { InternalTransportCommand } from '@chatpro/contracts';
 import type { InternalWorkerClient } from '../internal-worker-client.js';
 import type { RealtimeHub } from '../realtime.js';
 import { log } from '../logging.js';
-import { normalizedPhone, phoneFromIdentifier, type ContactIdentityResolver } from './contact-identity-resolver.service.js';
+import { normalizedPhone, phoneFromIdentifier, type ContactIdentityResolver, type ContactNameRepair, type ResolvedContact } from './contact-identity-resolver.service.js';
 import type { IdentitySyncTarget } from './whatsapp-identity-sync.service.js';
 
 export type ContactSyncStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -14,7 +14,7 @@ export type ContactSyncJob = { id: string; workspaceId: string; wahaSession: str
  * com números de contatos se não filtrasse o campo. */
 export type ContactSyncJobStatus = ContactSyncJob & { jobId: string; syncKind: 'contacts'; hasMore: boolean; progressLabel: string };
 export interface ContactSyncJobStore { get(workspaceId: string, wahaSession: string): Promise<ContactSyncJob | undefined>; save(job: ContactSyncJob): Promise<void>; }
-export type ContactSyncOptions = { pageSize?: number; maxContactsPerRun?: number; continuationDelayMs?: number; maxAttempts?: number; retryBaseMs?: number; staleRunningAfterMs?: number; sleep?: (milliseconds: number) => Promise<void> };
+export type ContactSyncOptions = { pageSize?: number; maxContactsPerRun?: number; continuationDelayMs?: number; maxAttempts?: number; retryBaseMs?: number; staleRunningAfterMs?: number; sleep?: (milliseconds: number) => Promise<void>; nameRepair?: ContactNameRepair };
 
 const transientCodes = new Set(['TIMEOUT', 'SERVICE_UNAVAILABLE']);
 
@@ -22,26 +22,41 @@ const transientCodes = new Set(['TIMEOUT', 'SERVICE_UNAVAILABLE']);
  *
  *  Cobre quem nunca trocou mensagem com a conta: a base interna nasce do
  *  webhook (só quem conversa), mas o envio de cartão de contato precisa oferecer
- *  a agenda inteira. O fluxo por contato é o mesmo do webhook — resolver de
- *  identidade (telefone normalizado, aliases LID/JID, pendências) mais fila de
- *  enriquecimento (nome/foto/pushName, que tem cache próprio de 24 h) — então a
- *  reexecução é idempotente e segura.
+ *  a agenda inteira. A corrida tem DUAS FASES, na ordem que o picker mostra:
+ *  primeiro a agenda do celular (`contacts.page`), depois o histórico de
+ *  conversas (`history.page`). O fluxo por contato é o mesmo do webhook —
+ *  resolver de identidade (telefone normalizado, aliases LID/JID, pendências)
+ *  mais fila de enriquecimento (nome/foto/pushName, que tem cache próprio de
+ *  24 h) — então a reexecução é idempotente e segura.
  *
- *  Limitação do provedor, registrada para quem opera: `GET /api/contacts/all`
- *  da WAHA devolve os contatos **carregados pela sessão Web**, não a agenda do
- *  telefone, e só usuários WhatsApp. Contatos recém-adicionados aparecem na
- *  reexecução, depois que o app do telefone sincroniza com a sessão. */
+ *  A origem NÃO é a fase: `GET /api/contacts/all` da WAHA devolve os contatos
+ *  **carregados pela sessão Web**, não a agenda do telefone — numa sessão
+ *  madura são milhares de itens, a maioria gente que só divide grupo com a
+ *  conta. O que separa "salvo no celular" é o campo `isMyContact` de cada item
+ *  (agenda real: ~180 itens na sessão de referência, contra ~9 mil carregados):
+ *  só ele recebe a origem `waha_contact_sync`; todo o resto — agenda sem o
+ *  flag ou fase de conversas — é `waha_chat_history`. É essa origem que a
+ *  listagem usa para separar as duas colunas do picker. */
 export class WhatsAppContactSyncService {
   private readonly active = new Set<string>();
   private readonly cancelling = new Set<string>();
-  /** Corridas em que a agenda não respondeu e o job passou a ler as conversas
-   *  sincronizadas. Vive fora do job porque é estado do processo, não do
-   *  checkpoint: uma retomada tenta a agenda de novo antes de cair no fallback. */
-  private readonly chatsFallback = new Set<string>();
+  /** Corridas que já terminaram a agenda e estão na segunda fase, lendo as
+   *  conversas sincronizadas — seja porque a agenda esgotou (caminho normal:
+   *  celular primeiro, histórico depois), seja porque ela não respondeu
+   *  (fallback). Vive fora do job porque é estado do processo, não do
+   *  checkpoint: uma retomada tenta a agenda de novo antes das conversas. */
+  private readonly chatsPhase = new Set<string>();
+  /** Pares LID → telefone da sessão, carregados uma vez por corrida (preguiçoso,
+   *  no primeiro `@lid` da página). Vive fora do job pelo mesmo motivo do
+   *  `chatsFallback`: é cache do processo, não checkpoint — uma retomada
+   *  recarrega da WAHA. */
+  private readonly lidPhones = new Map<string, Map<string, string>>();
   private readonly starts = new Map<string, Promise<ContactSyncJobStatus>>();
-  private readonly options: Required<Omit<ContactSyncOptions, 'sleep'>> & { sleep: (milliseconds: number) => Promise<void> };
+  private readonly nameRepair: ContactNameRepair;
+  private readonly options: Required<Omit<ContactSyncOptions, 'sleep' | 'nameRepair'>> & { sleep: (milliseconds: number) => Promise<void> };
 
   constructor(private readonly worker: InternalWorkerClient, private readonly contacts: ContactIdentityResolver, private readonly jobs: ContactSyncJobStore, private readonly identitySync: { enqueue(target: IdentitySyncTarget): void }, private readonly realtime: RealtimeHub, options: ContactSyncOptions = {}) {
+    this.nameRepair = options.nameRepair ?? { repairIfTechnical: async () => {} };
     this.options = {
       pageSize: options.pageSize ?? 100,
       maxContactsPerRun: options.maxContactsPerRun ?? 500,
@@ -154,17 +169,20 @@ export class WhatsAppContactSyncService {
             job = await this.save({ ...job, cursor: String(offset + this.options.pageSize), updatedAt: new Date().toISOString() }, 'skipped empty contact page');
             continue;
           }
-          await this.save({ ...job, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, 'completed');
-          return;
+          const phase = await this.completeOrChats(job);
+          job = phase.job;
+          if (phase.done) return;
+          continue;
         }
         let resolved = 0;
         let skipped = 0;
-        // A origem distingue "salvo no celular" de "veio do histórico de
-        // conversas" na listagem (`origin` de `/domain/contacts`): no fallback
-        // o item é uma conversa, não um contato da agenda.
-        const source = this.chatsFallback.has(key) ? 'waha_chat_history' : 'waha_contact_sync';
         for (const item of page.items) {
           if (this.cancelling.has(key)) return;
+          // A origem separa "salvo no celular" de "veio do histórico" na
+          // listagem (`origin` de `/domain/contacts`), e ela é POR ITEM, não
+          // por fase: a agenda da WAHA carrega a sessão inteira, e só quem
+          // tem `isMyContact` está salvo no telefone de verdade.
+          const source = !this.chatsPhase.has(key) && item.isMyContact === true ? 'waha_contact_sync' : 'waha_chat_history';
           const outcome = await this.ingest(job, item, source);
           if (outcome === 'resolved') resolved += 1; else skipped += 1;
         }
@@ -173,8 +191,9 @@ export class WhatsAppContactSyncService {
         // Sem `hasMore` a próxima página repetiria itens: a WAHA pagina um
         // conjunto em memória, e o fim só é certo quando a página vem curta.
         if (!page.hasMore) {
-          await this.save({ ...job, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, 'completed');
-          return;
+          const phase = await this.completeOrChats(job);
+          job = phase.job;
+          if (phase.done) return;
         }
       }
     } catch (error) {
@@ -182,8 +201,23 @@ export class WhatsAppContactSyncService {
       const latest = await this.current(job);
       if (latest.status !== 'cancelled') await this.save({ ...latest, status: 'failed', lastErrorSafe: safeError(error), updatedAt: new Date().toISOString() }, 'failed');
     } finally {
-      this.chatsFallback.delete(key);
+      this.chatsPhase.delete(key);
+      this.lidPhones.delete(key);
     }
+  }
+
+  /** Fim de um conjunto. Esgotou a agenda → a corrida passa às conversas, do
+   *  zero: o pedido de quem opera é celular PRIMEIRO, histórico DEPOIS, e é o
+   *  que enche as duas colunas do picker numa corrida só. Esgotou as
+   *  conversas → a corrida acabou de verdade. */
+  private async completeOrChats(job: ContactSyncJob): Promise<{ job: ContactSyncJob; done: boolean }> {
+    const key = this.key(job.workspaceId, job.wahaSession);
+    if (!this.chatsPhase.has(key)) {
+      this.chatsPhase.add(key);
+      return { job: await this.save({ ...job, cursor: '0', updatedAt: new Date().toISOString() }, 'address book finished; moving to synced chats'), done: false };
+    }
+    await this.save({ ...job, status: 'completed', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, 'completed');
+    return { job, done: true };
   }
 
   /** Um contato por vez, pelo mesmo pipeline do webhook. Erro em UM contato é
@@ -197,28 +231,46 @@ export class WhatsAppContactSyncService {
     const technical = id === 'status@broadcast' || id.endsWith('@broadcast') || id.endsWith('@newsletter');
     const conversation = id.endsWith('@c.us') || id.endsWith('@lid') || id.endsWith('@s.whatsapp.net') || id.endsWith('@g.us');
     if (!id || group || technical || !conversation) return 'skipped';
-    const phone = normalizedPhone(typeof item.number === 'string' ? item.number : undefined) ?? phoneFromIdentifier(id);
+    // LID não disca: o mapa `lids.page` da sessão devolve o telefone de verdade
+    // (`pn`), e é ele que vira o `phone` do contato — a agenda nasce discável
+    // de primeira, sem depender de uma cura posterior na base.
+    const lidPn = id.endsWith('@lid') ? await this.lidPhone(job, id.split('@')[0]) : undefined;
+    const phone = normalizedPhone(typeof item.number === 'string' ? item.number : undefined) ?? lidPn ?? phoneFromIdentifier(id);
     const displayName = text(item.name) ?? text(item.pushname);
     // Um identificador sem nome e sem telefone discável não vira contato: não
     // exibe, não busca, não liga — é o que inchava a base com linhas vazias
     // (LIDs que a WAHA conhece de grupos). Se a pessoa falar com a conta, o
     // webhook cria o contato na hora, com os dados da mensagem de verdade.
-    const lidOnly = id.endsWith('@lid') && !normalizedPhone(typeof item.number === 'string' ? item.number : undefined);
-    if (!displayName && (!phone || lidOnly)) return 'skipped';
+    const lidOnly = id.endsWith('@lid') && !normalizedPhone(typeof item.number === 'string' ? item.number : undefined) && !lidPn;
     // Nome que é só o próprio identificador em dígitos ("200339068317777") não é
-    // nome: a WAHA preenche `name` com o id quando não conhece a pessoa, e a
-    // guarda acima deixava esse fantasma passar. Telefone com mais de 13
-    // dígitos também não é discável (LID tem 14-15; E.164 discável cabe em 13
-    // para os países que a operação atende). Nome = telefone discável continua
-    // entrando: dá para ligar.
+    // nome: a WAHA preenche `name` com o id quando não conhece a pessoa. Ele
+    // conta como ausência de nome — com telefone discável o contato entra e o
+    // resolver rotula com o próprio número (`displayName || phone`); sem
+    // telefone discável, é o fantasma de antes e continua fora. Telefone com
+    // mais de 13 dígitos não é discável (LID tem 14-15; E.164 cabe em 13 para
+    // os países que a operação atende).
     const digits = (value: string) => value.replace(/\D/g, '');
     const technicalName = displayName !== undefined && (digits(displayName) === digits(id.split('@')[0]) || (phone !== undefined && digits(displayName) === phone));
-    if (technicalName && (!phone || phone.length > 13 || lidOnly)) return 'skipped';
+    const effectiveName = technicalName ? undefined : displayName;
+    if (!effectiveName && (!phone || phone.length > 13 || lidOnly)) return 'skipped';
+    let resolvedContact: ResolvedContact;
     try {
-      await this.contacts.resolve({ workspaceId: job.workspaceId, identifier: id, phone: phone ?? null, displayName: displayName ?? null, source });
+      resolvedContact = await this.contacts.resolve({ workspaceId: job.workspaceId, identifier: id, phone: phone ?? null, displayName: effectiveName ?? null, source });
     } catch (error) {
       log('error', 'WhatsApp contact sync skipped a contact after resolver failure', { workspaceId: job.workspaceId, wahaSession: job.wahaSession, jobId: job.id, errorClass: error instanceof Error ? error.name : 'UnknownError' });
       return 'skipped';
+    }
+    // A resolução só usa o nome na CRIAÇÃO do contato: quem já existia com
+    // rótulo técnico (LID/telefone como "nome") ficaria sem nome para sempre,
+    // mesmo o WhatsApp sabendo o nome da pessoa. O reparo troca só rótulo
+    // técnico — nome de operador/CRM nunca — e falha dele não derruba o
+    // contato, que já está resolvido.
+    if (resolvedContact && effectiveName) {
+      try {
+        await this.nameRepair.repairIfTechnical(job.workspaceId, resolvedContact.id, effectiveName);
+      } catch (error) {
+        log('error', 'WhatsApp contact sync could not repair a technical display name', { workspaceId: job.workspaceId, wahaSession: job.wahaSession, jobId: job.id, errorClass: error instanceof Error ? error.name : 'UnknownError' });
+      }
     }
     // Enriquecimento (nome/foto/pushName) sob demanda: a fila já deduplica por
     // alvo e o cache de 24 h no banco torna a reexecução barata.
@@ -226,15 +278,15 @@ export class WhatsAppContactSyncService {
     return 'resolved';
   }
 
-  /** A página vem da agenda (`contacts.page`) enquanto ela responde. Esgotado o
-   *  backoff com `TIMEOUT` — a WAHA materializa o store inteiro da sessão para
-   *  responder `contacts/all`, e há base que não cabe no orçamento — a corrida
-   *  passa a ler as conversas que o telefone já sincronizou (`history.page`,
-   *  kind `chats`): é o pedido de quem opera, "sincronizar as conversas para
-   *  depois puxar os contatos". `reset` avisa o laço para zerar o cursor,
+  /** A página vem da agenda (`contacts.page`) na primeira fase e das conversas
+   *  (`history.page`, kind `chats`) na segunda. A passagem às conversas acontece
+   *  por dois caminhos: a agenda esgotou (normal — celular primeiro, histórico
+   *  depois, ver `completeOrChats`) ou estourou o backoff com `TIMEOUT` — a WAHA
+   *  materializa o store inteiro da sessão para responder `contacts/all`, e há
+   *  base que não cabe no orçamento. `reset` avisa o laço para zerar o cursor,
    *  porque o offset da agenda não vale no conjunto das conversas. */
   private async page(job: ContactSyncJob, offset: number, limit: number): Promise<{ items: Record<string, unknown>[]; hasMore: boolean; reset?: boolean }> {
-    if (this.chatsFallback.has(this.key(job.workspaceId, job.wahaSession))) return this.chatsPage(job, offset, limit);
+    if (this.chatsPhase.has(this.key(job.workspaceId, job.wahaSession))) return this.chatsPage(job, offset, limit);
     try {
       return await this.requestPage(job, { type: 'contacts.page', payload: { wahaSession: job.wahaSession, offset, limit } }, data => {
         const page = (data as { contactsPage?: { items?: Record<string, unknown>[]; hasMore?: boolean } }).contactsPage;
@@ -243,7 +295,7 @@ export class WhatsAppContactSyncService {
       });
     } catch (error) {
       if (error instanceof ProviderFailure && error.code === 'TIMEOUT') {
-        this.chatsFallback.add(this.key(job.workspaceId, job.wahaSession));
+        this.chatsPhase.add(this.key(job.workspaceId, job.wahaSession));
         log('info', 'WhatsApp contact sync falling back to synced chats after address book timeouts', { workspaceId: job.workspaceId, wahaSession: job.wahaSession, jobId: job.id });
         return { items: [], hasMore: true, reset: true };
       }
@@ -251,9 +303,10 @@ export class WhatsAppContactSyncService {
     }
   }
 
-  /** As conversas da sessão como fonte de contatos: quem já conversou com a
-   *  conta é exatamente o subconjunto que o picker mais precisa quando a agenda
-   *  inteira não cabe no orçamento. Grupos e canais são rejeitados na ingestão. */
+  /** As conversas da sessão como segunda fonte de contatos: quem já conversou
+   *  com a conta e não está na agenda (ou cuja agenda não respondeu). Grupos e
+   *  canais são rejeitados na ingestão, e o que já entrou pela agenda não se
+   *  duplica — a resolução de identidade é idempotente. */
   private chatsPage(job: ContactSyncJob, offset: number, limit: number): Promise<{ items: Record<string, unknown>[]; hasMore: boolean }> {
     return this.requestPage(job, { type: 'history.page', payload: { wahaSession: job.wahaSession, offset, limit } }, data => {
       const page = (data as { historyPage?: { kind?: string; items?: Record<string, unknown>[]; hasMore?: boolean } }).historyPage;
@@ -274,6 +327,50 @@ export class WhatsAppContactSyncService {
       await this.options.sleep(Math.min(this.options.retryBaseMs * 2 ** (attempt - 1), 4_000));
     }
     throw last ?? new ProviderFailure('SERVICE_UNAVAILABLE');
+  }
+
+  /** Telefone real de um LID, do cache da corrida. O mapa é carregado uma vez
+   *  (preguiçoso, no primeiro `@lid`): quem não tem LID na agenda não paga a
+   *  varredura extra do provedor. */
+  private async lidPhone(job: ContactSyncJob, lidDigits: string): Promise<string | undefined> {
+    const key = this.key(job.workspaceId, job.wahaSession);
+    let map = this.lidPhones.get(key);
+    if (!map) {
+      map = await this.loadLidPhones(job);
+      this.lidPhones.set(key, map);
+    }
+    return map.get(lidDigits);
+  }
+
+  /** Varre `lids.page` (o endpoint existe e responde rápido na WAHA — ao
+   *  contrário da agenda, que materializa o store inteiro) e monta LID →
+   *  telefone. Fail-open de propósito: uma sessão que não responda o endpoint
+   *  não pode derrubar a sincronização — sem mapa, os LIDs sem nome voltam a
+   *  ser ignorados, que era o comportamento anterior. */
+  private async loadLidPhones(job: ContactSyncJob): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    try {
+      let offset = 0;
+      for (;;) {
+        const response = await this.worker.send({ correlationId: `contact-sync-${randomUUID()}`, workspaceId: job.workspaceId, command: { type: 'lids.page', payload: { wahaSession: job.wahaSession, offset, limit: 500 } } });
+        if (!response.success) throw new ProviderFailure(response.error.code, response.error.message);
+        const page = (response.data as { lidsPage?: { items?: Record<string, unknown>[]; hasMore?: boolean } }).lidsPage;
+        if (!page) throw new ProviderFailure('PROVIDER_CONTRACT_ERROR');
+        const items = page.items ?? [];
+        for (const item of items) {
+          const lid = typeof item.lid === 'string' ? item.lid.split('@')[0].replace(/\D/g, '') : '';
+          const pn = normalizedPhone(typeof item.pn === 'string' ? item.pn : undefined);
+          if (lid && pn) map.set(lid, pn);
+        }
+        if (page.hasMore !== true || !items.length) break;
+        offset += items.length;
+      }
+      log('info', 'WhatsApp contact sync loaded lid mappings', { workspaceId: job.workspaceId, wahaSession: job.wahaSession, jobId: job.id, mappings: map.size });
+    } catch (error) {
+      map.clear();
+      log('info', 'WhatsApp contact sync could not load lid mappings; nameless lids will be skipped', { workspaceId: job.workspaceId, wahaSession: job.wahaSession, jobId: job.id, error: error instanceof Error ? error.message : String(error) });
+    }
+    return map;
   }
 
   private async current(job: ContactSyncJob): Promise<ContactSyncJob> { return (await this.jobs.get(job.workspaceId, job.wahaSession)) ?? job; }

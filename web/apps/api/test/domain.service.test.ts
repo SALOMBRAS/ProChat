@@ -34,7 +34,18 @@ describe('domain services',()=>{
     expect(await service.contacts('a',{page:4,pageSize:2})).toEqual({items:[],page:4,pageSize:2,total:3});
     await expect(service.contacts('a',{page:'not-a-number'})).rejects.toThrow();
     await expect(service.contacts('a',{page:-1})).rejects.toThrow();
-    await expect(service.contacts('a',{pageSize:500})).rejects.toThrow();
+    await expect(service.contacts('a',{pageSize:501})).rejects.toThrow();
+  }finally{db.close()}});
+  it('filters contacts by origin: phonebook from the agenda, history otherwise',async()=>{const {db,service}=create();try{
+    const ada:any=await service.createContact('a',{displayName:'Ada Lovelace',phoneNumber:'5511999990001'});
+    const alan:any=await service.createContact('a',{displayName:'Alan Turing',phoneNumber:'5511988880002'});
+    // O identificador com a fonte da agenda é o que marca o contato como
+    // "salvo no celular" — mesmo EXISTS que o Supabase traduz por lote de ids.
+    db.sqlite.prepare('INSERT INTO contact_identifiers (id,workspaceId,contactId,identifier,type,source,createdAt) VALUES (?,?,?,?,?,?,?)').run('identifier-1','a',ada.id,'5511999990001@c.us','whatsapp','waha_contact_sync',new Date().toISOString());
+    const ids=async(query:Record<string,unknown>)=>((await service.contacts('a',query)) as any).items.map((item:any)=>item.id);
+    expect(await ids({origin:'phonebook'})).toEqual([ada.id]);
+    expect(await ids({origin:'history'})).toEqual([alan.id]);
+    expect((await ids({})).sort()).toEqual([ada.id,alan.id].sort());
   }finally{db.close()}});
   // Parity contract for reading a contact's tags. The Supabase provider is
   // asserted against the same expectations in supabase-domain.repository.test.ts.

@@ -50,3 +50,24 @@ Thumbs.db
 
 # Estado local do agente de IA (worktrees, sessões, configuração de máquina).
 .claude/
+
+# Backups locais de cura de dados (JSON gerado antes de UPDATE/DELETE na base;
+# vivem só na máquina que operou, como garantia de rollback).
+/*-backup-*.json
+
+# Toolchain Go local do Call Service (327 MB) e repositórios de referência
+# clonados pela auditoria de chamadas (277 MB) — documentação fica, código
+# de terceiros e binários não.
+/tools/
+/auditoria/BulkWhatsAppCall/
+/auditoria/whatsapp-web.js/
+
+# O Call Service (fork do WaCalls com as nossas alterações) É versionado — ele
+# é parte do produto. O que fica de fora são os artefatos de runtime: o banco
+# da sessão pareada (credencial!), binários compilados e o build do client.
+/auditoria/WaCalls/wacalls.db*
+/auditoria/WaCalls/wacalls-test.db*
+/auditoria/WaCalls/*.exe
+/auditoria/WaCalls/*.exe~
+/auditoria/WaCalls/debug-wacalls.log
+/auditoria/WaCalls/client/dist/

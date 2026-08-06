@@ -57,6 +57,10 @@ export function createWorkerTransportHandler(worker: WhatsAppWorkerPort): Intern
         const contactsPage = await worker.execute(context, { type: 'contactsPage', ...command.payload });
         return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { contactsPage: contactsPage as never } };
       }
+      if (command.type === 'lids.page') {
+        const lidsPage = await worker.execute(context, { type: 'lidsPage', ...command.payload });
+        return { success: true, correlationId: request.correlationId, workspaceId: request.workspaceId, data: { lidsPage: lidsPage as never } };
+      }
       const sessionId = command.payload.sessionId;
       if (command.type === 'session.status') {
         const session = await worker.execute(context, { type: 'getSession', sessionId });

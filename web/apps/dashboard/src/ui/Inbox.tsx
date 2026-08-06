@@ -15,6 +15,9 @@ import type {
 import { InboxApi } from "../api/inbox.js";
 import { connectRealtime } from "../api/realtime.js";
 import { ApiError } from "../api/client.js";
+import type { ActiveCall } from "../api/calls.js";
+import { useCalls } from "./useCalls.js";
+import { CallModal } from "./CallModal.js";
 import { WorkspaceApi } from "../api/workspace.js";
 import { DomainApi } from "../api/domain.js";
 import type { PersistenceContact, Team, WorkspaceUser } from "@chatpro/contracts";
@@ -286,6 +289,13 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     Page<InboxConversation>
   >({ items: [], page: 1, pageSize: 50, total: 0 });
   const [selected, setSelected] = useState<InboxConversation>();
+  /** Chamadas de voz: o hook é dono do softphone e dos eventos `call.updated`;
+   *  a inbox só renderiza o CallModal e dispara o 📞 do cabeçalho. */
+  const calls = useCalls();
+  /** Espelho síncrono da lista: o handler do socket lê daqui (o estado dentro
+   *  do closure do `connectRealtime` ficaria preso à renderização de abertura). */
+  const conversationsRef = useRef<InboxConversation[]>([]);
+  conversationsRef.current = conversationPage.items;
   const [messages, setMessages] = useState<InboxMessage[]>([]);
   const [messagePage, setMessagePage] = useState(1);
   const [loadingConversations, setLoadingConversations] = useState(true);
@@ -852,6 +862,18 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     () =>
       connectRealtime((event) => {
         if (event.workspaceId !== workspaceId) return;
+        if (event.eventType === "call.updated") {
+          // Chamada recebida ou mudança de estado da ativa. O nome sai da
+          // lista já carregada: o telefone do peer casa com o da conversa.
+          calls.handleCallEvent(event.payload as unknown as ActiveCall, (peerDigits) => {
+            const match = conversationsRef.current.find((item) => {
+              const phone = conversationPhone(item);
+              return Boolean(phone && peerDigits && (phone === peerDigits || phone.endsWith(peerDigits) || peerDigits.endsWith(phone)));
+            });
+            return match ? contactName(match) : undefined;
+          });
+          return;
+        }
         if (event.eventType === "conversation.sla.updated") {
           const conversationId = typeof event.payload.conversationId === "string" ? event.payload.conversationId : "";
           const metrics = event.payload.metrics as SlaMetrics | undefined;
@@ -1372,18 +1394,22 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       atBottomRef.current =
         list.scrollHeight - list.scrollTop - list.clientHeight < 48;
   };
-  /** Carrega TODOS os contatos do workspace, paginando de 100 em 100 por
-   *  dentro: o picker novo abre vazio e só chama isto depois da sincronização
-   *  (ou do atalho "já sincronizei"), mostrando a lista inteira em duas
-   *  colunas — nada de "carregar mais" de 20 em 20. Estável por `useCallback`
-   *  porque a tela de contato a recebe como prop. */
-  const loadAllContacts = useCallback(async () => {
+  /** A abertura do picker: só os contatos salvos no CELULAR (origem
+   *  `phonebook`, filtrada no servidor), paginando de 150 em 150 por dentro
+   *  — são centenas por definição, não a base inteira de dezenas de
+   *  milhares. O resto chega pela lupa, que pesquisa no servidor em lotes.
+   *  Estável por `useCallback` porque a tela de contato os recebe como prop. */
+  const loadPhonebookContacts = useCallback(async () => {
     const all = [];
     for (let page = 1; ; page += 1) {
-      const result = await domain.contacts({ page, pageSize: 100 });
+      const result = await domain.contacts({ origin: "phonebook", page, pageSize: 150 });
       all.push(...result.items);
       if (!result.items.length || all.length >= result.total) return all;
     }
+  }, [domain]);
+  const searchContacts = useCallback(async (term: string, page: number) => {
+    const result = await domain.contacts({ search: term, page, pageSize: 150 });
+    return { items: result.items, total: result.total };
   }, [domain]);
   /** Memorizado porque o efeito de polling do picker depende da identidade
    *  deste objeto: recriado a cada render, o intervalo de 2 s seria desmontado
@@ -1603,6 +1629,16 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                     {Object.entries(priorityLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select></label>
                 </div>
+                {!isGroup(selected) && (conversationPhone(selected) ?? (selected.chatId.endsWith("@lid") ? selected.chatId.split("@", 1)[0] : undefined)) ? (
+                  <button
+                    type="button"
+                    className="conversation-call-trigger"
+                    onClick={() => void calls.startCall(selected.id, conversationPhone(selected) ?? selected.chatId.split("@", 1)[0]!, contactName(selected))}
+                    disabled={Boolean(calls.call && calls.call.status !== "ended")}
+                    aria-label={`Ligar para ${contactName(selected)}`}
+                    title="Chamada de voz pelo WhatsApp"
+                  >📞 Ligar</button>
+                ) : null}
                 <button type="button" className="conversation-search-trigger" onClick={() => setConversationSearchOpen((open) => !open)} aria-expanded={conversationSearchOpen}>⌕ Buscar nesta conversa</button>
                 {conversationSearchOpen && <div className="conversation-search-panel"><div className="conversation-search-field"><span>⌕</span><input value={conversationSearchInput} onChange={(event) => setConversationSearchInput(event.target.value)} placeholder="Buscar nas mensagens carregadas" aria-label="Buscar nesta conversa" autoFocus /><button type="button" onClick={() => { setConversationSearchInput(""); setConversationSearchOpen(false); }} aria-label="Fechar busca">×</button></div>{conversationSearchTerm ? <div className="conversation-search-results"><div><span>{conversationMatches.length} resultado{conversationMatches.length === 1 ? "" : "s"} nesta página</span><span className="conversation-search-nav"><button type="button" onClick={() => selectConversationMatch(activeConversationMatch - 1)} disabled={!conversationMatches.length} aria-label="Resultado anterior">↑</button><button type="button" onClick={() => selectConversationMatch(activeConversationMatch + 1)} disabled={!conversationMatches.length} aria-label="Próximo resultado">↓</button></span></div>{conversationMatches.length ? <p>{conversationMatches[activeConversationMatch]?.content}</p> : <p>Nenhum resultado nas mensagens já carregadas.</p>}<small>A busca completa será paginada pela API, com até 100 resultados por consulta.</small></div> : <p className="conversation-search-hint">Digite para pesquisar somente a página atual; o termo é refinado após uma breve pausa.</p>}</div>}
               </div>
@@ -1664,7 +1700,8 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 {intakeMessage && <p className={`composer-intake-message${intakeMessage.failed ? " failed" : ""}`} role={intakeMessage.failed ? "alert" : "status"}>{intakeMessage.text}</p>}
                 <input ref={attachmentInputRef} className="attachment-input" type="file" accept={attachmentAccept} capture={attachmentCapture} aria-label="Selecionar anexo" onChange={(event) => { applyAttachment(event.target.files?.[0]); setAttachmentStatus(""); setAttachmentMenuOpen(false); setAttachmentCapture(undefined); }} disabled={sending} />
                 {contactPickerOpen && <ContactPicker
-                  loadAll={loadAllContacts}
+                  loadInitial={loadPhonebookContacts}
+                  searchContacts={searchContacts}
                   onSend={(contactIds) => void sendContactCards(contactIds)}
                   onClose={() => setContactPickerOpen(false)}
                   sending={sending}
@@ -2114,6 +2151,17 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
           )}
         </aside>
       </div>
+      {calls.call ? (
+        <CallModal
+          call={calls.call}
+          remoteStream={calls.remoteStream}
+          busy={calls.busy}
+          onAccept={() => void calls.accept()}
+          onReject={() => void calls.reject()}
+          onHangup={() => void calls.hangup()}
+          onDismiss={calls.dismiss}
+        />
+      ) : null}
     </section>
   );
 }

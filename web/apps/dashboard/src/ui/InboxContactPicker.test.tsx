@@ -11,11 +11,11 @@ import stylesheet from "./styles.css?raw";
 import { contactInitials, contactRow, toggleSelection } from "./ContactPicker.js";
 
 /**
- * O picker virou janela flutuante no padrão WhatsApp: abre VAZIA (nenhuma
- * lista antes da sincronização), um botão para sincronizar e um atalho para
- * carregar o que já está sincronizado. Depois do carregamento a lista vem
- * inteira — nada de "carregar mais" de 20 em 20 — em DUAS COLUNAS por origem:
- * contatos salvos no celular de um lado, histórico de conversas do outro.
+ * O picker é janela flutuante no padrão WhatsApp: abre MOSTRANDO os contatos
+ * salvos no celular (~150, filtro `origin=phonebook` no servidor) — não a
+ * base inteira, que já passa de dezenas de milhares. A lupa pesquisa o resto
+ * NO SERVIDOR, em lotes de 150 com "Carregar mais", e o botão "Sincronizar
+ * contatos" do cabeçalho puxa o que mudou desde a última vez.
  */
 const conversation = (id: string): InboxConversation => ({
   id, whatsappSessionId: "session-a", chatId: "5511999990001@c.us", contactId: null, conversationType: "direct",
@@ -49,7 +49,26 @@ const CONTATOS = [
   pessoa("cccccccc-3333-4333-8333-333333333333", "Carla Souza", "5511999990003", "phonebook"),
 ];
 
-const domainWith = (contacts = vi.fn().mockResolvedValue({ items: CONTATOS, page: 1, pageSize: 100, total: CONTATOS.length })) =>
+/** O mock honra o contrato de verdade — `origin`, `search`, `page` e
+ *  `pageSize` — porque agora é o SERVIDOR quem filtra e pagina: o picker
+ *  abre só com o celular e a lupa pesquisa em lotes. Um mock que ignora a
+ *  query não mediria nada disso. */
+const contatosQueRespondem = (base = CONTATOS) =>
+  vi.fn().mockImplementation((q: Record<string, unknown> = {}) => {
+    let list = base;
+    if (q.origin === "phonebook") list = list.filter((contact) => contact.origin === "phonebook");
+    if (q.origin === "history") list = list.filter((contact) => contact.origin !== "phonebook");
+    if (typeof q.search === "string" && q.search.trim()) {
+      const texto = q.search.trim().toLowerCase();
+      const digitos = texto.replace(/\D/g, "");
+      list = list.filter((contact) => contact.displayName.toLowerCase().includes(texto) || (digitos.length > 0 && contact.phoneNumber.includes(digitos)));
+    }
+    const page = Number(q.page ?? 1);
+    const size = Number(q.pageSize ?? 25);
+    return Promise.resolve({ items: list.slice((page - 1) * size, page * size), page, pageSize: size, total: list.length });
+  });
+
+const domainWith = (contacts = contatosQueRespondem()) =>
   ({ contacts }) as unknown as DomainApi;
 
 const abrirContatos = async (client = api(), domain = domainWith()) => {
@@ -61,11 +80,10 @@ const abrirContatos = async (client = api(), domain = domainWith()) => {
   fireEvent.click(within(menu).getByText("Contato"));
   return { client, domain, painel: await screen.findByRole("dialog", { name: "Enviar contato" }) };
 };
-/** O caminho feliz sem WAHA: abre e carrega o que já está sincronizado. */
+/** O caminho feliz: abre e a última sincronização aparece sozinha. */
 const abrirECarregar = async (client = api(), domain = domainWith()) => {
   const aberto = await abrirContatos(client, domain);
-  fireEvent.click(within(aberto.painel).getByRole("button", { name: "Já sincronizei — carregar contatos" }));
-  await within(aberto.painel).findByRole("list", { name: "Salvos no celular" });
+  await within(aberto.painel).findByRole("list", { name: "Contatos" });
   return aberto;
 };
 
@@ -73,57 +91,98 @@ beforeEach(() => { Object.defineProperty(URL, "createObjectURL", { value: vi.fn(
 afterEach(() => vi.restoreAllMocks());
 
 describe("escolha de contato para envio", () => {
-  it("abre uma janela flutuante vazia, sem chamar o banco nem o prompt", async () => {
+  it("abre a janela flutuante já carregando a última sincronização, com o sync no cabeçalho e sem prompt", async () => {
     const prompt = vi.spyOn(window, "prompt");
     const { domain, painel } = await abrirContatos();
     expect(painel).toBeInTheDocument();
     expect(document.querySelector(".composer-contact-overlay")).toBeInTheDocument();
-    expect(within(painel).getByText("Nenhum contato carregado.")).toBeInTheDocument();
-    expect(within(painel).queryByRole("list")).toBeNull();
-    expect(domain.contacts).not.toHaveBeenCalled();
+    expect(within(painel).getByRole("button", { name: "Sincronizar contatos" })).toBeInTheDocument();
+    expect(await within(painel).findByRole("list", { name: "Contatos" })).toBeInTheDocument();
+    expect(domain.contacts).toHaveBeenCalled();
     expect(prompt).not.toHaveBeenCalled();
   });
 
   it("lista nome e telefone depois do carregamento, com o telefone formatado", async () => {
     const { painel } = await abrirECarregar();
-    const lista = within(painel).getByRole("list", { name: "Salvos no celular" });
+    const lista = within(painel).getByRole("list", { name: "Contatos" });
     expect(within(lista).getByText("Ana Ribeiro")).toBeInTheDocument();
     // Formatado, não os dígitos crus: é o telefone que o operador lê em voz alta.
     expect(within(lista).getByText("+55 (11) 99999-0001")).toBeInTheDocument();
     expect(within(lista).queryByText("5511999990001")).toBeNull();
-    expect(within(painel).getAllByRole("checkbox")).toHaveLength(3);
+    // Só os dois do celular: Bruno é histórico e chega pela lupa, não na abertura.
+    expect(within(painel).getAllByRole("checkbox")).toHaveLength(2);
   });
 
-  it("separa as duas colunas por origem: celular de um lado, conversas do outro", async () => {
-    const { painel } = await abrirECarregar();
-    const celular = within(painel).getByRole("list", { name: "Salvos no celular" });
-    const historico = within(painel).getByRole("list", { name: "Histórico de conversas" });
-    expect(within(celular).getByText("Ana Ribeiro")).toBeInTheDocument();
-    expect(within(celular).getByText("Carla Souza")).toBeInTheDocument();
-    expect(within(celular).queryByText("Bruno Carvalho")).toBeNull();
-    expect(within(historico).getByText("Bruno Carvalho")).toBeInTheDocument();
-    expect(within(historico).queryByText("Ana Ribeiro")).toBeNull();
-  });
-
-  it("a busca filtra as duas colunas na hora, sem chamar o banco de novo", async () => {
-    const contacts = vi.fn().mockResolvedValue({ items: CONTATOS, page: 1, pageSize: 100, total: CONTATOS.length });
+  it("abre mostrando só os salvos no celular, pedidos ao servidor com o filtro de origem", async () => {
+    const contacts = contatosQueRespondem();
     const { painel } = await abrirECarregar(api(), domainWith(contacts));
+    const lista = within(painel).getByRole("list", { name: "Contatos" });
+    expect(within(lista).getByText("Ana Ribeiro")).toBeInTheDocument();
+    expect(within(lista).getByText("Carla Souza")).toBeInTheDocument();
+    // Bruno é histórico de conversas: NÃO aparece na abertura — é o que
+    // impede a tela de baixar a base inteira de graça.
+    expect(within(lista).queryByText("Bruno Carvalho")).toBeNull();
+    expect(contacts).toHaveBeenCalledWith(expect.objectContaining({ origin: "phonebook" }));
+  });
+
+  it("a lupa encontra quem não está no celular, pesquisando no servidor", async () => {
+    const contacts = contatosQueRespondem();
+    const { painel } = await abrirECarregar(api(), domainWith(contacts));
+    fireEvent.change(within(painel).getByLabelText("Buscar contato por nome ou telefone"), { target: { value: "bruno" } });
+    // 300 ms de debounce e então a consulta: o termo vai ao SERVIDOR, não a
+    // um filtro local sobre a lista aberta.
+    await waitFor(() => expect(contacts).toHaveBeenCalledWith(expect.objectContaining({ search: "bruno", page: 1, pageSize: 150 })));
+    const lista = await within(painel).findByRole("list", { name: "Contatos" });
+    expect(await within(lista).findByText("Bruno Carvalho")).toBeInTheDocument();
+    expect(within(lista).queryByText("Ana Ribeiro")).toBeNull();
+  });
+
+  it("limpar a lupa devolve a lista do celular sem nova consulta", async () => {
+    const contacts = contatosQueRespondem();
+    const { painel } = await abrirECarregar(api(), domainWith(contacts));
+    const campo = within(painel).getByLabelText("Buscar contato por nome ou telefone");
+    fireEvent.change(campo, { target: { value: "bruno" } });
+    await waitFor(() => expect(contacts).toHaveBeenCalledWith(expect.objectContaining({ search: "bruno" })));
     const chamadas = contacts.mock.calls.length;
-    fireEvent.change(within(painel).getByLabelText("Buscar contato por nome ou telefone"), { target: { value: "carla" } });
-    const celular = within(painel).getByRole("list", { name: "Salvos no celular" });
-    expect(within(celular).getByText("Carla Souza")).toBeInTheDocument();
-    expect(within(celular).queryByText("Ana Ribeiro")).toBeNull();
+    fireEvent.change(campo, { target: { value: "" } });
+    const lista = within(painel).getByRole("list", { name: "Contatos" });
+    await waitFor(() => expect(within(lista).getByText("Ana Ribeiro")).toBeInTheDocument());
     expect(contacts.mock.calls.length).toBe(chamadas);
   });
 
-  it("carrega TODAS as páginas de uma vez, sem botão de carregar mais", async () => {
-    const contacts = vi.fn()
-      .mockResolvedValueOnce({ items: CONTATOS, page: 1, pageSize: 100, total: 4 })
-      .mockResolvedValueOnce({ items: [pessoa("dddddddd-4444-4444-8444-444444444444", "Diego Alves", "5511999990004", "history")], page: 2, pageSize: 100, total: 4 });
+  it("a busca vem em lotes: Carregar mais traz a página seguinte, sem repetir contato", async () => {
+    const lote1 = Array.from({ length: 3 }, (_, index) => pessoa(`eeeeeee${index}-1111-4111-8111-111111111111`, `Zelia ${index}`, `551188888000${index}`, "history"));
+    const contacts = vi.fn().mockImplementation((q: Record<string, unknown> = {}) => {
+      if (q.origin === "phonebook") return Promise.resolve({ items: CONTATOS.filter((c) => c.origin === "phonebook"), page: 1, pageSize: 150, total: 2 });
+      const page = Number(q.page ?? 1);
+      // Página 2 repete o último da página 1 — contato criado durante a
+      // paginação — e a união por id é o que impede a linha duplicada.
+      const items = page === 1 ? lote1 : [lote1[2], pessoa("ffffffff-9999-4999-8999-999999999999", "Zuleica", "5511888889999", "history")];
+      return Promise.resolve({ items, page, pageSize: 150, total: 4 });
+    });
+    const { painel } = await abrirECarregar(api(), domainWith(contacts));
+    fireEvent.change(within(painel).getByLabelText("Buscar contato por nome ou telefone"), { target: { value: "z" } });
+    expect(await within(painel).findByText("Zelia 0")).toBeInTheDocument();
+    const mais = within(painel).getByRole("button", { name: /Carregar mais \(3 de 4\)/ });
+    fireEvent.click(mais);
+    await waitFor(() => expect(contacts).toHaveBeenCalledWith(expect.objectContaining({ search: "z", page: 2 })));
+    expect(await within(painel).findByText("Zuleica")).toBeInTheDocument();
+    expect(within(painel).getAllByText("Zelia 2")).toHaveLength(1); // sem duplicar
+    expect(within(painel).queryByRole("button", { name: /Carregar mais/ })).toBeNull();
+  });
+
+  it("a abertura pagina o celular inteiro, de 150 em 150, sem botão de carregar mais", async () => {
+    const contacts = vi.fn().mockImplementation((q: Record<string, unknown> = {}) => {
+      const page = Number(q.page ?? 1);
+      const items = page === 1
+        ? [CONTATOS[0], CONTATOS[2]]
+        : [pessoa("dddddddd-4444-4444-8444-444444444444", "Diego Alves", "5511999990004", "phonebook")];
+      return Promise.resolve({ items, page, pageSize: 150, total: 3 });
+    });
     const { painel } = await abrirECarregar(api(), domainWith(contacts));
     expect(await within(painel).findByText("Diego Alves")).toBeInTheDocument();
     expect(within(painel).getByText("Ana Ribeiro")).toBeInTheDocument();
-    expect(contacts).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }));
+    expect(contacts).toHaveBeenLastCalledWith(expect.objectContaining({ origin: "phonebook", page: 2, pageSize: 150 }));
     expect(within(painel).queryByRole("button", { name: /Carregar mais/ })).toBeNull();
   });
 
@@ -131,24 +190,22 @@ describe("escolha de contato para envio", () => {
     let liberar: (value: unknown) => void = () => {};
     const domain = domainWith(vi.fn().mockImplementation(() => new Promise((resolve) => { liberar = resolve; })));
     const { painel } = await abrirContatos(api(), domain);
-    fireEvent.click(within(painel).getByRole("button", { name: "Já sincronizei — carregar contatos" }));
     expect(await within(painel).findByText("Carregando contatos…")).toBeInTheDocument();
     liberar({ items: CONTATOS, page: 1, pageSize: 100, total: CONTATOS.length });
-    await within(painel).findByRole("list", { name: "Salvos no celular" });
+    await within(painel).findByRole("list", { name: "Contatos" });
   });
 
-  it("avisa quando o carregamento falha, em vez de ficar em carregando", async () => {
+  it("avisa quando o carregamento falha e oferece Tentar novamente", async () => {
     const domain = domainWith(vi.fn().mockRejectedValue(new Error("rede")));
     const { painel } = await abrirContatos(api(), domain);
-    fireEvent.click(within(painel).getByRole("button", { name: "Já sincronizei — carregar contatos" }));
     expect(await within(painel).findByRole("alert")).toHaveTextContent("Não foi possível carregar os contatos.");
+    expect(within(painel).getByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
   });
 
-  it("mostra o estado vazio nas duas colunas quando não há contato nenhum", async () => {
+  it("mostra o estado vazio quando o celular ainda não foi sincronizado, apontando o botão", async () => {
     const domain = domainWith(vi.fn().mockResolvedValue({ items: [], page: 1, pageSize: 100, total: 0 }));
     const { painel } = await abrirContatos(api(), domain);
-    fireEvent.click(within(painel).getByRole("button", { name: "Já sincronizei — carregar contatos" }));
-    await waitFor(() => expect(within(painel).getAllByText("Nenhum contato encontrado.")).toHaveLength(2));
+    expect(await within(painel).findByText(/Nenhum contato do celular por aqui/)).toBeInTheDocument();
     expect(within(painel).queryByRole("list")).toBeNull();
   });
 
@@ -183,10 +240,10 @@ describe("escolha de contato para envio", () => {
     const { client, painel } = await abrirECarregar();
     const ana = within(painel).getByRole("checkbox", { name: "Ana Ribeiro" });
     fireEvent.click(ana);
-    fireEvent.click(within(painel).getByRole("checkbox", { name: "Bruno Carvalho" }));
+    fireEvent.click(within(painel).getByRole("checkbox", { name: "Carla Souza" }));
     fireEvent.click(ana);
     fireEvent.click(within(painel).getByRole("button", { name: "Enviar contato" }));
-    await waitFor(() => expect(client.sendVcard).toHaveBeenCalledWith(expect.any(String), [CONTATOS[1]!.id]));
+    await waitFor(() => expect(client.sendVcard).toHaveBeenCalledWith(expect.any(String), [CONTATOS[2]!.id]));
   });
 
   it("sem nome, mostra só o telefone formatado — e não o mesmo número duas vezes", async () => {
@@ -219,12 +276,26 @@ describe("escolha de contato para envio", () => {
 
   it("usa a foto quando ela existe, e as iniciais quando não", async () => {
     const comFoto = pessoa("eeeeeeee-5555-4555-8555-555555555555", "Ana Ribeiro", "5511999990001", "phonebook", "https://cdn.test/ana.jpg");
-    const { painel } = await abrirECarregar(api(), domainWith(vi.fn().mockResolvedValue({ items: [comFoto, CONTATOS[1]], page: 1, pageSize: 100, total: 2 })));
+    const semFoto = pessoa("bbbbbbbb-2222-4222-8222-222222222222", "Bruno Carvalho", "5511999990002", "phonebook");
+    const { painel } = await abrirECarregar(api(), domainWith(vi.fn().mockResolvedValue({ items: [comFoto, semFoto], page: 1, pageSize: 100, total: 2 })));
     await within(painel).findByText("Ana Ribeiro");
     const avatares = painel.querySelectorAll(".composer-contact-avatar");
 
     expect(avatares[0].querySelector("img")?.getAttribute("src")).toBe("https://cdn.test/ana.jpg");
     expect(avatares[1].textContent).toBe("BC");
+  });
+
+  it("mostra o nome do WhatsApp quando o nome interno é só dígitos — o caso dos contatos LID", async () => {
+    // Medido na base em 05/08/2026: a maioria dos contatos tem `displayName`
+    // igual a um LID de 14-15 dígitos. O nome de verdade chega na listagem via
+    // `whatsappName`/`whatsappPushName` (enriquecimento de identidade).
+    const lid = { ...pessoa("ffffffff-6666-4666-8666-666666666666", "74599337345125", "74599337345125", "phonebook"), whatsappName: "Pizzaria Jana", photoUrl: "https://cdn.test/pizzaria.jpg" };
+    const { painel } = await abrirContatos(api(), domainWith(vi.fn().mockResolvedValue({ items: [lid], page: 1, pageSize: 100, total: 1 })));
+    const lista = await within(painel).findByRole("list", { name: "Contatos" });
+
+    expect(within(lista).getByText("Pizzaria Jana")).toBeInTheDocument();
+    expect(within(lista).getByText("74599337345125")).toBeInTheDocument(); // o número fica embaixo, até a cura trazer o real
+    expect(lista.querySelector(".composer-contact-avatar img")?.getAttribute("src")).toBe("https://cdn.test/pizzaria.jpg");
   });
 
   it("a linha é horizontal e de altura fixa, e a caixa de marcação fica nela", () => {
@@ -308,5 +379,20 @@ describe("o que a linha mostra", () => {
     expect(contactRow(contato("558592369359", "558592369359", "u")).photoUrl).toBe("u");
     // String vazia não é foto: renderizar `<img src="">` recarrega a página.
     expect(contactRow(contato("Ana", "5511999990001", "   ")).photoUrl).toBeUndefined();
+  });
+
+  it("nome interno só de dígitos cede lugar ao nome do WhatsApp", () => {
+    expect(contactRow({ id: "c", displayName: "74599337345125", phoneNumber: "74599337345125", whatsappName: "Pizzaria Jana" }))
+      .toEqual({ title: "Pizzaria Jana", subtitle: "74599337345125", initials: "PJ" });
+  });
+
+  it("o nome do CRM continua vencendo o nome do WhatsApp", () => {
+    expect(contactRow({ id: "c", displayName: "Ana Ribeiro", phoneNumber: "5511999990001", whatsappName: "Ana" }))
+      .toEqual({ title: "Ana Ribeiro", subtitle: "+55 (11) 99999-0001", initials: "AR" });
+  });
+
+  it("sem nome salvo, vale o pushName do perfil WhatsApp", () => {
+    expect(contactRow({ id: "c", displayName: "74599337345125", phoneNumber: "74599337345125", whatsappPushName: "Lucia Mãe" }).title)
+      .toBe("Lucia Mãe");
   });
 });

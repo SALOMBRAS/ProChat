@@ -49,6 +49,7 @@ export interface WahaClientPort {
   listChats(session: string, offset: number, limit: number): Promise<WahaHistoryPage>;
   listMessages(session: string, chatId: string, offset: number, limit: number): Promise<WahaHistoryPage>;
   listContacts(session: string, offset: number, limit: number): Promise<WahaHistoryPage>;
+  listLidMappings(session: string, offset: number, limit: number): Promise<WahaHistoryPage>;
 }
 
 export class WahaHttpClient implements WahaClientPort {
@@ -173,6 +174,19 @@ export class WahaHttpClient implements WahaClientPort {
     const data = await this.request(`/api/contacts/all?session=${encodeURIComponent(session)}&limit=${limit}&offset=${offset}&sortBy=id&sortOrder=asc`, 'GET', undefined, this.listingTimeout);
     const items = Array.isArray(data) ? data.flatMap(value => value && typeof value === 'object' && !Array.isArray(value) ? [{ ...(value as Record<string, unknown>), id: serializedId((value as Record<string, unknown>).id) ?? (value as Record<string, unknown>).id }] : []) : [];
     const unsupported: string[] = []; const accepted = items.filter(item => { const id = stringValue(item.id); if (!id) { unsupported.push('(sem id)'); return false; } return true; });
+    return { items: accepted, unsupported, hasMore: items.length === limit };
+  }
+  /** O mapa LID → número real da sessão (`GET /api/{session}/lids`).
+   *
+   *  O WhatsApp moderno endereça muita gente só por LID — um identificador
+   *  técnico que não disca. Este endpoint devolve o par `{lid, pn}` de cada um
+   *  que a sessão conhece, e é o que permite gravar o telefone de verdade na
+   *  sincronização de contatos. `hasMore` segue a mesma regra da agenda:
+   *  página cheia é o único sinal de que pode haver mais. */
+  async listLidMappings(session: string, offset: number, limit: number): Promise<WahaHistoryPage> {
+    const data = await this.request(`/api/${encodeURIComponent(session)}/lids?limit=${limit}&offset=${offset}`, 'GET', undefined, this.listingTimeout);
+    const items = Array.isArray(data) ? data.flatMap(value => value && typeof value === 'object' && !Array.isArray(value) ? [value as Record<string, unknown>] : []) : [];
+    const unsupported: string[] = []; const accepted = items.filter(item => { const lid = stringValue(item.lid); const pn = stringValue(item.pn); if (!lid || !pn) { unsupported.push('(par lid/pn incompleto)'); return false; } return true; });
     return { items: accepted, unsupported, hasMore: items.length === limit };
   }
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SqlitePersistenceDatabase } from '../src/persistence/database.js';
-import { SqliteContactIdentityResolver, SupabaseContactIdentityResolver } from '../src/services/contact-identity-resolver.service.js';
+import { SqliteContactIdentityResolver, SqliteContactNameRepair, SupabaseContactIdentityResolver, isTechnicalDisplayName } from '../src/services/contact-identity-resolver.service.js';
 
 const databases: SqlitePersistenceDatabase[] = [];
 const directories: string[] = [];
@@ -66,5 +66,38 @@ describe('contact identity characterization baseline', () => {
     expect(result.contactId).toBeUndefined();
     expect(database.prepare('SELECT count(*) total FROM contacts').get()).toEqual({ total: 0 });
     expect(database.prepare('SELECT count(*) total FROM pending_contact_identities').get()).toEqual({ total: 0 });
+  });
+});
+
+describe('technical display name repair', () => {
+  it('calls technical only what no person would choose as a name', () => {
+    // O rótulo dos contatos LID: só dígitos e pontuação de telefone. Nome real
+    // sempre tem algum caractere fora desse conjunto — em qualquer alfabeto.
+    for (const value of [undefined, null, '', '   ', '200339068317777', '558592369359', '+55 (85) 9236-9359', '55 11 9.9999-0001']) {
+      expect(isTechnicalDisplayName(value)).toBe(true);
+    }
+    for (const value of ['Ana Ribeiro', 'Pizzaria Jana', 'Lucia Mãe', '铃木', 'خالد', "D'Avila"]) {
+      expect(isTechnicalDisplayName(value)).toBe(false);
+    }
+  });
+
+  it('replaces a technical label and never touches a name a person chose', async () => {
+    const database = sqlite(); const resolver = new SqliteContactIdentityResolver(database); const repair = new SqliteContactNameRepair(database);
+    // Contato "fantasma": criado pelo webhook sem nome, rotulado com o telefone.
+    const ghost = await resolver.resolve({ workspaceId: 'workspace-a', identifier: '5511999990000@c.us', source: 'test' });
+    expect(database.prepare('SELECT displayName FROM contacts WHERE id=?').get(ghost!.id)).toEqual({ displayName: '5511999990000' });
+    await repair.repairIfTechnical('workspace-a', ghost!.id, 'Ana Ribeiro');
+    expect(database.prepare('SELECT displayName FROM contacts WHERE id=?').get(ghost!.id)).toEqual({ displayName: 'Ana Ribeiro' });
+    // Com nome de verdade — inclusive o que o operador digitou no CRM — o
+    // reparo não toca, mesmo quando a agenda sugere outro nome.
+    await repair.repairIfTechnical('workspace-a', ghost!.id, 'Outro Nome');
+    expect(database.prepare('SELECT displayName FROM contacts WHERE id=?').get(ghost!.id)).toEqual({ displayName: 'Ana Ribeiro' });
+  });
+
+  it('scopes the repair to the workspace, like every contact write', async () => {
+    const database = sqlite(); const resolver = new SqliteContactIdentityResolver(database); const repair = new SqliteContactNameRepair(database);
+    const own = await resolver.resolve({ workspaceId: 'workspace-a', identifier: '5511999990000@c.us', source: 'test' });
+    await repair.repairIfTechnical('workspace-b', own!.id, 'Invasor');
+    expect(database.prepare('SELECT displayName FROM contacts WHERE id=?').get(own!.id)).toEqual({ displayName: '5511999990000' });
   });
 });
