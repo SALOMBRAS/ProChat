@@ -129,6 +129,29 @@ describe('LinkPreviewService cache', () => {
     await expect(instance.preview('https://example.com/doc')).rejects.toMatchObject({ status: 422 });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it('falha de rede (portal que derruba conexão) aprende por 1 hora, não 10 minutos', async () => {
+    let clock = 0;
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    const instance = service(fetchImpl, () => clock);
+    await expect(instance.preview('https://pje1g.trf3.jus.br/listView.seam')).rejects.toMatchObject({ status: 422 });
+    clock = 30 * 60 * 1000; // 30 min depois: uma falha de conteúdo já teria expirado (10 min)…
+    await expect(instance.preview('https://pje1g.trf3.jus.br/listView.seam')).rejects.toMatchObject({ status: 422 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // …mas a de rede não busca de novo.
+    clock = 61 * 60 * 1000; // Passada 1 h, tenta outra vez — o portal pode ter voltado.
+    await expect(instance.preview('https://pje1g.trf3.jus.br/listView.seam')).rejects.toMatchObject({ status: 422 });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('falha de conteúdo (página respondeu sem OG) expira em 10 minutos', async () => {
+    let clock = 0;
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('%PDF', { status: 200, headers: { 'content-type': 'application/pdf' } }));
+    const instance = service(fetchImpl, () => clock);
+    await expect(instance.preview('https://example.com/doc')).rejects.toMatchObject({ status: 422 });
+    clock = 11 * 60 * 1000;
+    await expect(instance.preview('https://example.com/doc')).rejects.toMatchObject({ status: 422 });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('rota GET /api/v1/inbox/link-preview', () => {

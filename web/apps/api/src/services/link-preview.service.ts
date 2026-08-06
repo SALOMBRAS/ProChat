@@ -8,6 +8,10 @@ const MAX_BODY_BYTES = 1_500_000;
 const CACHE_MAX = 500;
 const SUCCESS_TTL_MS = 6 * 60 * 60 * 1000;
 const FAILURE_TTL_MS = 10 * 60 * 1000;
+// Portal que derruba conexão/estoura timeout (WAF, fora do ar) não se recupera
+// em minutos — insistir é pagar 8 s de espera a cada tentativa. Falha de rede
+// aprende por 1 h; falha de conteúdo (sem OG) segue curta, a página pode mudar.
+const NETWORK_FAILURE_TTL_MS = 60 * 60 * 1000;
 
 type CacheEntry = { value: LinkPreview; expiresAt: number } | { error: AppError; expiresAt: number };
 
@@ -40,9 +44,9 @@ export class LinkPreviewService {
       this.remember(target.href, { value, expiresAt: this.now() + SUCCESS_TTL_MS });
       return value;
     } catch (error) {
-      const failure = error instanceof AppError ? error : new AppError(422, 'VALIDATION_ERROR', 'Não foi possível gerar a prévia deste link');
+      const failure = error instanceof AppError ? error : new AppError(422, 'VALIDATION_ERROR', 'Não foi possível gerar a prévia deste link', { reason: 'network' });
       // 400 nunca é cacheado: URL bloqueada é erro do pedido, não do destino.
-      if (failure.status !== 400) this.remember(target.href, { error: failure, expiresAt: this.now() + FAILURE_TTL_MS });
+      if (failure.status !== 400) this.remember(target.href, { error: failure, expiresAt: this.now() + (failure.details?.reason === 'network' ? NETWORK_FAILURE_TTL_MS : FAILURE_TTL_MS) });
       throw failure;
     }
   }
@@ -135,11 +139,17 @@ export class LinkPreviewService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await (this.options.fetchImpl ?? fetch)(url, { headers: { accept: 'text/html,application/json', ...headers }, redirect: 'manual', signal: controller.signal });
-    } catch { throw new AppError(422, 'VALIDATION_ERROR', 'Não foi possível gerar a prévia deste link'); }
+      // O fetch do Node se identifica como bot ("undici"/"node") e portais —
+      // governo (.jus.br, .gov.br), stacks antigas, CDNs com WAF — respondem
+      // 403/406 ou simplesmente travam. Um UA de navegador destranca a prévia
+      // dessa classe de site sem mudar nada na segurança (o alvo já passou por
+      // `safeTarget`; quem recebe o UA é o site público, não a rede interna).
+      return await (this.options.fetchImpl ?? fetch)(url, { headers: { accept: 'text/html,application/json', 'user-agent': BROWSER_UA, 'accept-language': 'pt-BR,pt;q=0.9,en;q=0.8', ...headers }, redirect: 'manual', signal: controller.signal });
+    } catch { throw new AppError(422, 'VALIDATION_ERROR', 'Não foi possível gerar a prévia deste link', { reason: 'network' }); }
     finally { clearTimeout(timer); }
   }
 }
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
 async function readLimited(response: Response): Promise<string> {
   if (!response.body) return response.text();
