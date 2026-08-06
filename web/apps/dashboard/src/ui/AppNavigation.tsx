@@ -33,7 +33,9 @@ export function AppNavigation({
   onNavigate,
   role,
 }: AppNavigationProps) {
-  const visibleRoutes = role === 'agent' ? routes.filter(([to]) => to === '/dashboard' || to === '/inbox') : routes;
+  const visibleRoutes = (role === 'agent' ? routes.filter(([to]) => to === '/dashboard' || to === '/inbox') : routes)
+    // Cadastro de operadores é tela do dono: gestão usa Departamentos.
+    .filter(([to]) => to !== '/team' || role === 'owner');
   const navigationButton = ([to, name, icon]: (typeof routes)[number]) => (
     <button
       key={to}

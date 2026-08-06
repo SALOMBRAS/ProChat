@@ -129,12 +129,18 @@ export function Departments({ workspace = new WorkspaceApi(), sessionsApi = new 
     {draft && <div className="modal-backdrop"><section className="modal form-modal dept-modal" role="dialog" aria-modal="true" aria-label={draft.id ? 'Editar departamento' : 'Criar departamento'}>
       <button className="close" onClick={() => setDraft(undefined)} aria-label="Fechar">×</button>
       <h2>{draft.id ? 'Editar departamento' : 'Criar departamento'}</h2>
-      <div className="dept-field"><span>NOME</span><input aria-label="Nome do departamento" value={draft.name} maxLength={120} onChange={event => setDraft({ ...draft, name: event.target.value })} /></div>
-      <div className="dept-field"><span>PRÉVIA</span><div className="dept-preview"><b className="dept-chip" style={{ '--dept-color': draft.color } as CSSProperties}>{draft.icon} {draft.name.trim() || 'Departamento'}</b></div></div>
-      <div className="dept-field"><span>COR</span><div className="dept-colors">{DEPT_COLORS.map(color => <button key={color} type="button" className={draft.color === color ? 'selected' : ''} style={{ background: color }} aria-label={`Cor ${color}`} onClick={() => setDraft({ ...draft, color })} />)}</div></div>
-      <div className="dept-field"><span>ÍCONE</span><div className="dept-icons">{DEPT_ICONS.map(icon => <button key={icon} type="button" className={draft.icon === icon ? 'selected' : ''} aria-label={`Ícone ${icon}`} onClick={() => setDraft({ ...draft, icon })}>{icon}</button>)}</div></div>
-      <DeptPicker label="INSTÂNCIAS" items={instances.map(session => ({ id: session.wahaName!, title: session.name, hint: instanceTeams[session.wahaName!] && instanceTeams[session.wahaName!] !== draft.id ? `→ ${teamById.get(instanceTeams[session.wahaName!])?.name ?? 'outro departamento'}` : undefined }))} selected={draft.instances} onToggle={id => setDraft({ ...draft, instances: toggle(draft.instances, id) })} searchLabel="Buscar instância" />
-      <DeptPicker label="COLABORADORES" items={users.filter(user => user.status !== 'disabled').map(user => ({ id: user.id, title: user.displayName, hint: user.role }))} selected={draft.collaborators} onToggle={id => setDraft({ ...draft, collaborators: toggle(draft.collaborators, id) })} searchLabel="Buscar colaborador" />
+      <div className="dept-modal-grid">
+        <div className="dept-col">
+          <div className="dept-field"><span>NOME</span><input aria-label="Nome do departamento" value={draft.name} maxLength={120} onChange={event => setDraft({ ...draft, name: event.target.value })} /></div>
+          <div className="dept-field"><span>PRÉVIA</span><div className="dept-preview"><b className="dept-chip" style={{ '--dept-color': draft.color } as CSSProperties}>{draft.icon} {draft.name.trim() || 'Departamento'}</b></div></div>
+          <div className="dept-field"><span>COR</span><div className="dept-colors">{DEPT_COLORS.map(color => <button key={color} type="button" className={draft.color === color ? 'selected' : ''} style={{ background: color }} aria-label={`Cor ${color}`} onClick={() => setDraft({ ...draft, color })} />)}</div></div>
+          <div className="dept-field"><span>ÍCONE</span><div className="dept-icons">{DEPT_ICONS.map(icon => <button key={icon} type="button" className={draft.icon === icon ? 'selected' : ''} aria-label={`Ícone ${icon}`} onClick={() => setDraft({ ...draft, icon })}>{icon}</button>)}</div></div>
+        </div>
+        <div className="dept-col">
+          <DeptPicker label="INSTÂNCIAS" items={instances.map(session => ({ id: session.wahaName!, title: session.name, hint: instanceTeams[session.wahaName!] && instanceTeams[session.wahaName!] !== draft.id ? `→ ${teamById.get(instanceTeams[session.wahaName!])?.name ?? 'outro departamento'}` : undefined }))} selected={draft.instances} onToggle={id => setDraft({ ...draft, instances: toggle(draft.instances, id) })} searchLabel="Buscar instância" />
+          <DeptPicker label="COLABORADORES" items={users.filter(user => user.status !== 'disabled').map(user => ({ id: user.id, title: user.displayName, hint: user.role }))} selected={draft.collaborators} onToggle={id => setDraft({ ...draft, collaborators: toggle(draft.collaborators, id) })} searchLabel="Buscar colaborador" />
+        </div>
+      </div>
       <div className="confirm-actions"><button type="button" className="secondary" onClick={() => setDraft(undefined)}>Cancelar</button><button type="button" disabled={busy || !draft.name.trim()} onClick={() => void save()}>{busy ? 'Salvando…' : 'Salvar'}</button></div>
     </section></div>}
   </section>;

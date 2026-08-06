@@ -873,7 +873,9 @@
 .department-avatars span { display: grid; place-items: center; width: 26px; height: 26px; margin-right: -7px; border: 2px solid #121221; border-radius: 50%; background: color-mix(in srgb, var(--dept-color, #a855f7) 30%, #1b1629); color: #f3e8ff; font-size: 10px; font-weight: 800; }
 .department-edit { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: transparent; color: #8d8a9f; font-size: 14px; }
 .department-edit:hover { background: #8b5cf626; color: #d8b4fe; }
-.dept-modal { max-width: 560px; }
+.dept-modal { width: min(940px, 100%); max-width: 940px; max-height: 92vh; overflow: auto; text-align: left; }
+.dept-modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 28px; }
+.dept-modal .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 .dept-field { margin: 13px 0; }
 .dept-field > span { display: block; margin-bottom: 8px; color: #8d8a9f; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
 .dept-colors { display: flex; gap: 9px; }
@@ -884,12 +886,13 @@
 .dept-icons button.selected { background: #8b5cf633; border-color: #7c3aed; }
 .dept-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1px solid var(--dept-color, #a855f7); border-radius: 9px; background: color-mix(in srgb, var(--dept-color, #a855f7) 18%, transparent); font-size: 13px; }
 .dept-list { max-height: 168px; margin-top: 8px; overflow: auto; border: 1px solid #24173a; border-radius: 10px; background: #0c0c18; }
-.dept-list label { display: flex; align-items: center; gap: 10px; padding: 9px 12px; font-size: 13px; cursor: pointer; }
+.dept-list label { display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 9px 12px; font-size: 13px; cursor: pointer; }
+.dept-list input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 auto; margin: 0; }
 .dept-list label:hover { background: #ffffff08; }
 .dept-list small { margin-left: auto; color: #8d8a9f; font-size: 11px; }
 .dept-list-empty { margin: 0; padding: 14px; color: #8d8a9f; font-size: 12px; text-align: center; }
 .dept-count { margin: 6px 0 0; color: #8d8a9f; font-size: 11px; }
-@media (max-width: 760px) { .departments-grid { grid-template-columns: 1fr; } .dept-icons { grid-template-columns: repeat(6, 1fr); } }
+@media (max-width: 760px) { .departments-grid { grid-template-columns: 1fr; } .dept-icons { grid-template-columns: repeat(6, 1fr); } .dept-modal-grid { grid-template-columns: 1fr; } }
 
 /* ===== Dispositivos (stats + menu de ações por instância) ===== */
 .devices-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 16px 0; }
@@ -912,18 +915,28 @@
 .device-menu-dept label { display: grid; gap: 6px; color: #c5c1d1; font-size: 12px; }
 .device-menu-dept > small { display: block; margin-top: 5px; color: #8d8a9f; font-size: 11px; }
 
-/* ===== Rail de navegação slim (ícones + tooltip), só fora do mobile ===== */
+/* ===== Rail expansível: fechado é só ícone; o hover abre e mostra rótulos ===== */
 @media (min-width: 761px) {
   .shell { grid-template-columns: 82px minmax(0, 1fr); }
-  .sidebar { align-items: center; padding: 18px 10px 14px; }
-  .brand { margin: 0 0 26px; }
-  .brand span:not(.brand-mark) { display: none; }
-  .brand-mark { margin-right: 0; }
-  .nav-label { display: none; }
-  .nav { justify-content: center; width: 47px; min-height: 47px; padding: 0; border-radius: 13px; }
-  .nav i { width: auto; font-size: 19px; }
-  .nav-text { display: none; }
+  /* A coluna do grid fica em 82px: ao abrir, o rail sobrepõe o conteúdo em
+   *  vez de empurrá-lo (overflow visível + z-index + sombra de elevação). */
+  .sidebar { position: sticky; z-index: 12; width: 82px; padding: 18px 14px 14px; overflow: visible; transition: width .22s ease, box-shadow .22s ease; }
+  .sidebar:hover { width: 238px; box-shadow: 24px 0 60px #00000088; }
+  .brand { justify-content: flex-start; margin: 0 0 26px; }
+  /* O símbolo fechado é o cristal: brilho de topo, núcleo roxo profundo e
+   *  o glow da marca por fora. */
+  .brand-mark { margin-right: 10px; background: radial-gradient(circle at 30% 22%, #eddbff65, transparent 44%), linear-gradient(135deg, #7c3aed, #c084fc); box-shadow: inset 0 1px 1px #f0d9ff5c, inset 0 -7px 12px #4c1d95, 0 0 22px #8b5cf680; }
+  .brand span:not(.brand-mark), .brand b { max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap; transition: max-width .22s ease, opacity .18s ease; }
+  .sidebar:hover .brand span:not(.brand-mark), .sidebar:hover .brand b { max-width: 90px; opacity: 1; }
+  .nav-label { max-height: 0; margin: 0; opacity: 0; overflow: hidden; transition: max-height .22s ease, margin .22s ease, opacity .18s ease; }
+  .sidebar:hover .nav-label { max-height: 26px; margin: 12px 13px 7px; opacity: 1; }
+  .nav { justify-content: center; width: 47px; min-height: 47px; margin-right: auto; margin-left: auto; padding: 0; border-radius: 13px; transition: width .22s ease, padding .22s ease, background .2s, color .2s; }
+  .sidebar:hover .nav { justify-content: flex-start; width: 100%; padding: 0 12px; }
+  .nav i { width: 23px; flex: 0 0 23px; text-align: center; font-size: 19px; }
+  .nav-text { max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap; transition: max-width .22s ease, opacity .18s ease; }
+  .sidebar:hover .nav-text { max-width: 170px; opacity: 1; }
   .nav small { display: none; }
+  .sidebar:hover .nav small { display: block; }
   .nav.active { box-shadow: inset 0 0 0 1px #7c3aed55, 0 0 18px #8b5cf633; }
   .sidebar-upgrade { display: none; }
 }

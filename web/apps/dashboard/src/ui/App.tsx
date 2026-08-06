@@ -72,10 +72,13 @@ export function App() {
   if (!session) return <LoginScreen onLogin={setSession} />;
 
   const isAgent = session.user.role === 'agent';
-  const effectivePath = isAgent && !AGENT_PATHS.has(path) ? "/dashboard" : path;
+  // /team é tela do dono: agent cai no Painel pelo AGENT_PATHS, e qualquer
+  // outro papel que adivinhar a URL também volta para o Painel.
+  const effectivePath = (isAgent && !AGENT_PATHS.has(path)) || (path === '/team' && session.user.role !== 'owner') ? "/dashboard" : path;
 
   const go = (to: string) => {
     if (isAgent && !AGENT_PATHS.has(to)) return;
+    if (to === '/team' && session.user.role !== 'owner') return;
     history.pushState({}, "", to);
     setPath(to);
     setOpen(false);
