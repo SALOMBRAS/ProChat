@@ -855,3 +855,7 @@
 .login-card input:focus { outline: none; border-color: #8b5cf6; box-shadow: 0 0 0 3px #8b5cf626; }
 .login-card button { height: 42px; border-radius: 10px; background: linear-gradient(135deg, #7c3aed, #a855f7); color: #fff; font-weight: 700; }
 .login-card button:disabled { opacity: .6; }
+/* Contas de teste do projeto: mesmas cores do cartão (sem hex novo). */
+.login-card .login-test-accounts { display: grid; gap: 4px; margin-top: 14px; padding: 10px 12px; border: 1px dashed #a855f733; border-radius: 10px; background: #090910; }
+.login-card .login-test-accounts strong { color: #aaa8bb; font-size: 11px; }
+.login-card .login-test-accounts span { color: #77758b; font-size: 11px; }

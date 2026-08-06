@@ -36,6 +36,12 @@ export function LoginScreen({ onLogin }: { onLogin: (session: AuthSession) => vo
           {error && <p className="alert" role="alert">{error}</p>}
           <button disabled={busy}>{busy ? 'Entrando…' : 'Entrar'}</button>
         </form>
+        <div className="login-hint login-test-accounts" aria-label="Contas de teste do projeto">
+          <strong>Contas de teste (projeto acadêmico):</strong>
+          <span>Dono: admin@chat.com · senha: admin</span>
+          <span>Colaborador: colaborador1@chat.com · senha: colaborador1</span>
+          <span>Colaborador: colaborador2@chat.com · senha: colaborador2</span>
+        </div>
       </section>
     </div>
   );
