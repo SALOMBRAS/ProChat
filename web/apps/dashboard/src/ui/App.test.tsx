@@ -25,7 +25,7 @@ describe('Devices', () => {
   it('does not request or display a QR for a connected session', async () => {
     const api = { list: vi.fn().mockResolvedValue([connected]), status: vi.fn(), qr: vi.fn() } as unknown as SessionsApi;
     render(<Devices api={api} />);
-    expect(await screen.findByText('connected')).toBeInTheDocument();
+    expect(await screen.findByText('Conectada')).toBeInTheDocument();
     expect(api.status).not.toHaveBeenCalled();
     expect(api.qr).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

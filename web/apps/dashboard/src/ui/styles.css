@@ -859,3 +859,71 @@
 .login-card .login-test-accounts { display: grid; gap: 4px; margin-top: 14px; padding: 10px 12px; border: 1px dashed #a855f733; border-radius: 10px; background: #090910; }
 .login-card .login-test-accounts strong { color: #aaa8bb; font-size: 11px; }
 .login-card .login-test-accounts span { color: #77758b; font-size: 11px; }
+
+/* ===== Departamentos (organização inspirada no Trynux, cores ChatPro) ===== */
+.departments-banner { display: flex; align-items: center; gap: 6px; margin: 14px 0 0; padding: 12px 16px; border: 1px solid #24173a; border-radius: 12px; background: #10101d; color: #c5c1d1; font-size: 13px; }
+.departments-toolbar { display: flex; gap: 10px; margin: 14px 0 4px; }
+.departments-toolbar input { flex: 1; max-width: 340px; }
+.departments-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-top: 14px; }
+.department-card { position: relative; padding: 18px; border: 1px solid #24173a; border-left: 3px solid var(--dept-color, #a855f7); border-radius: 14px; background: linear-gradient(180deg, #121221, #0d0c15); }
+.department-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 12px; border-radius: 12px; background: color-mix(in srgb, var(--dept-color, #a855f7) 22%, transparent); font-size: 20px; }
+.department-card h3 { margin: 0 34px 6px 0; font-size: 15px; }
+.department-meta { display: flex; gap: 14px; margin: 0 0 12px; color: #8d8a9f; font-size: 12px; }
+.department-avatars { display: flex; }
+.department-avatars span { display: grid; place-items: center; width: 26px; height: 26px; margin-right: -7px; border: 2px solid #121221; border-radius: 50%; background: color-mix(in srgb, var(--dept-color, #a855f7) 30%, #1b1629); color: #f3e8ff; font-size: 10px; font-weight: 800; }
+.department-edit { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: transparent; color: #8d8a9f; font-size: 14px; }
+.department-edit:hover { background: #8b5cf626; color: #d8b4fe; }
+.dept-modal { max-width: 560px; }
+.dept-field { margin: 13px 0; }
+.dept-field > span { display: block; margin-bottom: 8px; color: #8d8a9f; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.dept-colors { display: flex; gap: 9px; }
+.dept-colors button { width: 30px; height: 30px; border: 2px solid transparent; border-radius: 50%; }
+.dept-colors button.selected { border-color: #fff; box-shadow: 0 0 0 3px #7c3aed66; }
+.dept-icons { display: grid; grid-template-columns: repeat(8, 1fr); gap: 7px; }
+.dept-icons button { height: 36px; border: 1px solid #24173a; border-radius: 9px; background: #171625; font-size: 16px; }
+.dept-icons button.selected { background: #8b5cf633; border-color: #7c3aed; }
+.dept-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1px solid var(--dept-color, #a855f7); border-radius: 9px; background: color-mix(in srgb, var(--dept-color, #a855f7) 18%, transparent); font-size: 13px; }
+.dept-list { max-height: 168px; margin-top: 8px; overflow: auto; border: 1px solid #24173a; border-radius: 10px; background: #0c0c18; }
+.dept-list label { display: flex; align-items: center; gap: 10px; padding: 9px 12px; font-size: 13px; cursor: pointer; }
+.dept-list label:hover { background: #ffffff08; }
+.dept-list small { margin-left: auto; color: #8d8a9f; font-size: 11px; }
+.dept-list-empty { margin: 0; padding: 14px; color: #8d8a9f; font-size: 12px; text-align: center; }
+.dept-count { margin: 6px 0 0; color: #8d8a9f; font-size: 11px; }
+@media (max-width: 760px) { .departments-grid { grid-template-columns: 1fr; } .dept-icons { grid-template-columns: repeat(6, 1fr); } }
+
+/* ===== Dispositivos (stats + menu de ações por instância) ===== */
+.devices-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 16px 0; }
+.devices-stats article { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid #24173a; border-radius: 13px; background: #10101d; }
+.devices-stats i { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; background: #8b5cf622; color: #cbb3ff; font-style: normal; font-size: 17px; }
+.devices-stats article.ok i { background: #22c55e22; color: #66e291; }
+.devices-stats article.warn i { background: #f59e0b21; color: #f9cc5f; }
+.devices-stats strong { display: block; font-size: 20px; }
+.devices-stats small { color: #8d8a9f; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.device-card .card-head { position: relative; }
+.device-menu-button { display: grid; place-items: center; width: 30px; height: 30px; margin-left: 8px; border-radius: 9px; background: transparent; color: #8d8a9f; font-size: 17px; }
+.device-menu-button:hover { background: #8b5cf626; color: #d8b4fe; }
+.device-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 252px; padding: 6px; border: 1px solid #24173a; border-radius: 13px; background: #14101f; box-shadow: 0 18px 50px #00000088; }
+.device-menu > button { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 9px 11px; border-radius: 9px; background: transparent; color: #ddd8e6; font-size: 13px; text-align: left; }
+.device-menu > button:hover:not(:disabled) { background: #8b5cf622; }
+.device-menu > button:disabled { opacity: .5; }
+.device-menu > button small { color: #8d8a9f; font-size: 11px; }
+.device-menu > button.danger { color: #ff9aa8; }
+.device-menu-dept { margin: 4px 0; padding: 9px 11px; border-top: 1px solid #24173a; border-bottom: 1px solid #24173a; }
+.device-menu-dept label { display: grid; gap: 6px; color: #c5c1d1; font-size: 12px; }
+.device-menu-dept > small { display: block; margin-top: 5px; color: #8d8a9f; font-size: 11px; }
+
+/* ===== Rail de navegação slim (ícones + tooltip), só fora do mobile ===== */
+@media (min-width: 761px) {
+  .shell { grid-template-columns: 82px minmax(0, 1fr); }
+  .sidebar { align-items: center; padding: 18px 10px 14px; }
+  .brand { margin: 0 0 26px; }
+  .brand span:not(.brand-mark) { display: none; }
+  .brand-mark { margin-right: 0; }
+  .nav-label { display: none; }
+  .nav { justify-content: center; width: 47px; min-height: 47px; padding: 0; border-radius: 13px; }
+  .nav i { width: auto; font-size: 19px; }
+  .nav-text { display: none; }
+  .nav small { display: none; }
+  .nav.active { box-shadow: inset 0 0 0 1px #7c3aed55, 0 0 18px #8b5cf633; }
+  .sidebar-upgrade { display: none; }
+}

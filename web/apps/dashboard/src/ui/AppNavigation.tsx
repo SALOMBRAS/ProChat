@@ -4,6 +4,7 @@ export const routes = [
   ["/calls", "Chamadas", "✆"],
   ["/devices", "Dispositivos", "◈"],
   ["/team", "Equipe", "◉"],
+  ["/departments", "Departamentos", "▣"],
   ["/queues", "Filas", "Q"],
   ["/crm", "CRM", "◇"],
   ["/contacts", "Contatos", "◎"],
@@ -38,9 +39,11 @@ export function AppNavigation({
       key={to}
       className={path === to ? "nav active" : "nav"}
       onClick={() => onNavigate(to)}
+      aria-label={name}
+      title={name}
     >
       <i>{icon}</i>
-      {name}
+      <span className="nav-text">{name}</span>
     </button>
   );
 
@@ -64,10 +67,11 @@ export function AppNavigation({
           key={name}
           className="nav future"
           disabled
+          aria-label={name}
           title="Recurso visual preparado para uma futura etapa"
         >
           <i>{icon}</i>
-          {name}
+          <span className="nav-text">{name}</span>
           <small>Em breve</small>
         </button>
       ))}

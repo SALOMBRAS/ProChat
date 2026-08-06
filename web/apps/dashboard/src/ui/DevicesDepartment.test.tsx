@@ -25,6 +25,8 @@ describe("Devices — vínculo instância→departamento", () => {
     const { api, domainApi, workspace } = harness({ "instanceTeam:chatpro-abc123": "team-a" });
     render(<Devices api={api} domainApi={domainApi} workspace={workspace} />);
 
+    // O select mora no menu de ações da instância (⋯), como no Trynux.
+    fireEvent.click(await screen.findByLabelText("Ações da sessão Atendimento"));
     const select = await screen.findByLabelText("Departamento da sessão Atendimento");
     expect(select).toHaveValue("team-a");
 
@@ -36,6 +38,7 @@ describe("Devices — vínculo instância→departamento", () => {
     const { api, domainApi, workspace } = harness({ "instanceTeam:chatpro-abc123": "team-a" });
     render(<Devices api={api} domainApi={domainApi} workspace={workspace} />);
 
+    fireEvent.click(await screen.findByLabelText("Ações da sessão Atendimento"));
     fireEvent.change(await screen.findByLabelText("Departamento da sessão Atendimento"), { target: { value: "" } });
     await waitFor(() => expect(domainApi.saveSettings).toHaveBeenCalledWith({ operational: {} }));
   });
