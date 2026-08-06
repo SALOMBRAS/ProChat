@@ -1,7 +1,12 @@
 import { z } from 'zod';
 
 export const safeIdentifierSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/, 'Identifier must contain only letters, numbers, hyphens, and underscores');
-export const requestContextSchema = z.object({ userId: z.string().min(1).optional(), workspaceId: safeIdentifierSchema, correlationId: z.string().min(1) });
+export const workspaceUserRoleSchema = z.enum(['owner', 'admin', 'manager', 'agent']);
+export const requestContextSchema = z.object({ userId: z.string().min(1).optional(), workspaceId: safeIdentifierSchema, correlationId: z.string().min(1),
+  // Papel do usuário autenticado. Só vem preenchido quando a requisição entrou
+  // por sessão (Bearer); o contexto legado de desenvolvimento (headers) não o
+  // conhece, e os middlewares de autorização tratam a ausência como "legado".
+  role: workspaceUserRoleSchema.optional() });
 export type RequestContext = z.infer<typeof requestContextSchema>;
 
 export const errorCodes = ['VALIDATION_ERROR','UNAUTHORIZED','FORBIDDEN','NOT_FOUND','CONFLICT','SERVICE_UNAVAILABLE','PROVIDER_CONTRACT_ERROR','NOT_IMPLEMENTED','TIMEOUT'] as const;
@@ -17,7 +22,7 @@ export const notImplementedErrorSchema = apiErrorSchema.refine(value => value.er
 
 export const sessionStatusSchema = z.enum(['disconnected','connecting','waiting_qr','connected','stopped','error']);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
-export const whatsAppSessionSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), name: z.string().min(1), status: sessionStatusSchema, createdAt: z.string().datetime(), updatedAt: z.string().datetime(), wahaName: z.string().min(1).optional(), aliases: z.array(z.string().min(1)).optional(), managed: z.boolean().optional() });
+export const whatsAppSessionSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), name: z.string().min(1), status: sessionStatusSchema, createdAt: z.string().datetime(), updatedAt: z.string().datetime(), wahaName: z.string().min(1).optional(), aliases: z.array(z.string().min(1)).optional(), managed: z.boolean().optional(), phone: z.string().min(1).max(32).optional() });
 export type WhatsAppSession = z.infer<typeof whatsAppSessionSchema>;
 // The caller owns this key so retrying a request whose response was lost does
 // not create a second WAHA session. It is also used as the public session id.
@@ -25,7 +30,7 @@ export const createSessionRequestSchema = z.object({ name: z.string().trim().min
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export const connectSessionRequestSchema = z.object({ forceQrRefresh: z.boolean().optional().default(false) });
 export type ConnectSessionRequest = z.infer<typeof connectSessionRequestSchema>;
-export const sessionSummarySchema = whatsAppSessionSchema.pick({ id: true, workspaceId: true, name: true, status: true, updatedAt: true, wahaName: true, aliases: true, managed: true });
+export const sessionSummarySchema = whatsAppSessionSchema.pick({ id: true, workspaceId: true, name: true, status: true, updatedAt: true, wahaName: true, aliases: true, managed: true, phone: true });
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 
 export const contactSchema = z.object({ id: z.string().min(1), workspaceId: z.string().min(1), displayName: z.string().min(1), phoneNumber: z.string().min(1), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
@@ -86,7 +91,6 @@ export type RoutingQueue = z.infer<typeof routingQueueSchema>;
 export type RoutingQueueMember = z.infer<typeof routingQueueMemberSchema>;
 export type RoutingEvent = z.infer<typeof routingEventSchema>;
 export const conversationEventActionSchema = z.enum(['assigned', 'unassigned', 'status_changed', 'priority_changed', 'archived', 'reopened']);
-export const workspaceUserRoleSchema = z.enum(['owner', 'admin', 'manager', 'agent']);
 export const workspaceUserStatusSchema = z.enum(['active', 'invited', 'disabled']);
 export const workspaceUserSchema = z.object({ id: z.string().uuid(), workspaceId: safeIdentifierSchema, email: z.string().email(), displayName: z.string().trim().min(1).max(160), avatarUrl: z.string().url().nullable(), role: workspaceUserRoleSchema, status: workspaceUserStatusSchema, createdAt: z.string().datetime(), updatedAt: z.string().datetime(), lastSeenAt: z.string().datetime().nullable() });
 export const teamSchema = z.object({ id: z.string().uuid(), workspaceId: safeIdentifierSchema, name: z.string().trim().min(1).max(120), description: z.string().trim().max(500).nullable(), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(), isActive: z.boolean(), memberCount: z.number().int().nonnegative(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
@@ -139,6 +143,11 @@ export type SessionQr = z.infer<typeof sessionQrSchema>;
 export const internalListSessionsCommandSchema = z.object({ type: z.literal('session.list'), payload: z.object({}) });
 export const internalCreateSessionCommandSchema = z.object({ type: z.literal('session.create'), payload: z.object({ sessionId: sessionIdSchema, name: z.string().trim().min(1).max(120).optional() }) });
 export const internalSessionCommandSchema = z.object({ type: z.enum(['session.connect', 'session.status', 'session.qr', 'session.stop', 'session.logout', 'session.remove']), payload: z.object({ sessionId: sessionIdSchema }) });
+/** Adoção por número: a API descobre nomes WAHA antigos do mesmo telefone
+ *  (mensagens outbound gravadas com `from` = número próprio) e os registra como
+ *  aliases da sessão viva — o registry do worker passa a tratá-los como a mesma
+ *  conta, sem reescrita de dados. */
+export const internalMergeSessionAliasesCommandSchema = z.object({ type: z.literal('session.mergeAliases'), payload: z.object({ sessionId: sessionIdSchema, aliases: z.array(z.string().trim().min(1).max(200)).min(1).max(50) }) });
 export const internalSendMessageCommandSchema = z.object({ type: z.literal('message.send'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), chatId: z.string().trim().min(1).max(200), text: z.string().trim().min(1).max(4_096), mentions: z.array(z.string().regex(/^\d{6,20}@(c\.us|lid)$/)).max(50).optional(), linkPreview: z.boolean().optional() }) });
 export const attachmentTypeSchema = z.enum(['image', 'audio', 'video', 'document']);
 export const outboxStatusSchema = z.enum(['pending', 'processing', 'sent', 'confirmed', 'failed', 'cancelled']);
@@ -222,7 +231,7 @@ export const internalContactsPageCommandSchema = z.object({ type: z.literal('con
  *  Páginas maiores que a agenda (500) porque cada item é minúsculo e o mapa de
  *  uma sessão chega a milhares de entradas. */
 export const internalLidsPageCommandSchema = z.object({ type: z.literal('lids.page'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), offset: z.number().int().nonnegative(), limit: z.number().int().positive().max(500) }) });
-export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema, internalSendMessageCommandSchema, internalSendAttachmentCommandSchema, internalSendContentCommandSchema, internalSendReactionCommandSchema, internalIdentitySyncCommandSchema, internalHistoryPageCommandSchema, internalContactsPageCommandSchema, internalLidsPageCommandSchema]);
+export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema, internalSendMessageCommandSchema, internalSendAttachmentCommandSchema, internalSendContentCommandSchema, internalSendReactionCommandSchema, internalIdentitySyncCommandSchema, internalHistoryPageCommandSchema, internalContactsPageCommandSchema, internalLidsPageCommandSchema, internalMergeSessionAliasesCommandSchema]);
 export type InternalTransportCommand = z.infer<typeof internalTransportCommandSchema>;
 export const internalTransportRequestSchema = z.object({ correlationId: z.string().min(1).max(128), workspaceId: safeIdentifierSchema, timeoutMs: internalTransportTimeoutSchema, command: internalTransportCommandSchema });
 export type InternalTransportRequest = z.infer<typeof internalTransportRequestSchema>;

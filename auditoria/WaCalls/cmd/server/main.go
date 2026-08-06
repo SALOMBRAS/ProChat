@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -18,6 +19,7 @@ func main() {
 	staticDir := flag.String("static", "client/dist", "static client directory (optional)")
 	debug := flag.Bool("debug", false, "verbose logging")
 	maxCalls := flag.Int("max-calls-per-session", 8, "max concurrent calls per session (0 = unlimited)")
+	recordingsDir := flag.String("recordings-dir", "", "directory for call recordings (default: <db dir>/recordings)")
 	flag.Parse()
 
 	level := slog.LevelInfo
@@ -30,7 +32,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	srv, err := newServer(ctx, *dbPath, *staticDir, *maxCalls, log)
+	// Gravação sempre ativa: default é um diretório "recordings" ao lado do db.
+	recDir := *recordingsDir
+	if recDir == "" {
+		recDir = filepath.Join(filepath.Dir(*dbPath), "recordings")
+	}
+
+	srv, err := newServer(ctx, *dbPath, *staticDir, *maxCalls, recDir, log)
 	if err != nil {
 		log.Error("startup failed", "err", err)
 		os.Exit(1)

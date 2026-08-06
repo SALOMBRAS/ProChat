@@ -331,8 +331,8 @@ describe('operational SLA lifecycle', () => {
     const message = await inbox.send({ workspaceId, userId: '00000000-0000-4000-8000-000000000001', correlationId: 'sla-isolation' } as any, conversationId, 'Resposta');
     expect(message.id).toBe('outbound-message');
     expect(conversations.recordOutbound).toHaveBeenCalledOnce();
-    expect(realtime.publish).toHaveBeenCalledWith(workspaceId, 'message.sent', expect.anything());
-    expect(realtime.publish).toHaveBeenCalledWith(workspaceId, 'conversation.updated', expect.anything());
+    expect(realtime.publish).toHaveBeenCalledWith(workspaceId, 'message.sent', expect.anything(), expect.anything());
+    expect(realtime.publish).toHaveBeenCalledWith(workspaceId, 'conversation.updated', expect.anything(), expect.anything());
     expect(warn).toHaveBeenCalledOnce();
   });
 });

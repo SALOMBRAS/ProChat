@@ -7,9 +7,41 @@ import type { SessionServicePort } from '../ports/catalog.ports.js';
 const statusFor = (code: string): number => ({ VALIDATION_ERROR: 400, NOT_FOUND: 404, CONFLICT: 409, TIMEOUT: 504, SERVICE_UNAVAILABLE: 503 }[code] ?? 503);
 
 export class InternalSessionService implements SessionServicePort {
+  /** Telefone próprio → nomes WAHA que já o usaram (mensagens outbound
+   *  gravadas). Alimenta a adoção por número: nomes históricos do mesmo
+   *  telefone viram aliases da sessão viva. Ligado pelo app.ts quando o store
+   *  de webhooks existe. */
+  sessionPhoneHistory?: (workspaceId: string) => Promise<Map<string, string[]>>;
+
   constructor(private readonly worker: InternalWorkerClient) {}
 
-  async list(context: RequestContext): Promise<SessionSummary[]> { return await this.data(context, { type: 'session.list', payload: {} }, 'sessions') as SessionSummary[]; }
+  async list(context: RequestContext): Promise<SessionSummary[]> {
+    const sessions = await this.data(context, { type: 'session.list', payload: {} }, 'sessions') as SessionSummary[];
+    await this.adoptHistoricalAliases(context, sessions);
+    return sessions;
+  }
+
+  /** Cross-máquina: o registry do worker é local, então uma reinstalação não
+   *  conhece os nomes WAHA antigos do mesmo número. A memória está no banco
+   *  (outbound `from`); os nomes encontrados viram aliases da sessão viva.
+   *  Best-effort: a listagem nunca falha por causa da adoção. */
+  private async adoptHistoricalAliases(context: RequestContext, sessions: SessionSummary[]): Promise<void> {
+    if (!this.sessionPhoneHistory) return;
+    let history: Map<string, string[]>;
+    try { history = await this.sessionPhoneHistory(context.workspaceId); } catch { return; }
+    for (const session of sessions) {
+      if (!session.phone || session.managed === false) continue;
+      const known = history.get(session.phone);
+      if (!known) continue;
+      const missing = known.filter(name => name !== session.wahaName && !(session.aliases ?? []).includes(name));
+      if (!missing.length) continue;
+      try {
+        await this.data(context, { type: 'session.mergeAliases', payload: { sessionId: session.id, aliases: missing } }, 'completed');
+        session.aliases = [...(session.aliases ?? []), ...missing];
+      } catch { /* o próximo list tenta de novo */ }
+    }
+  }
+
   async create(context: RequestContext, input: CreateSessionRequest): Promise<WhatsAppSession> {
     // A stable id makes POST retries safe even when WAHA accepted the first
     // request after the browser/API connection timed out.

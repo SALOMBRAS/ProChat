@@ -3,6 +3,7 @@ import { AppError } from '../errors.js';
 import { InternalWorkerClient } from '../internal-worker-client.js';
 import type { ConversationStore, InboxMessage, MessageReaction, ReactionStore } from './waha-webhook.service.js';
 import type { RealtimeHub } from '../realtime.js';
+import { conversationAudience } from '../realtime.js';
 import type { KanbanAutomationCoordinator } from './kanban-automation.service.js';
 import type { SlaMessageCoordinator } from './sla-message-coordinator.service.js';
 import type { WhatsAppSessionActivityService } from './whatsapp-session-activity.service.js';
@@ -37,7 +38,7 @@ export class InternalInboxService {
       throw new AppError(statusFor(response.error.code), response.error.code, response.error.message, response.error.details);
     }
     const applied = await this.conversations.ingestReaction({ workspaceId: context.workspaceId, wahaSession: conversation.whatsappSessionId, messageId, author: `operator:${context.userId ?? 'unknown'}`, emoji: reaction, fromMe: true, reactedAt: new Date().toISOString() });
-    if (applied.conversationId && applied.action !== 'noop' && applied.action !== 'orphan') this.realtime.publish(context.workspaceId, 'message.reaction.updated', { conversationId: applied.conversationId, messageId, reactions: applied.reactions });
+    if (applied.conversationId && applied.action !== 'noop' && applied.action !== 'orphan') this.realtime.publish(context.workspaceId, 'message.reaction.updated', { conversationId: applied.conversationId, messageId, reactions: applied.reactions }, conversationAudience(conversation));
     log('info', 'Inbox reaction applied', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, messageId, action: applied.action });
     return { messageId, reactions: applied.reactions };
   }
@@ -131,8 +132,8 @@ export class InternalInboxService {
       throw error;
     }
     try {
-      this.realtime.publish(context.workspaceId, 'message.sent', { conversationId, message });
-      this.realtime.publish(context.workspaceId, 'conversation.updated', { conversationId });
+      this.realtime.publish(context.workspaceId, 'message.sent', { conversationId, message }, conversationAudience(conversation));
+      this.realtime.publish(context.workspaceId, 'conversation.updated', { conversationId }, conversationAudience(conversation));
       log('info', 'Inbox outbound realtime completed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, messageId: persisted.id });
     } catch (error) {
       log('error', 'Inbox outbound realtime failed', { correlationId: context.correlationId, workspaceId: context.workspaceId, conversationId, messageId: persisted.id, ...errorDiagnostics(error) });

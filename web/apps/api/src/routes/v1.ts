@@ -1,24 +1,51 @@
 import { Router } from 'express';
 import { CatalogController } from '../controllers/catalog.controller.js';
 import { workspaceContext } from '../middleware/context.js';
+import type { AuthMiddlewares } from '../middleware/auth.js';
+import type { AuthController } from '../controllers/auth.controller.js';
 import { DomainController } from '../controllers/domain.controller.js';
 import { InboxController } from '../controllers/inbox.controller.js';
 import { WorkspaceDirectoryController } from '../controllers/workspace-directory.controller.js';
 import { RoutingController } from '../controllers/routing.controller.js';
 import { CallsController } from '../controllers/calls.controller.js';
-export function createV1Router(controller: CatalogController, domain?: DomainController, inbox?: InboxController, directory?: WorkspaceDirectoryController, routing?: RoutingController, calls?: CallsController): Router {
+
+export type V1Auth = { controller: AuthController; middlewares: AuthMiddlewares };
+
+/** O que o colaborador (`agent`) pode tocar: o Painel e tudo que a tela de
+ *  Inbox consome — inclusive a ficha do contato da conversa e o diretório de
+ *  operadores em leitura (menu de atribuição). O resto cai no
+ *  `requireManagement`. Caminhos aqui são relativos ao mount `/api/v1`. */
+const agentAllowed = (method: string, path: string): boolean => {
+  if (path === '/auth/me' || path === '/auth/logout' || path === '/auth/password') return true;
+  if (path === '/domain/dashboard') return true;
+  if (path.startsWith('/inbox/') || path === '/inbox') return true;
+  if (method === 'GET' && (path === '/workspace/users' || path === '/workspace/teams' || path === '/workspace/sla-config')) return true;
+  if (path === '/domain/contacts' || path === '/domain/contacts/sync' || path === '/domain/contacts/sync/cancel') return true;
+  if (/^\/domain\/contacts\/[^/]+$/.test(path)) return true; // ficha do contato (GET/PATCH)
+  if (/^\/domain\/contacts\/(sync\/status|[^/]+\/tags)$/.test(path)) return true;
+  return false;
+};
+
+export function createV1Router(controller: CatalogController, domain?: DomainController, inbox?: InboxController, directory?: WorkspaceDirectoryController, routing?: RoutingController, calls?: CallsController, auth?: V1Auth): Router {
   const router = Router();
+  const authenticate = auth?.middlewares.authenticate ?? workspaceContext;
   if (inbox) {
     const mediaFile = (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
       if (typeof req.query.access_token === 'string') return inbox.mediaFile(req, res, next);
-      return workspaceContext(req, res, () => inbox.mediaFile(req, res, next));
+      return authenticate(req, res, () => inbox.mediaFile(req, res, next));
     };
     router.get('/inbox/messages/:messageId/media', mediaFile); router.head('/inbox/messages/:messageId/media', mediaFile);
   }
-  router.use(workspaceContext);
+  // Login é público: é a porta de entrada, antes de qualquer exigência de sessão.
+  if (auth) router.post('/auth/login', auth.controller.login);
+  router.use(authenticate);
+  if (auth) {
+    router.post('/auth/logout', auth.controller.logout); router.get('/auth/me', auth.controller.me); router.put('/auth/password', auth.controller.changePassword); router.post('/auth/users/:id/password', auth.controller.setUserPassword);
+    router.use((req, _res, next) => agentAllowed(req.method, req.path) ? next() : auth.middlewares.requireManagement(req, _res, next));
+  }
   router.get('/sessions', controller.sessions); router.post('/sessions', controller.createSession); router.get('/sessions/:sessionId/status', controller.getSession); router.get('/sessions/:sessionId/qr', controller.qr); router.post('/sessions/:sessionId/connect', controller.connect); router.post('/sessions/:sessionId/stop', controller.disconnect); router.post('/sessions/:sessionId/logout', controller.logout); router.delete('/sessions/:sessionId', controller.removeSession);
   router.get('/contacts', controller.contacts);
-  if (calls) { router.post('/calls', calls.start); router.get('/calls/active', calls.active); router.get('/calls/pairing', calls.pairing); router.post('/calls/pairing', calls.startPairing); router.post('/calls/:callId/webrtc', calls.webrtc); router.post('/calls/:callId/accept', calls.accept); router.post('/calls/:callId/reject', calls.reject); router.delete('/calls/:callId', calls.end); }
+  if (calls) { router.post('/calls', calls.start); router.get('/calls/active', calls.active); router.get('/calls/history', calls.history); router.get('/calls/pairing', calls.pairing); router.post('/calls/pairing', calls.startPairing); router.get('/calls/:callId/recording', calls.recording); router.post('/calls/:callId/webrtc', calls.webrtc); router.post('/calls/:callId/accept', calls.accept); router.post('/calls/:callId/reject', calls.reject); router.delete('/calls/:callId', calls.end); }
   router.get('/templates', controller.templates); router.post('/templates', controller.createTemplate); router.put('/templates/:templateId', controller.updateTemplate); router.delete('/templates/:templateId', controller.removeTemplate);
   if (inbox) { router.get('/inbox/kanban/boards',inbox.kanbanBoards);router.get('/inbox/kanban/boards/:boardId',inbox.kanbanBoard);router.get('/inbox/kanban/boards/:boardId/conversations',inbox.kanbanConversations);router.post('/inbox/kanban/conversations/:conversationId/move',inbox.kanbanMove);router.get('/inbox/kanban/conversations/:conversationId/history',inbox.kanbanHistory);router.post('/inbox/kanban/boards',inbox.kanbanCreateBoard);router.post('/inbox/kanban/backfill',inbox.kanbanBackfill);router.post('/inbox/kanban/boards/:boardId/stages',inbox.kanbanCreateStage);router.put('/inbox/kanban/stages/reorder',inbox.kanbanReorderStages);router.put('/inbox/kanban/stages/:stageId',inbox.kanbanUpdateStage); router.get('/inbox/link-preview', inbox.linkPreview); router.get('/inbox/conversations', inbox.listConversations); router.get('/inbox/operations/sla-summary', inbox.slaSummary); router.get('/workspace/sla-config', inbox.slaConfig); router.put('/workspace/sla-config', inbox.updateSlaConfig); router.get('/inbox/integrity/quarantine', inbox.listQuarantined); router.get('/inbox/integrity/summary', inbox.integritySummary); router.post('/inbox/integrity/quarantine/:conversationId/restore', inbox.restoreConversation); router.get('/inbox/conversations/:conversationId', inbox.getConversation); router.get('/inbox/conversations/:conversationId/participants', inbox.listParticipants); router.get('/inbox/conversations/:conversationId/messages', inbox.listMessages); router.get('/inbox/messages/:messageId/media/access', inbox.mediaAccess); router.get('/inbox/conversations/:conversationId/context', inbox.getContext); router.patch('/inbox/conversations/:conversationId/context', inbox.updateContext); router.post('/inbox/conversations/:conversationId/assign', inbox.assign); router.post('/inbox/conversations/:conversationId/unassign', inbox.unassign); router.patch('/inbox/conversations/:conversationId/status', inbox.updateStatus); router.patch('/inbox/conversations/:conversationId/priority', inbox.updatePriority); router.get('/inbox/conversations/:conversationId/activity', inbox.activity); router.get('/inbox/conversations/:conversationId/sla-metrics', inbox.slaMetrics); router.post('/inbox/conversations/:conversationId/messages', inbox.sendMessage); router.post('/inbox/conversations/:conversationId/messages/:messageId/reactions', inbox.reactToMessage); router.post('/inbox/conversations/:conversationId/location', inbox.sendLocation); router.post('/inbox/conversations/:conversationId/vcard', inbox.sendVcard); router.post('/inbox/conversations/:conversationId/attachments', inbox.attachmentUpload, inbox.createAttachment); router.get('/inbox/outbox/:jobId', inbox.getOutbox); router.post('/inbox/outbox/:jobId/cancel', inbox.cancelOutbox); router.post('/inbox/conversations/:conversationId/contact', inbox.createContact); router.post('/inbox/conversations/:conversationId/read', inbox.markRead); router.post('/inbox/sync/start', inbox.startSync); router.get('/inbox/sync/status', inbox.syncStatus); router.post('/inbox/sync/cancel', inbox.cancelSync); }
   if (routing) { router.post('/inbox/conversations/:id/queue', routing.moveConversation); router.post('/inbox/conversations/:id/redistribute', routing.redistribute); router.get('/inbox/conversations/:id/routing-status',routing.status); router.get('/inbox/routing-jobs/:id',routing.job); router.post('/inbox/routing-jobs/:id/cancel',routing.cancelJob); }

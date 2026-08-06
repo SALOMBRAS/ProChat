@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import type { Campaign, Lead, PersistenceContact as Contact, PersistenceTemplate as Template, Pipeline, Stage } from '@chatpro/contracts';
 import { ApiError } from '../api/client';
 import { DomainApi } from '../api/domain';
+import { WorkspaceApi } from '../api/workspace';
 import { SessionsApi } from '../api/sessions';
 import { InboxApi, type InboxConversation } from '../api/inbox';
 import { connectRealtime } from '../api/realtime';
@@ -11,12 +12,19 @@ import { TeamDirectory } from './TeamDirectory.js';
 import RoutingQueues from './RoutingQueues.js';
 import { InboxKanban } from './InboxKanban.js';
 import { CallPairingPanel } from './CallPairing.js';
+import { CallsPage } from './CallsPage.js';
 import { AppNavigation, routes } from './AppNavigation.js';
 import { HomeDashboard } from './HomeDashboard.js';
+import { LoginScreen } from './LoginScreen.js';
+import { AuthApi } from '../api/auth.js';
+import { SESSION_EXPIRED_EVENT, clearAuthSession, loadAuthSession, type AuthSession } from '../api/auth-storage.js';
 import { inboxUrlForConversation } from './conversationNavigation.js';
 import { safeContactText, safePhoneText } from './contactIdentity.js';
 
-const domain = new DomainApi(); const sessionsApi = new SessionsApi(); const inboxApi = new InboxApi();
+const domain = new DomainApi(); const sessionsApi = new SessionsApi(); const inboxApi = new InboxApi(); const authApi = new AuthApi(); const workspaceApi = new WorkspaceApi();
+/** Páginas que o colaborador (agent) pode abrir — o resto é gestão, e o
+ *  backend também bloqueia (aqui é só navegação). */
+const AGENT_PATHS = new Set(['/dashboard', '/inbox']);
 const Inbox = InboxScreen;
 export { Inbox };
 const message = (error: unknown) => error instanceof ApiError ? error.message : 'Ocorreu um erro inesperado.';
@@ -34,6 +42,7 @@ const GlobalSearch = () => {
 };
 
 export function App() {
+  const [session, setSession] = useState<AuthSession | null>(() => loadAuthSession());
   const [path, setPath] = useState(() =>
     routes.some(([route]) => route === location.pathname)
       ? location.pathname
@@ -47,32 +56,52 @@ export function App() {
     return () => removeEventListener("popstate", sync);
   }, []);
 
+  useEffect(() => {
+    const expired = () => setSession(null);
+    addEventListener(SESSION_EXPIRED_EVENT, expired);
+    return () => removeEventListener(SESSION_EXPIRED_EVENT, expired);
+  }, []);
+
+  const logout = async () => {
+    try { await authApi.logout(); } catch { /* Sessão já inválida no servidor — o logout local vale. */ }
+    clearAuthSession();
+    setSession(null);
+  };
+
+  if (!session) return <LoginScreen onLogin={setSession} />;
+
+  const isAgent = session.user.role === 'agent';
+  const effectivePath = isAgent && !AGENT_PATHS.has(path) ? "/dashboard" : path;
+
   const go = (to: string) => {
+    if (isAgent && !AGENT_PATHS.has(to)) return;
     history.pushState({}, "", to);
     setPath(to);
     setOpen(false);
   };
   const Page =
-    path === "/dashboard"
+    effectivePath === "/dashboard"
       ? Dashboard
-      : path === "/inbox"
+      : effectivePath === "/inbox"
         ? Inbox
-        : path === "/devices"
+        : effectivePath === "/calls"
+          ? CallsPage
+        : effectivePath === "/devices"
           ? Devices
-          : path === "/team"
+          : effectivePath === "/team"
             ? TeamDirectory
-            : path === "/queues"
+            : effectivePath === "/queues"
               ? RoutingQueues
-              : path === "/crm"
+              : effectivePath === "/crm"
                 ? Crm
-                : path === "/contacts"
+                : effectivePath === "/contacts"
                   ? Contacts
-                  : path === "/templates"
+                  : effectivePath === "/templates"
                     ? Templates
-                    : path === "/campaigns"
+                    : effectivePath === "/campaigns"
                       ? Campaigns
                       : Settings;
-  const pageName = routes.find(([to]) => to === path)?.[1];
+  const pageName = routes.find(([to]) => to === effectivePath)?.[1];
 
   return (
     <div className="shell">
@@ -83,7 +112,7 @@ export function App() {
       >
         ☰
       </button>
-      <AppNavigation open={open} path={path} onNavigate={go} />
+      <AppNavigation open={open} path={effectivePath} onNavigate={go} role={session.user.role} />
       <main>
         <header>
           <div className="page-heading">
@@ -95,9 +124,12 @@ export function App() {
             <button className="icon-button" aria-label="Notificações">
               ♧<b />
             </button>
-            <button className="profile-button" aria-label="Perfil do usuário">
-              <span>SP</span>
+            <button className="profile-button" aria-label={`Usuário: ${session.user.displayName}`} title={session.user.displayName}>
+              <span>{session.user.displayName.trim().slice(0, 2).toUpperCase()}</span>
               <i>⌄</i>
+            </button>
+            <button className="icon-button" onClick={() => void logout()} aria-label="Sair" title="Sair">
+              ⏻
             </button>
           </div>
         </header>
@@ -154,8 +186,30 @@ function LegacyInbox({ api = inboxApi }: { api?: InboxApi }) {
   return <section className="page inbox"><div className="inbox-layout"><aside className="inbox-list" aria-label="Conversas"><div className="inbox-list-head"><div><p className="inbox-eyebrow">ATENDIMENTO</p><h2>Conversas <span>{conversationPage?.total ?? 0}</span></h2></div><button className="secondary refresh-button" disabled={loading} onClick={() => void refresh()} aria-label="Atualizar conversas">↻</button></div><div className="inbox-filter"><span>⌕</span><input aria-label="Buscar conversa" placeholder="Buscar conversa" /></div><ErrorNotice error={error || actionError} />{loading ? <p className="inbox-loading">Carregando conversas…</p> : conversations.length ? conversations.map(conversation => <button className={selected?.id === conversation.id ? 'conversation-item selected' : 'conversation-item'} key={conversation.id} onClick={() => void openConversation(conversation)} aria-label={`Abrir conversa ${conversation.chatId}`}><span className="conversation-avatar">{initials(conversation)}<i className={conversation.status === 'open' ? 'online' : ''} /></span><span className="conversation-content"><span className="conversation-top"><strong>{contactName(conversation)}{isGroup(conversation) && ' · Grupo'}</strong><time dateTime={conversation.lastMessageAt}>{new Date(conversation.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></span><span className="conversation-bottom"><span className="conversation-preview">{conversation.lastMessage ?? 'Sem mensagens de texto'}</span>{conversation.unreadCount > 0 && <span className="unread" aria-label={`${conversation.unreadCount} não lidas`}>{conversation.unreadCount}</span>}</span></span></button>) : <Empty><span className="empty-icon">◌</span><strong>Nenhuma conversa por aqui</strong><p>As novas mensagens aparecerão nesta lista.</p></Empty>}</aside><section className="inbox-history" aria-live="polite">{selected ? <><div className="inbox-history-head"><div className="chat-contact"><span className="conversation-avatar large">{initials(selected)}<i className={selected.status === 'open' ? 'online' : ''} /></span><div><h2>{contactName(selected)}</h2><span>{isGroup(selected) ? 'Grupo · WhatsApp' : 'WhatsApp'} · {selected.status === 'open' ? 'Em atendimento' : 'Conversa encerrada'}</span></div></div><div className="chat-actions"><button className="chat-icon" aria-label="Buscar na conversa">⌕</button><button className="chat-icon" aria-label="Mais opções">•••</button></div></div>{messagesError && <ErrorNotice error={messagesError} />}{messagesLoading ? <p className="inbox-loading">Carregando mensagens…</p> : <div className="message-list"><div className="chat-date">Hoje</div>{messagePage?.items.length ? messagePage.items.map(item => <article className={`message-bubble ${item.direction}`} key={item.id}>{isGroup(selected) && <strong className="message-author">{senderName(item.senderWhatsappId)}:</strong>}<p>{item.content ?? 'Mensagem sem texto'}</p><span className="message-meta">{item.direction === 'outbound' ? 'Enviada' : 'Recebida'} · <time dateTime={item.timestamp}>{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></span></article>) : <Empty><span className="empty-icon">✦</span><strong>Conversa pronta para começar</strong><p>Envie a primeira mensagem para este contato.</p></Empty>}</div>}<form className="message-composer" onSubmit={event => void submitMessage(event)}><button type="button" className="composer-action" aria-label="Anexar arquivo">＋</button><textarea aria-label="Mensagem" name="text" placeholder="Digite uma mensagem" maxLength={4096} required disabled={sending} /><button className="send-button" disabled={sending} aria-label={sending ? 'Enviando mensagem' : 'Enviar mensagem'}>{sending ? '…' : '↑'}</button></form></> : <div className="inbox-welcome"><div className="welcome-orb">✦</div><h2>Seu atendimento inteligente começa aqui</h2><p>Selecione uma conversa para visualizar o histórico e responder seus clientes.</p></div>}</section><aside className="customer-panel">{selected ? <><div className="customer-panel-head"><span>{isGroup(selected) ? 'INFORMAÇÕES DO GRUPO' : 'INFORMAÇÕES DO CLIENTE'}</span><button className="chat-icon" aria-label="Mais informações">•••</button></div><div className="customer-profile"><span className="customer-avatar">{initials(selected)}</span><h3>{contactName(selected)}</h3><p><i /> {selected.status === 'open' ? 'Conversa ativa' : 'Conversa encerrada'}</p></div><div className="customer-details"><div><span>{isGroup(selected) ? 'Grupo' : 'Telefone'}</span><strong>{contactName(selected)}</strong></div><div><span>Canal</span><strong>WhatsApp</strong></div><div><span>Status</span><b className={selected.status === 'open' ? 'customer-status open' : 'customer-status'}>{selected.status === 'open' ? 'Em atendimento' : 'Encerrada'}</b></div></div><div className="customer-section"><div className="customer-section-title"><span>ETIQUETAS</span><button type="button">＋</button></div><div className="tags"><span>WhatsApp</span><span className="tag-purple">{isGroup(selected) ? 'Grupo' : 'Novo contato'}</span></div></div><div className="customer-section crm-prepared"><div className="customer-section-title"><span>CRM</span><small>EM BREVE</small></div><p>Oportunidades, responsáveis e histórico comercial aparecerão aqui.</p></div></> : <div className="customer-empty"><span className="empty-icon">◎</span><strong>Perfil do cliente</strong><p>Os dados do contato serão exibidos quando uma conversa for selecionada.</p></div>}</aside></div></section>;
 }
 
-export function Devices({ api = sessionsApi }: { api?: SessionsApi }) {
+export function Devices({ api = sessionsApi, domainApi = domain, workspace = workspaceApi }: { api?: SessionsApi; domainApi?: DomainApi; workspace?: WorkspaceApi }) {
   const { data = [], error, loading, refresh } = useResource(() => api.list());
+  const { data: teams = [] } = useResource(() => workspace.teams(), [workspace]);
+  /** Vínculo instância→departamento: `instanceTeam:<wahaName>` nos settings do
+   *  workspace. Conversa nova nessa instância já nasce no departamento. */
+  const [instanceTeams, setInstanceTeams] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let live = true;
+    void domainApi.settings().then(result => {
+      if (!live) return;
+      const map: Record<string, string> = {};
+      for (const [key, value] of Object.entries(result.settings.operational ?? {})) if (key.startsWith('instanceTeam:') && typeof value === 'string') map[key.slice('instanceTeam:'.length)] = value;
+      setInstanceTeams(map);
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, [domainApi]);
+  const saveDepartment = async (wahaName: string, teamId: string) => {
+    const current = await domainApi.settings();
+    const operational = { ...(current.settings.operational ?? {}) };
+    const key = `instanceTeam:${wahaName}`;
+    if (teamId) operational[key] = teamId; else delete operational[key];
+    await domainApi.saveSettings({ operational });
+    setInstanceTeams(previous => { const next = { ...previous }; if (teamId) next[wahaName] = teamId; else delete next[wahaName]; return next; });
+  };
   const linkedSessions = data.filter(session => session.managed !== false); const orphanSessions = data.filter(session => session.managed === false);
   const [busy, setBusy] = useState<string>();
   const [actionError, setActionError] = useState('');
@@ -204,7 +258,7 @@ export function Devices({ api = sessionsApi }: { api?: SessionsApi }) {
     }
     throw new ApiError('REQUEST_FAILED', 'O QR real ainda não foi disponibilizado pelo worker. Atualize a sessão em instantes.');
   });
-  return <section className="page devices"><div className="toolbar"><div><h2>Sessões WhatsApp</h2><p>Gerencie sessões reais e exiba o QR fornecido pelo worker.</p></div><button className="secondary" disabled={loading || Boolean(busy)} onClick={() => void refresh()}>Atualizar</button></div><form className="create" onSubmit={event => { event.preventDefault(); const form = event.currentTarget; const name = String(new FormData(form).get('name') ?? '').trim(); if (!name) return; const clientRequestId = crypto.randomUUID(); void execute('create', async () => { try { await api.create(name, clientRequestId); form.reset(); } catch (nextError) { if (nextError instanceof ApiError && nextError.code === 'TIMEOUT') { form.reset(); await refresh(); return; } throw nextError; } }); }}><label>Nome da sessão<input name="name" required maxLength={120} placeholder="Ex.: Atendimento" /></label><button disabled={Boolean(busy)}>{busy === 'create' ? 'Criando…' : 'Nova Sessão'}</button></form><ErrorNotice error={error || actionError} />{loading ? <p>Carregando sessões…</p> : linkedSessions.length ? <div className="cards">{linkedSessions.map(s => <article className="card" key={s.id}><div className="card-head"><div><h3>{s.name}</h3><p className="identifier">{s.wahaName ?? s.id}</p></div><span className={`status ${s.status}`}>{s.status}</span></div><dl><div><dt>Atualizada em</dt><dd>{new Date(s.updatedAt).toLocaleString()}</dd></div></dl><div className="actions"><button disabled={Boolean(busy)} onClick={() => void connect(s.id, s.name)}>{busy === `connect-${s.id}` ? 'Solicitando QR…' : 'Conectar'}</button><button className="secondary" disabled={Boolean(busy)} onClick={() => void execute(`status-${s.id}`, async () => { await api.status(s.id); })}>Atualizar</button><button className="secondary" disabled={Boolean(busy)} onClick={() => void execute(`stop-${s.id}`, () => api.stop(s.id))}>Parar</button><button className="danger-outline" disabled={Boolean(busy)} onClick={() => void execute(`logout-${s.id}`, () => api.logout(s.id))}>Logout</button><button className="danger" disabled={Boolean(busy)} onClick={() => { if (confirm(`Remover a sessão ${s.name}?`)) void execute(`remove-${s.id}`, () => api.remove(s.id)); }}>Remover</button></div></article>)}</div> : <Empty>Nenhuma sessão vinculada.</Empty>}{orphanSessions.length > 0 && <section><h3>Sessões WAHA sem vínculo</h3><p>Estas sessões existem no WAHA, mas não são usadas pelo workspace.</p><div className="cards">{orphanSessions.map(s => <article className="card" key={s.id}><div className="card-head"><div><h3>{s.wahaName ?? s.name}</h3><p className="identifier">Sessão órfã — nenhuma ação automática será executada.</p></div><span className={`status ${s.status}`}>{s.status}</span></div></article>)}</div></section>}<CallPairingPanel />{qr && <Modal title={`QR de ${qr.name}`} close={() => setQr(undefined)}><p>Escaneie no WhatsApp somente quando quiser conectar esta sessão.</p><QRCodeSVG value={qr.value} size={240} level="M" includeMargin /><p className="expires">Expira em {new Date(qr.expiresAt).toLocaleTimeString()}.</p></Modal>}</section>;
+  return <section className="page devices"><div className="toolbar"><div><h2>Sessões WhatsApp</h2><p>Gerencie sessões reais e exiba o QR fornecido pelo worker.</p></div><button className="secondary" disabled={loading || Boolean(busy)} onClick={() => void refresh()}>Atualizar</button></div><form className="create" onSubmit={event => { event.preventDefault(); const form = event.currentTarget; const name = String(new FormData(form).get('name') ?? '').trim(); if (!name) return; const clientRequestId = crypto.randomUUID(); void execute('create', async () => { try { await api.create(name, clientRequestId); form.reset(); } catch (nextError) { if (nextError instanceof ApiError && nextError.code === 'TIMEOUT') { form.reset(); await refresh(); return; } throw nextError; } }); }}><label>Nome da sessão<input name="name" required maxLength={120} placeholder="Ex.: Atendimento" /></label><button disabled={Boolean(busy)}>{busy === 'create' ? 'Criando…' : 'Nova Sessão'}</button></form><ErrorNotice error={error || actionError} />{loading ? <p>Carregando sessões…</p> : linkedSessions.length ? <div className="cards">{linkedSessions.map(s => <article className="card" key={s.id}><div className="card-head"><div><h3>{s.name}</h3><p className="identifier">{s.wahaName ?? s.id}</p></div><span className={`status ${s.status}`}>{s.status}</span></div><dl><div><dt>Atualizada em</dt><dd>{new Date(s.updatedAt).toLocaleString()}</dd></div><div><dt>Departamento</dt><dd><select aria-label={`Departamento da sessão ${s.name}`} value={(s.wahaName && instanceTeams[s.wahaName]) ?? ''} disabled={!s.wahaName || busy === `dept-${s.id}`} onChange={event => void execute(`dept-${s.id}`, () => saveDepartment(s.wahaName!, event.target.value))}><option value="">Todos (triagem)</option>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></dd></div></dl><div className="actions"><button disabled={Boolean(busy)} onClick={() => void connect(s.id, s.name)}>{busy === `connect-${s.id}` ? 'Solicitando QR…' : 'Conectar'}</button><button className="secondary" disabled={Boolean(busy)} onClick={() => void execute(`status-${s.id}`, async () => { await api.status(s.id); })}>Atualizar</button><button className="secondary" disabled={Boolean(busy)} onClick={() => void execute(`stop-${s.id}`, () => api.stop(s.id))}>Parar</button><button className="danger-outline" disabled={Boolean(busy)} onClick={() => void execute(`logout-${s.id}`, () => api.logout(s.id))}>Logout</button><button className="danger" disabled={Boolean(busy)} onClick={() => { if (confirm(`Remover a sessão ${s.name}?`)) void execute(`remove-${s.id}`, () => api.remove(s.id)); }}>Remover</button></div></article>)}</div> : <Empty>Nenhuma sessão vinculada.</Empty>}{orphanSessions.length > 0 && <section><h3>Sessões WAHA sem vínculo</h3><p>Estas sessões existem no WAHA, mas não são usadas pelo workspace.</p><div className="cards">{orphanSessions.map(s => <article className="card" key={s.id}><div className="card-head"><div><h3>{s.wahaName ?? s.name}</h3><p className="identifier">Sessão órfã — nenhuma ação automática será executada.</p></div><span className={`status ${s.status}`}>{s.status}</span></div></article>)}</div></section>}<CallPairingPanel />{qr && <Modal title={`QR de ${qr.name}`} close={() => setQr(undefined)}><p>Escaneie no WhatsApp somente quando quiser conectar esta sessão.</p><QRCodeSVG value={qr.value} size={240} level="M" includeMargin /><p className="expires">Expira em {new Date(qr.expiresAt).toLocaleTimeString()}.</p></Modal>}</section>;
 }
 
 /** O `?search=` deixa o cartão de contato da conversa abrir o CRM já filtrado no

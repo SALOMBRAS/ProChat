@@ -27,6 +27,20 @@ export type CallPairingStatus = {
   qr?: string;
 };
 
+/** Linha do histórico de chamadas do Call Service (Go). */
+export type CallHistoryRow = {
+  sessionId: string;
+  callId: string;
+  owner?: string | null;
+  direction: string;
+  peer: string;
+  startedAt: number;
+  status: string;
+  endedAt?: number;
+  endReason?: string;
+  recording?: boolean;
+};
+
 export type ActiveCall = {
   callId: string;
   sessionId: string;
@@ -43,6 +57,9 @@ type CallServiceOptions = {
   realtimeHub?: RealtimeHub;
   /** Workspace que recebe os eventos realtime (slice 1: workspace única do webhook). */
   eventsWorkspaceId?: string;
+  /** Registro permanente da chamada na conversa (CallLogService). Best-effort:
+   *  falha de gravação não pode derrubar a ponte de eventos. */
+  callLog?: (entry: { workspaceId: string; callId: string; direction: 'inbound' | 'outbound'; peer: string; connected: boolean; reason?: string; startedAt: number; endedAt: number }) => Promise<void>;
 };
 
 const digits = (value: string) => value.replace(/\D/g, '');
@@ -52,6 +69,7 @@ export class CallService {
   private readonly ownNumbers: readonly string[];
   private readonly hub?: RealtimeHub;
   private readonly eventsWorkspaceId?: string;
+  private readonly callLog?: CallServiceOptions['callLog'];
   private readonly calls = new Map<string, ActiveCall>();
   private eventsStarted = false;
 
@@ -60,6 +78,7 @@ export class CallService {
     this.ownNumbers = options.ownWhatsappNumbers;
     this.hub = options.realtimeHub;
     this.eventsWorkspaceId = options.eventsWorkspaceId;
+    this.callLog = options.callLog;
   }
 
   activeCalls(): ActiveCall[] {
@@ -71,6 +90,9 @@ export class CallService {
    *  `lid`: contato endereçado por LID — o Go resolve LID→PN pelo store da
    *  sessão e, sem mapa, disca o JID @lid direto. */
   async startCall(target: { phone: string } | { lid: string }): Promise<ActiveCall> {
+    // Uma ligação por instância: com vários operadores no mesmo número, o
+    // segundo a tentar recebe 409 em vez de derrubar a chamada do primeiro.
+    if (this.calls.size > 0) throw new AppError(409, 'CONFLICT', 'Já há uma ligação em andamento nesta instância.');
     const session = await this.resolveSession();
     const response = await this.request<{ call?: { callId?: string } }>('POST', `/api/sessions/${session.id}/calls`, target);
     const callId = response.call?.callId;
@@ -106,6 +128,27 @@ export class CallService {
     const call = this.requireCall(callId);
     await this.request('DELETE', `/api/sessions/${call.sessionId}/calls/${callId}`);
     this.calls.delete(callId);
+  }
+
+  /** Histórico de chamadas da sessão ativa (o Go guarda as últimas 50).
+   *  Cada linha traz `recording: true` quando há WAV gravado. */
+  async callHistory(): Promise<CallHistoryRow[]> {
+    const session = await this.resolveSession();
+    const response = await this.request<{ rows?: CallHistoryRow[] }>('GET', `/api/sessions/${session.id}/history`);
+    return response.rows ?? [];
+  }
+
+  /** Gravação da chamada em WAV, em stream direto do Call Service. */
+  async recordingStream(callId: string): Promise<Response> {
+    const session = await this.resolveSession();
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/api/sessions/${session.id}/calls/${callId}/recording`, { signal: AbortSignal.timeout(20_000) });
+    } catch (error) {
+      throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Call Service indisponível. Verifique se o serviço de chamadas está rodando.', { cause: error instanceof Error ? error.message : String(error) });
+    }
+    if (!response.ok) throw new AppError(response.status === 404 ? 404 : 502, response.status === 404 ? 'NOT_FOUND' : 'PROVIDER_CONTRACT_ERROR', response.status === 404 ? 'Gravação não encontrada' : `Call Service respondeu ${response.status}`, { callId });
+    return response;
   }
 
   /** Escolhe a sessão do serviço Go que pertence a este workspace: preferência
@@ -250,7 +293,13 @@ export class CallService {
     if (type === 'call-ended') {
       const existing = this.calls.get(callId);
       this.calls.delete(callId);
-      if (existing) this.publish({ ...existing, status: 'ended' }, { reason: String(event.reason ?? '') });
+      if (existing) {
+        const reason = String(event.reason ?? '');
+        this.publish({ ...existing, status: 'ended' }, { reason });
+        if (this.callLog && this.eventsWorkspaceId) {
+          void this.callLog({ workspaceId: this.eventsWorkspaceId, callId, direction: existing.direction, peer: existing.peer, connected: existing.status === 'connected', reason, startedAt: existing.startedAt, endedAt: Number(event.endedAt ?? Date.now()) }).catch(error => log('info', 'Registro da chamada falhou', { callId, error: error instanceof Error ? error.message : String(error) }));
+        }
+      }
     }
   }
 

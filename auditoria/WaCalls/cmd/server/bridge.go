@@ -6,6 +6,7 @@ import (
 
 	"wacalls/internal/voip/media"
 
+	"github.com/pion/ice/v4"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -28,7 +29,14 @@ type Bridge struct {
 }
 
 func NewBridge(offerSDP string, log *slog.Logger) (*Bridge, string, error) {
-	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	// mDNS: o Chrome esconde o IP local atrás de candidatos ".local". Sem o
+	// modo query do pion, a resolução depende do mDNS do SO — na primeira
+	// tentativa ela estoura o timeout do ICE (~5s) e a chamada morre; na
+	// segunda funciona porque o cache já está quente. QueryOnly faz o pion
+	// resolver (e cachear) os .local ele mesmo.
+	se := webrtc.SettingEngine{}
+	se.SetICEMulticastDNSMode(ice.MulticastDNSModeQueryOnly)
+	pc, err := webrtc.NewAPI(webrtc.WithSettingEngine(se)).NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
 		return nil, "", err
 	}

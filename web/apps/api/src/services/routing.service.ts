@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from '../errors.js';
 import type { SqliteDatabase } from '../persistence/database.js';
 import type { RealtimeHub } from '../realtime.js';
+import { conversationAudience } from '../realtime.js';
 import type { ConversationStore } from './waha-webhook.service.js';
 import type { WorkspaceDirectoryService } from './workspace-directory.service.js';
 import type { SqliteRoutingJobStore } from './routing-jobs.service.js';
@@ -33,7 +34,7 @@ export class RoutingService {
   cancelJob(context: RequestContext, id: string) { const job=this.getJob(context,id); this.jobs!.cancel(context.workspaceId,job.conversationId,'cancelled_by_user'); return this.getJob(context,id); }
   cancelForManualAssignment(workspaceId:string,conversationId:string) { this.jobs?.cancel(workspaceId,conversationId); }
   private async queue(context:RequestContext,conversationId:string,queueId:string) { const queue=await this.requireQueue(context.workspaceId,queueId); if (queue.strategy === 'manual') return { queued:false, reasonSafe:'manual_strategy' }; if(!this.jobs) return this.publishDecision(context.workspaceId,conversationId,await this.store.distribute(context.workspaceId,conversationId,queueId)); const job=this.jobs.enqueue(context.workspaceId,conversationId,queueId,queue.strategy); this.realtime.publish(context.workspaceId,'conversation.routing.queued',{conversationId,job}); return {job,queued:true}; }
-  private async publishDecision(workspaceId: string, conversationId: string, decision: RoutingDecision) { const conversation = await this.conversations.getConversation(workspaceId, conversationId); this.realtime.publish(workspaceId, 'conversation.routing.updated', { conversationId, conversation, routing: decision.event }); if (conversation) this.realtime.publish(workspaceId, 'conversation.management.updated', { conversationId, conversation, event: null }); return { conversation, ...decision }; }
+  private async publishDecision(workspaceId: string, conversationId: string, decision: RoutingDecision) { const conversation = await this.conversations.getConversation(workspaceId, conversationId); this.realtime.publish(workspaceId, 'conversation.routing.updated', { conversationId, conversation, routing: decision.event }); if (conversation) this.realtime.publish(workspaceId, 'conversation.management.updated', { conversationId, conversation, event: null }, conversationAudience(conversation)); return { conversation, ...decision }; }
   private async requireQueue(workspaceId: string, queueId: string) { const queue = await this.store.getQueue(workspaceId, queueId); if (!queue) throw new AppError(404, 'NOT_FOUND', 'Routing queue not found'); return queue; }
   private event(workspaceId: string, conversationId: string, queueId: string | null, strategy: RoutingQueue['strategy'], result: RoutingEvent['result'], reasonSafe: string | null): RoutingEvent { return { id: randomUUID(), workspaceId, conversationId, queueId, assignedUserId: null, strategy, result, reasonSafe, createdAt: stamp() }; }
 }

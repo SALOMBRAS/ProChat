@@ -32,6 +32,12 @@ export interface ApiConfig {
   corsAllowedOrigins?: readonly string[];
   apiHosts?: readonly string[];
   ownWhatsappNumbers?: string[];
+  /** Bootstrap do primeiro acesso: no boot, se o workspace não tiver nenhum
+   *  usuário, o owner inicial é criado com estas credenciais. */
+  adminEmail?: string;
+  adminPassword?: string;
+  /** Validade da sessão de login em horas (padrão 168 = 7 dias). */
+  authSessionTtlHours?: number;
   whatsappHistorySyncBatchChats?: number;
   whatsappHistorySyncBatchMessages?: number;
   whatsappHistorySyncEmergencyMaxMessages?: number;
@@ -72,5 +78,10 @@ export function loadConfig(env = process.env): ApiConfig {
   const apiHosts = (env.API_HOST ?? defaultApiHosts.join(',')).split(',').map(value => value.trim()).filter(Boolean);
   const corsAllowedOrigins = (env.CORS_ALLOWED_ORIGINS ?? defaultCorsAllowedOrigins.join(',')).split(',').map(value => value.trim().replace(/\/+$/, '')).filter(Boolean);
   const ownWhatsappNumbers = (env.WHATSAPP_OWN_NUMBERS ?? '').split(',').map(value => value.replace(/\D/g, '')).filter(value => value.length >= 8 && value.length <= 15);
-  return { port, nodeEnv, workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, wahaWebhookHmacKey: env.WAHA_WEBHOOK_HMAC_KEY?.trim() || undefined, wahaWebhookWorkspaceId, wahaBaseUrl: env.WAHA_BASE_URL?.trim().replace(/\/+$/, '') || undefined, wahaApiKey: env.WAHA_API_KEY?.trim() || undefined, mediaProxyTokenSecret: env.MEDIA_PROXY_TOKEN_SECRET?.trim() || undefined, developmentUserId, apiHosts, corsAllowedOrigins, ownWhatsappNumbers, whatsappHistorySyncBatchChats: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_CHATS', 25, 100), whatsappHistorySyncBatchMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_MESSAGES', 100, 5_000), whatsappHistorySyncEmergencyMaxMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_EMERGENCY_MAX_MESSAGES', 100_000, 1_000_000), callServiceUrl: (env.CALL_SERVICE_URL?.trim() || 'http://127.0.0.1:8080').replace(/\/+$/, '') };
+  const adminEmail = env.CHATPRO_ADMIN_EMAIL?.trim().toLowerCase() || undefined;
+  if (adminEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adminEmail)) throw new Error('CHATPRO_ADMIN_EMAIL must be a valid e-mail');
+  const adminPassword = env.CHATPRO_ADMIN_PASSWORD || undefined;
+  if (adminEmail && !adminPassword) throw new Error('CHATPRO_ADMIN_PASSWORD is required when CHATPRO_ADMIN_EMAIL is set');
+  const authSessionTtlHours = positiveInteger('AUTH_SESSION_TTL_HOURS', 168, 24 * 90);
+  return { port, nodeEnv, workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, wahaWebhookHmacKey: env.WAHA_WEBHOOK_HMAC_KEY?.trim() || undefined, wahaWebhookWorkspaceId, wahaBaseUrl: env.WAHA_BASE_URL?.trim().replace(/\/+$/, '') || undefined, wahaApiKey: env.WAHA_API_KEY?.trim() || undefined, mediaProxyTokenSecret: env.MEDIA_PROXY_TOKEN_SECRET?.trim() || undefined, developmentUserId, apiHosts, corsAllowedOrigins, ownWhatsappNumbers, adminEmail, adminPassword, authSessionTtlHours, whatsappHistorySyncBatchChats: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_CHATS', 25, 100), whatsappHistorySyncBatchMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_MESSAGES', 100, 5_000), whatsappHistorySyncEmergencyMaxMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_EMERGENCY_MAX_MESSAGES', 100_000, 1_000_000), callServiceUrl: (env.CALL_SERVICE_URL?.trim() || 'http://127.0.0.1:8080').replace(/\/+$/, '') };
 }

@@ -71,3 +71,5 @@ Thumbs.db
 /auditoria/WaCalls/*.exe~
 /auditoria/WaCalls/debug-wacalls.log
 /auditoria/WaCalls/client/dist/
+/auditoria/WaCalls/wacalls
+/auditoria/WaCalls/recordings/

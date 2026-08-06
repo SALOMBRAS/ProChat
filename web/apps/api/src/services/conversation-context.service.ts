@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { SqliteDatabase } from '../persistence/database.js';
 import type { ConversationStore, ConversationSummary } from './waha-webhook.service.js';
 import type { RealtimeHub } from '../realtime.js';
+import { conversationAudience } from '../realtime.js';
 
 export type ConversationContext = { notes: string | null; tags: string[]; firstInteractionAt: string; lastInteractionAt: string };
 export type ConversationContextUpdate = { notes?: string; tags?: string[] };
@@ -13,7 +14,7 @@ export class ConversationContextService {
   async update(workspaceId: string, conversationId: string, input: ConversationContextUpdate): Promise<ConversationContext | undefined> {
     const conversation = await this.conversations.getConversation(workspaceId, conversationId); if (!conversation) return undefined;
     const result = await this.metadata.update(workspaceId, conversation, { ...input, ...(input.tags ? { tags: normalizeTags(input.tags) } : {}) });
-    this.realtime.publish(workspaceId, 'conversation.context.updated', { conversationId });
+    this.realtime.publish(workspaceId, 'conversation.context.updated', { conversationId }, conversationAudience(conversation));
     return result;
   }
 }
