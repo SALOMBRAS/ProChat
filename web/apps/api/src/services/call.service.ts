@@ -15,7 +15,17 @@ import type { RealtimeHub } from '../realtime.js';
  *    o modal de chamada recebida e acompanhar o estado sem polling.
  */
 
-type GoSession = { id: string; name: string; jid: string; state: string; paired: boolean };
+type GoSession = { id: string; name: string; jid: string; state: string; paired: boolean; qr?: string };
+
+export type CallPairingStatus = {
+  available: boolean;
+  sessionId?: string;
+  name?: string;
+  jid?: string;
+  state?: string;
+  paired: boolean;
+  qr?: string;
+};
 
 export type ActiveCall = {
   callId: string;
@@ -110,6 +120,42 @@ export class CallService {
     }
     if (paired.length === 1) return paired[0]!;
     throw new AppError(409, 'CONFLICT', 'Mais de uma sessão de chamadas pareada; configure WHATSAPP_OWN_NUMBERS para escolher.', { sessions: paired.map(session => session.jid) });
+  }
+
+  /** Status de pareamento para a tela de sessões: a mesma tela que pareia a
+   *  WAHA mostra o estado (e o QR) das chamadas ao lado. */
+  async pairingStatus(): Promise<CallPairingStatus> {
+    const list = await this.request<{ sessions?: GoSession[] }>('GET', '/api/sessions');
+    const session = this.pickPairingSession(list.sessions ?? []);
+    if (!session) return { available: true, paired: false };
+    return { available: true, sessionId: session.id, name: session.name, jid: session.jid || undefined, state: session.state, paired: session.paired, qr: session.qr || undefined };
+  }
+
+  /** Garante uma sessão de chamadas em processo de pareamento: cria quando não
+   *  há nenhuma; re-pareia quando a escolhida caiu (logged_out/timeout). O QR
+   *  chega de forma assíncrona — a tela segue consultando o pairingStatus. */
+  async ensurePairing(name = 'ChatPro'): Promise<CallPairingStatus> {
+    const list = await this.request<{ sessions?: GoSession[] }>('GET', '/api/sessions');
+    const session = this.pickPairingSession(list.sessions ?? []);
+    if (!session) {
+      await this.request('POST', '/api/sessions', { name });
+    } else if (!session.paired && session.state !== 'qr') {
+      await this.request('POST', `/api/sessions/${session.id}/pair`);
+    }
+    return this.pairingStatus();
+  }
+
+  /** A sessão que representa este workspace: a pareada do número próprio; sem
+   *  ela, a única existente; com várias e nenhuma do número, a primeira pareada
+   *  ou a primeira da lista (a tela mostra o estado para o operador decidir). */
+  private pickPairingSession(sessions: GoSession[]): GoSession | undefined {
+    if (!sessions.length) return undefined;
+    if (this.ownNumbers.length) {
+      const match = sessions.find(session => session.jid && this.ownNumbers.some(own => digits(session.jid).startsWith(own)));
+      if (match) return match;
+    }
+    if (sessions.length === 1) return sessions[0];
+    return sessions.find(session => session.paired) ?? sessions[0];
   }
 
   private requireCall(callId: string): ActiveCall {

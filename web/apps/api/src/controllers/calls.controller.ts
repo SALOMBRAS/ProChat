@@ -39,6 +39,18 @@ export class CallsController {
     res.json({ calls: this.calls.activeCalls() });
   };
 
+  /** Pareamento unificado: a tela de sessões mostra o QR da WAHA e o das
+   *  chamadas lado a lado (são duas sessões WhatsApp independentes — um scan
+   *  cada, no mesmo aparelho). */
+  pairing: RequestHandler = async (_req, res) => {
+    res.json(await this.calls.pairingStatus());
+  };
+
+  startPairing: RequestHandler = async (req, res) => {
+    const name = typeof req.body?.name === 'string' && req.body.name.trim() ? req.body.name.trim() : 'ChatPro';
+    res.status(201).json(await this.calls.ensurePairing(name));
+  };
+
   webrtc: RequestHandler = async (req, res) => {
     const { sdpOffer } = webrtcSchema.parse(req.body);
     const sdpAnswer = await this.calls.exchangeSdp(routeId(req.params.callId, 'callId'), sdpOffer);

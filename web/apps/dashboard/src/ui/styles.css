@@ -807,3 +807,11 @@
 .call-modal-accept { background: #25d366; color: #050510; }
 .call-modal-reject, .call-modal-hangup { background: linear-gradient(145deg, #ef4444, #bb3247); color: #fff; }
 .call-modal-close { background: #ffffff14; color: #f2e8ff; }
+
+/* Painel de pareamento das chamadas de voz na tela de Sessões. */
+.call-pairing { margin-top: 18px; }
+.call-pairing h2 { margin-bottom: 8px; }
+.call-pairing p { color: #c7bad2; font-size: 12px; margin-bottom: 12px; }
+.call-pairing-error { color: #ff9aa8 !important; }
+.call-pairing .modal { text-align: center; }
+.call-pairing .modal p { color: #c7bad2; font-size: 12px; margin-bottom: 14px; }

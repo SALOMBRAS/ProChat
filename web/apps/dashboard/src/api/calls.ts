@@ -15,6 +15,16 @@ export type ActiveCall = {
   conversationId?: string;
 };
 
+export type CallPairingStatus = {
+  available: boolean;
+  sessionId?: string;
+  name?: string;
+  jid?: string;
+  state?: string;
+  paired: boolean;
+  qr?: string;
+};
+
 /** Chamadas de voz: quem fala com o WhatsApp é o Call Service (Go) por trás da
  *  API — o dashboard nunca toca o serviço Go direto, passa sempre por aqui. */
 export class CallsApi {
@@ -25,4 +35,6 @@ export class CallsApi {
   accept = (callId: string) => this.http.post<void>(`/api/v1/calls/${encodeURIComponent(callId)}/accept`);
   reject = (callId: string) => this.http.post<void>(`/api/v1/calls/${encodeURIComponent(callId)}/reject`);
   end = (callId: string) => this.http.delete(`/api/v1/calls/${encodeURIComponent(callId)}`);
+  pairing = (signal?: AbortSignal) => this.http.get<CallPairingStatus>('/api/v1/calls/pairing', signal);
+  startPairing = (name?: string) => this.http.post<CallPairingStatus>('/api/v1/calls/pairing', name ? { name } : {});
 }
