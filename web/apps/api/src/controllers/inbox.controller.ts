@@ -13,12 +13,18 @@ import type { ConversationManagementService } from '../services/conversation-man
 import type { WahaMediaProxyService } from '../services/waha-media-proxy.service.js';
 import type { SupabaseWhatsAppMediaStorage } from '../services/whatsapp-media-persistence.service.js';
 import type { SlaService } from '../services/sla.service.js';
+import type { LinkPreviewService } from '../services/link-preview.service.js';
+import type { WhatsAppIdentitySyncService } from '../services/whatsapp-identity-sync.service.js';
 import type { KanbanService, KanbanSource } from '../services/kanban.service.js';
 import type { SupabaseKanbanService } from '../services/supabase-kanban.service.js';
 import { withSessionActivity, type WhatsAppSessionActivityService } from '../services/whatsapp-session-activity.service.js';
 
 const query = z.object({ page: z.coerce.number().int().positive().default(1), pageSize: z.coerce.number().int().positive().max(100).default(100), cursor: z.string().max(1_000).optional(), search: z.string().trim().max(100).optional() });
-const sendMessage = z.object({ text: z.string().trim().min(1).max(4_096) });
+const sendMessage = z.object({ text: z.string().trim().min(1).max(4_096), mentions: z.array(z.string().regex(/^\d{6,20}@(c\.us|lid)$/)).max(50).optional(), linkPreview: z.boolean().optional() });
+/** O cliente só envia o emoji pretendido: o toggle (mesmo emoji = remoção) é
+ *  decidido no serviço, que conhece a reação atual da conta. */
+const sendReaction = z.object({ emoji: z.string().trim().min(1).max(32) });
+const linkPreviewQuery = z.object({ url: z.string().trim().min(1).max(2_048) });
 const sendLocation = z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), title: z.string().trim().min(1).max(240).optional() });
 const sendVcard = z.object({ contactIds: z.array(z.string().uuid()).min(1).max(20) });
 const contextUpdate = z.object({ notes: z.string().max(10_000).optional(), tags: z.array(z.string().trim().min(1).max(64)).max(20).optional() }).refine(value => value.notes !== undefined || value.tags !== undefined);
@@ -64,7 +70,7 @@ export const attachmentUploadMiddleware: RequestHandler = multer(attachmentUploa
 
 export class InboxController {
   readonly attachmentUpload = attachmentUploadMiddleware;
-  constructor(private readonly conversations: ConversationStore, private readonly inbox: InternalInboxService, private readonly context: ConversationContextService, private readonly management: ConversationManagementService, private readonly sync?: WhatsAppHistorySyncService, private readonly sessions?: { list(context: NonNullable<import('express').Request['context']>): Promise<Array<{ id: string; status: string; wahaName?: string }>> }, private readonly outbox?: AttachmentOutboxService, private readonly media?: WahaMediaProxyService, private readonly permanentMedia?: SupabaseWhatsAppMediaStorage, private readonly sla?: SlaService, private readonly kanban?: KanbanService | SupabaseKanbanService, private readonly contacts?: InboxContactService, private readonly sessionActivity?: WhatsAppSessionActivityService) {}
+  constructor(private readonly conversations: ConversationStore, private readonly inbox: InternalInboxService, private readonly context: ConversationContextService, private readonly management: ConversationManagementService, private readonly sync?: WhatsAppHistorySyncService, private readonly sessions?: { list(context: NonNullable<import('express').Request['context']>): Promise<Array<{ id: string; status: string; wahaName?: string }>> }, private readonly outbox?: AttachmentOutboxService, private readonly media?: WahaMediaProxyService, private readonly permanentMedia?: SupabaseWhatsAppMediaStorage, private readonly sla?: SlaService, private readonly kanban?: KanbanService | SupabaseKanbanService, private readonly contacts?: InboxContactService, private readonly sessionActivity?: WhatsAppSessionActivityService, private readonly previews?: LinkPreviewService, private readonly identitySync?: Pick<WhatsAppIdentitySyncService, 'enqueue'>) {}
   private requireKanban() { if (!this.kanban) throw new AppError(503,'SERVICE_UNAVAILABLE','Kanban storage is unavailable for this provider'); return this.kanban; }
   private activeSessions(context: NonNullable<import('express').Request['context']>) { return this.sessionActivity?.activeSessions(context) ?? Promise.resolve(undefined); }
   kanbanBoards: RequestHandler = async (req,res)=>res.json(await this.requireKanban().boards(req.context!.workspaceId));
@@ -93,7 +99,48 @@ export class InboxController {
   mediaFile: RequestHandler = async (req, res) => { if (!this.media) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Media access is unavailable'); const messageId = z.string().min(1).max(200).parse(req.params.messageId); const token = typeof req.query.access_token === 'string' ? req.query.access_token : undefined; const context = token ? this.media.verifyAccessToken(token, messageId) : req.context; if (!context) throw new AppError(401, 'UNAUTHORIZED', 'Authentication is required'); const message = await this.conversations.getMedia(context.workspaceId, messageId); if (!message) throw new AppError(404, 'NOT_FOUND', 'Media message not found'); if (message.storagePath && this.permanentMedia) return res.redirect(302, await this.permanentMedia.signedUrl(message.storagePath)); await this.media.stream(message.url, message.mimeType, message.filename, res, { method: req.method, range: req.header('range') }); };
   createContact: RequestHandler = async (req, res) => { const conversationId = z.string().uuid().parse(req.params.conversationId); if (!this.contacts) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Contact creation is unavailable'); res.status(201).json(await this.contacts.create(req.context!.workspaceId, conversationId, req.body)); };
   markRead: RequestHandler = async (req, res) => { const conversationId = z.string().uuid().parse(req.params.conversationId); if (!await this.conversations.markRead(req.context!.workspaceId, conversationId)) throw new AppError(404, 'NOT_FOUND', 'Conversation not found'); res.status(204).end(); };
-  sendMessage: RequestHandler = async (req, res) => { const conversationId = z.string().uuid().parse(req.params.conversationId); res.status(201).json(await this.inbox.send(req.context!, conversationId, sendMessage.parse(req.body).text)); };
+  sendMessage: RequestHandler = async (req, res) => { const conversationId = z.string().uuid().parse(req.params.conversationId); const body = sendMessage.parse(req.body); const mentions = await this.validateMentions(req.context!.workspaceId, conversationId, body.text, body.mentions); res.status(201).json(await this.inbox.send(req.context!, conversationId, body.text, mentions, body.linkPreview)); };
+  /** Menções só existem em grupo, e a WAHA exige o `@dígitos` correspondente no
+   *  texto — por isso a menção que não consta no corpo é filtrada, não rejeitada.
+   *  O pertencimento é fail-open de propósito: um grupo nunca sincronizado não
+   *  tem como ser conferido e não pode bloquear o envio. */
+  private async validateMentions(workspaceId: string, conversationId: string, text: string, mentions?: string[]): Promise<string[] | undefined> {
+    if (!mentions?.length) return undefined;
+    const conversation = await this.conversations.getConversation(workspaceId, conversationId);
+    if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
+    if (conversation.conversationType !== 'group') throw new AppError(400, 'VALIDATION_ERROR', 'Mentions are only allowed in group conversations');
+    const unique = [...new Set(mentions)].filter(jid => text.includes(`@${jid.split('@', 1)[0]}`));
+    if (!unique.length) return undefined;
+    const participants = await this.conversations.listGroupParticipants(workspaceId, conversationId);
+    if (participants?.length) {
+      const members = new Set(participants.map(participant => participant.whatsappId));
+      if (unique.some(jid => !members.has(jid))) throw new AppError(400, 'VALIDATION_ERROR', 'Mentioned user is not a group participant');
+    }
+    return unique;
+  }
+  /** Participantes do grupo para o autocomplete de menções e o painel de
+   *  membros. A leitura usa o que o identity.sync já gravou; o enqueue é melhor
+   *  esforço para a próxima abertura vir mais fresca. */
+  listParticipants: RequestHandler = async (req, res) => {
+    const conversationId = z.string().uuid().parse(req.params.conversationId);
+    const conversation = await this.conversations.getConversation(req.context!.workspaceId, conversationId);
+    if (!conversation) throw new AppError(404, 'NOT_FOUND', 'Conversation not found');
+    if (conversation.conversationType !== 'group') throw new AppError(400, 'VALIDATION_ERROR', 'Participants listing is only available for groups');
+    this.identitySync?.enqueue({ workspaceId: req.context!.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: conversation.chatId });
+    const items = await this.conversations.listGroupParticipants(req.context!.workspaceId, conversationId) ?? [];
+    // Participante sem nome resolvido tem a identidade buscada na WAHA em
+    // segundo plano — é o pushName, o nome que a pessoa cadastrou no WhatsApp,
+    // que aparece quando o operador não tem o número salvo. `group-participant`
+    // grava SÓ a identidade: membro de grupo não vira contato do CRM. O limite
+    // por abertura protege a WAHA de uma enxurrada em grupos grandes; o resto
+    // entra na próxima abertura, e o stale de 24h evita refazer o que já veio.
+    for (const participant of items.filter(item => !item.name).slice(0, 30)) this.identitySync?.enqueue({ workspaceId: req.context!.workspaceId, wahaSession: conversation.whatsappSessionId, chatId: participant.whatsappId, origin: 'group-participant' });
+    res.json({ items });
+  };
+  reactToMessage: RequestHandler = async (req, res) => { const conversationId = z.string().uuid().parse(req.params.conversationId); const messageId = z.string().min(1).max(200).parse(req.params.messageId); res.json(await this.inbox.sendReaction(req.context!, conversationId, messageId, sendReaction.parse(req.body).emoji)); };
+  /** Fallback de prévia: a nativa vem do próprio WhatsApp no envio; esta rota
+   *  existe para o dashboard mostrar algo quando a nativa não existir. */
+  linkPreview: RequestHandler = async (req, res) => { if (!this.previews) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Link preview is unavailable'); res.json(await this.previews.preview(linkPreviewQuery.parse(req.query).url)); };
   sendLocation: RequestHandler = async (req, res) => { const conversationId = z.string().uuid().parse(req.params.conversationId); res.status(201).json(await this.inbox.sendLocation(req.context!, conversationId, sendLocation.parse(req.body))); };
   sendVcard: RequestHandler = async (req, res) => { if (!this.contacts) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Contacts are unavailable'); const conversationId = z.string().uuid().parse(req.params.conversationId); const cards = await this.contacts.cards(req.context!.workspaceId, sendVcard.parse(req.body).contactIds); res.status(201).json(await this.inbox.sendVcard(req.context!, conversationId, cards)); };
   createAttachment: RequestHandler = async (req, res) => { if (!this.outbox) throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Attachment outbox is unavailable'); const conversationId = z.string().uuid().parse(req.params.conversationId); if (!req.file) throw new AppError(400, 'VALIDATION_ERROR', 'A file is required'); const input = attachmentRequest.parse(req.body); res.status(202).json(await this.outbox.create(req.context!, conversationId, req.file, input.clientRequestId, input.caption, input.voiceNote)); };

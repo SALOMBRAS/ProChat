@@ -10,31 +10,27 @@
  *  diferença entre "formato não aceito" na hora e um 415 depois da espera.
  */
 
-/** Espelho de `policy`. Ultrapassar não corrompe nada — a API responde 413 ou 415
- *  e o job nem é criado —, mas o operador só descobre depois do upload. */
+/** Espelho de `policy`. Ultrapassar não corrompe nada — a API responde 413 e o
+ *  job nem é criado —, mas o operador só descobre depois do upload. `document`
+ *  é o coringa: `mimes` vazio documenta que qualquer arquivo serve, como no
+ *  WhatsApp — a recusa por formato sumiu daqui e do servidor. */
 export const ATTACHMENT_POLICY = {
   image: { mimes: ["image/jpeg", "image/png", "image/webp"], max: 15 * 1024 * 1024 },
   audio: { mimes: ["audio/ogg", "audio/mpeg", "audio/mp4", "audio/webm"], max: 25 * 1024 * 1024 },
   video: { mimes: ["video/mp4", "video/webm"], max: 50 * 1024 * 1024 },
-  document: {
-    mimes: [
-      "application/pdf", "application/zip", "application/x-zip-compressed", "text/plain",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ],
-    max: 25 * 1024 * 1024,
-  },
+  document: { mimes: [] as readonly string[], max: 50 * 1024 * 1024 },
 } as const;
 export type AttachmentKind = keyof typeof ATTACHMENT_POLICY;
 
 const KIND_LABEL: Record<AttachmentKind, string> = { image: "imagem", audio: "áudio", video: "vídeo", document: "documento" };
-export const ACCEPTED_SUMMARY = "imagem JPEG, PNG ou WebP, áudio, vídeo MP4 ou WebM, PDF, texto, DOCX e XLSX";
+export const ACCEPTED_SUMMARY = "imagem JPEG, PNG ou WebP até 15 MB, áudio até 25 MB, vídeo MP4 ou WebM até 50 MB e qualquer documento até 50 MB";
 
 /** `image/png;charset=binary` e `IMAGE/PNG` são o mesmo tipo para a allowlist. */
 export const normalizeMime = (mime?: string | null) => (mime ?? "").split(";", 1)[0].trim().toLowerCase();
-export const attachmentKind = (mime?: string | null): AttachmentKind | undefined => {
+/** Sempre retorna: procura só em imagem/áudio/vídeo; o resto é documento. */
+export const attachmentKind = (mime?: string | null): AttachmentKind => {
   const normalized = normalizeMime(mime);
-  return (Object.keys(ATTACHMENT_POLICY) as AttachmentKind[]).find((kind) => (ATTACHMENT_POLICY[kind].mimes as readonly string[]).includes(normalized));
+  return (["image", "audio", "video"] as const).find((kind) => (ATTACHMENT_POLICY[kind].mimes as readonly string[]).includes(normalized)) ?? "document";
 };
 
 export const fileSizeLabel = (bytes: number) => {
@@ -50,7 +46,8 @@ const opens = (head: Uint8Array, bytes: number[]) => bytes.every((byte, index) =
 /** Espelho de `magicMatches`. O tipo que o navegador declara vem da extensão do
  *  arquivo quando ele sai do gerenciador de arquivos, então um `.png` que na
  *  verdade é PDF chega aqui declarando `image/png` — e o servidor recusa com 400
- *  depois do upload inteiro. */
+ *  depois do upload inteiro. Assinatura conhecida é conferida; desconhecida
+ *  passa. */
 export const magicMatches = (mime: string, head: Uint8Array): boolean => {
   const normalized = normalizeMime(mime);
   if (normalized === "image/jpeg") return opens(head, [0xff, 0xd8, 0xff]);
@@ -61,12 +58,17 @@ export const magicMatches = (mime: string, head: Uint8Array): boolean => {
   if (normalized === "audio/mp4" || normalized === "video/mp4") return ascii(head, 4, 8) === "ftyp";
   if (normalized === "audio/webm" || normalized === "video/webm") return opens(head, [0x1a, 0x45, 0xdf, 0xa3]);
   if (normalized === "application/pdf") return ascii(head, 0, 5) === "%PDF-";
-  if (normalized === "application/zip" || normalized === "application/x-zip-compressed" || normalized.includes("openxmlformats")) return opens(head, [0x50, 0x4b]);
+  if (normalized === "application/zip" || normalized === "application/x-zip-compressed" || normalized === "application/vnd.android.package-archive" || normalized === "application/epub+zip" || normalized.includes("openxmlformats")) return opens(head, [0x50, 0x4b]);
+  if (normalized === "application/vnd.rar" || normalized === "application/x-rar-compressed") return ascii(head, 0, 6) === "Rar!\x1a\x07";
+  if (normalized === "application/x-7z-compressed") return opens(head, [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]);
+  if (normalized === "image/vnd.adobe.photoshop" || normalized === "application/x-photoshop" || normalized === "application/photoshop") return ascii(head, 0, 4) === "8BPS";
+  if (normalized === "application/msword" || normalized === "application/vnd.ms-excel" || normalized === "application/vnd.ms-powerpoint") return opens(head, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+  if (normalized === "application/postscript") return ascii(head, 0, 4) === "%!PS" || ascii(head, 0, 5) === "%PDF-";
   // O servidor procura o byte zero nos primeiros 8 KB; aqui só nos 4 KB lidos.
   // Ler menos é permissivo a mais, nunca a menos: o que escapar daqui o servidor
   // ainda pega.
-  if (normalized === "text/plain") return !head.includes(0);
-  return false;
+  if (normalized.startsWith("text/") || normalized.includes("json") || normalized.includes("xml")) return !head.includes(0);
+  return true;
 };
 
 export const HEAD_BYTES = 4096;
@@ -104,15 +106,18 @@ const transferFiles = (data: DataTransfer): File[] => {
 export const readTransfer = (data: DataTransfer | null | undefined): TransferIntake => {
   if (!data) return { accepted: [], rejected: [], imageWithoutFile: false, text: "" };
   const files = transferFiles(data);
-  const accepted = files.filter((file) => attachmentKind(file.type));
-  const rejected = files.filter((file) => !attachmentKind(file.type)).map((file) => normalizeMime(file.type));
+  // Recusa agora é só de tamanho, arquivo vazio ou bytes mentirosos — e acontece
+  // no `acceptAttachment`, arquivo a arquivo. `rejected` fica de molho para a
+  // mensagem de formato antiga não reaparecer por engano.
+  const accepted = files;
+  const rejected: string[] = [];
   const read = (format: string) => { try { return data.getData?.(format) ?? ""; } catch { return ""; } };
   // Só olha o HTML quando não veio arquivo nenhum: com arquivo, o HTML é só a
   // moldura da mesma imagem e não muda decisão nenhuma.
   const html = files.length ? "" : read("text/html");
   return {
     accepted,
-    rejected: [...new Set(rejected)],
+    rejected,
     // Detecta a marca, e só. A URL não é lida nem buscada de propósito — ver
     // `HTML_IMAGE_ONLY_MESSAGE`.
     imageWithoutFile: /<img[\s/>]/i.test(html),
@@ -122,7 +127,7 @@ export const readTransfer = (data: DataTransfer | null | undefined): TransferInt
 
 export type IntakeVerdict =
   | { ok: true; kind: AttachmentKind; file: File }
-  | { ok: false; reason: "type" | "size" | "empty" | "bytes"; kind?: AttachmentKind };
+  | { ok: false; reason: "size" | "empty" | "bytes"; kind?: AttachmentKind };
 
 const EXTENSION: Record<string, string> = {
   "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
@@ -136,7 +141,6 @@ export const intakeName = (file: File, at: number) =>
 
 export const acceptAttachment = async (file: File, at = 0): Promise<IntakeVerdict> => {
   const kind = attachmentKind(file.type);
-  if (!kind) return { ok: false, reason: "type" };
   if (!file.size) return { ok: false, reason: "empty", kind };
   if (file.size > ATTACHMENT_POLICY[kind].max) return { ok: false, reason: "size", kind };
   let head: Uint8Array;
@@ -167,7 +171,6 @@ export const rejectedMessage = (mimes: string[]) => {
 };
 
 export const verdictMessage = (verdict: Extract<IntakeVerdict, { ok: false }>, file: File): string => {
-  if (verdict.reason === "type") return rejectedMessage([normalizeMime(file.type)]);
   if (verdict.reason === "empty") return "O arquivo está vazio.";
   if (verdict.reason === "size")
     return `O arquivo tem ${fileSizeLabel(file.size)} e o limite para ${KIND_LABEL[verdict.kind!]} é ${fileSizeLabel(ATTACHMENT_POLICY[verdict.kind!].max)}.`;

@@ -30,7 +30,7 @@ const conversation = (): InboxConversation => ({
 });
 const message = (id: string, content: string): InboxMessage => ({
   id, direction: "inbound", content, timestamp: "2026-07-28T12:30:00.000Z", status: "received",
-  messageType: "text", chatId: "5511999990001@c.us", senderWhatsappId: "5511999990001@c.us", metadata: {},
+  messageType: "text", chatId: "5511999990001@c.us", senderWhatsappId: "5511999990001@c.us", metadata: {}, reactions: [],
 });
 const page = <T,>(items: T[]): Page<T> => ({ items, page: 1, pageSize: 50, total: items.length });
 const api = () => ({

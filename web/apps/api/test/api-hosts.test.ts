@@ -15,11 +15,14 @@ import type { RealtimeHub } from '../src/realtime.js';
 // host pelo gateway da bridge, não por 127.0.0.1. Daí a lista.
 const directories: string[] = [];
 const fechaveis: Array<{ close(callback: () => void): unknown }> = [];
+// No Windows o handle do SQLite segura o arquivo: fechar antes do rmSync.
+const applications: Array<Awaited<ReturnType<typeof createApp>>> = [];
 
 async function servidor(hosts: readonly string[]) {
   const directory = mkdtempSync(join(tmpdir(), 'chatpro-hosts-'));
   directories.push(directory);
   const app = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: 'http://127.0.0.1:1/internal/transport', workerTransportTimeoutMs: 20, databaseProvider: 'sqlite', databasePath: join(directory, 'api.sqlite'), developmentUserId: '00000000-0000-4000-8000-000000000001' });
+  applications.push(app);
   const servers = await listenOn(app, app.locals.realtimeHub as RealtimeHub, hosts, 0);
   fechaveis.push(...servers);
   return { app, servers };
@@ -27,6 +30,7 @@ async function servidor(hosts: readonly string[]) {
 
 afterEach(async () => {
   await Promise.all(fechaveis.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+  applications.splice(0).forEach(app => app.locals.persistenceDatabase?.close());
   directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true }));
 });
 

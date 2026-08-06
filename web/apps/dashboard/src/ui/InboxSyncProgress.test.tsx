@@ -197,6 +197,23 @@ describe("a faixa de progresso da sincronização", () => {
     expect(faixa().textContent ?? "").not.toContain("@c.us");
   });
 
+  it("ignora o sync de contatos, que divide o mesmo evento com números diferentes", async () => {
+    const client = api();
+    render(<Inbox api={client} />);
+    await screen.findByText("240 conversas percorridas, 1.834 mensagens");
+    const conversas = client.conversations as unknown as ReturnType<typeof vi.fn>;
+    const chamadas = conversas.mock.calls.length;
+    // O evento do contact sync carrega contactsProcessed, não chatsProcessed:
+    // sem a guarda o banner pisaria em campos que não existem no payload
+    // (apagando os números do histórico) e a lista de conversas recarregaria
+    // a cada página da agenda. O picker acompanha o próprio job por polling.
+    act(() => realtime.handler?.({ workspaceId: "default-workspace", eventType: "conversation.sync.updated", payload: { syncKind: "contacts", wahaSession: "session-a", jobId: "job-contatos", status: "running", contactsProcessed: 500, contactsResolved: 480, contactsSkipped: 20, hasMore: true, progressLabel: "Sincronizando agenda de contatos…", updatedAt: "2026-07-31T12:01:00.000Z" } }));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText("240 conversas percorridas, 1.834 mensagens")).toBeInTheDocument();
+    expect(faixa().textContent ?? "").not.toContain("500");
+    expect(conversas.mock.calls.length).toBe(chamadas);
+  });
+
   it("a faixa tem estilo próprio, com um tom por estado", () => {
     // A regra base, não a do `@media` — que também casa com `.inbox-sync {` e
     // deixaria passar a ausência da regra de verdade.

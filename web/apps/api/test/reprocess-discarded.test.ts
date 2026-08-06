@@ -39,6 +39,8 @@ const naoRecuperaveis = [
 ];
 
 const directories: string[] = [];
+// No Windows o handle do SQLite segura o arquivo: fechar antes do rmSync.
+const databases: SqlitePersistenceDatabase[] = [];
 const migrations = join(process.cwd(), 'migrations');
 const ocorridoEm = '2026-07-21T10:00:00.000Z';
 
@@ -53,14 +55,14 @@ function montar() {
   const directory = mkdtempSync(join(tmpdir(), 'chatpro-reprocess-'));
   directories.push(directory);
   const database = new SqlitePersistenceDatabase(join(directory, 'db.sqlite'), migrations);
-  database.migrate();
+  database.migrate(); databases.push(database);
   const automation = { run: vi.fn(async () => ({ status: 'skipped' as const })) };
   const sla = { run: vi.fn(async () => {}) };
   const store = new SqliteWahaWebhookStore(database.sqlite, automation as never, [], sla as never);
   return { database, store, automation, sla, service: new ReprocessDiscardedEventsService(store) };
 }
 
-afterEach(() => { directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })); });
+afterEach(() => { databases.splice(0).forEach((database) => database.close()); directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })); });
 
 describe('reprocessamento de eventos descartados', () => {
   it('recupera cada tipo descartado como mensagem do grupo, com o participante como autor', async () => {

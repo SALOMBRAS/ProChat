@@ -95,7 +95,9 @@ services:
       # Pela rede interna: o webhook não sai do host, e continua assinado por
       # HMAC. `host.docker.internal` era do arranjo local e não vale aqui.
       WHATSAPP_HOOK_URL: http://api:3000/api/v1/webhooks/waha
-      WHATSAPP_HOOK_EVENTS: message,message.any,session.status
+      # message.reaction: sem ele a WAHA não entrega reações de contatos nem
+      # das feitas no telefone — só as do operador existiriam na Inbox.
+      WHATSAPP_HOOK_EVENTS: message,message.any,session.status,message.reaction
       # Vazia, a WAHA assinaria com nada e a API recusaria com 401: a ingestão
       # morreria em silêncio, porque a recusa fica registrada do lado dela.
       WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_HMAC_KEY:?defina WAHA_WEBHOOK_HMAC_KEY em deploy/.env.prod}

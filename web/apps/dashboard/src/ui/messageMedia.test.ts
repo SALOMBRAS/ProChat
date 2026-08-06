@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { InboxMessage } from "../api/inbox.js";
 import {
   bodyRepeatsCard,
+  browserOpenable,
   contactCards,
   documentKind,
+  documentThumbnail,
   durationLabel,
+  formatTextPreview,
   isVoiceNote,
   mediaDuration,
   mediaFilename,
@@ -12,6 +15,8 @@ import {
   parseVcard,
   phoneDigits,
   phoneDisplay,
+  TEXT_PREVIEW_LIMIT,
+  textPreviewable,
   voiceWaveform,
   wahaData,
 } from "./messageMedia.js";
@@ -225,5 +230,96 @@ describe("cartão de contato recebido do WhatsApp", () => {
     expect(contactCards({ metadata: {} } as never)).toEqual([]);
     expect(contactCards({ metadata: { vCards: "não é lista" } } as never)).toEqual([]);
     expect(parseVcard("isto não é um vCard")).toBeUndefined();
+  });
+});
+
+describe("etiqueta do documento coringa", () => {
+  it.each([
+    ["dados.csv", "CSV"], ["notas.md", "MD"], ["config.json", "JSON"], ["layout.xml", "XML"],
+    ["vetor.svg", "SVG"], ["antigo.doc", "DOC"], ["texto.rtf", "DOC"], ["antiga.xls", "XLS"],
+    ["velho.ppt", "PPT"], ["pacote.rar", "RAR"], ["compresso.7z", "7Z"], ["gzip.tar", "ZIP"],
+    ["app.apk", "APK"], ["arte.psd", "PSD"], ["vetor.ai", "AI"], ["camadas.fig", "FIG"],
+    ["livro.epub", "EPUB"], ["foto.png", "IMG"], ["sem.extensao.desconhecida", "ARQ"],
+  ])("reconhece %s pela extensão", (name, label) => {
+    expect(documentKind(name, null).label).toBe(label);
+  });
+
+  it("a extensão decide antes do mime — o operador lê o nome do arquivo", () => {
+    // O navegador declara octet-stream para tudo o que não conhece: se o mime
+    // mandasse, todo .xlsx viraria ARQ.
+    expect(documentKind("planilha.xlsx", "application/octet-stream").label).toBe("XLS");
+    expect(documentKind("notas.md", "application/octet-stream").label).toBe("MD");
+    expect(documentKind("dados.csv", "application/octet-stream").label).toBe("CSV");
+  });
+
+  it("cai no mime quando não há extensão", () => {
+    expect(documentKind(undefined, "application/vnd.rar").label).toBe("RAR");
+    expect(documentKind(undefined, "application/x-7z-compressed").label).toBe("7Z");
+    expect(documentKind(undefined, "application/vnd.android.package-archive").label).toBe("APK");
+    expect(documentKind(undefined, "image/vnd.adobe.photoshop").label).toBe("PSD");
+    expect(documentKind(undefined, "application/postscript").label).toBe("AI");
+    expect(documentKind(undefined, "application/epub+zip").label).toBe("EPUB");
+    expect(documentKind(undefined, "text/csv").label).toBe("CSV");
+    expect(documentKind(undefined, "text/markdown").label).toBe("MD");
+    expect(documentKind(undefined, "application/json").label).toBe("JSON");
+    expect(documentKind(undefined, "application/ld+json").label).toBe("JSON");
+    expect(documentKind(undefined, "application/xml").label).toBe("XML");
+    expect(documentKind(undefined, "image/svg+xml").label).toBe("SVG");
+    expect(documentKind(undefined, "application/octet-stream").label).toBe("ARQ");
+  });
+
+  it("xml só por sufixo real: 'application/xml-dtd' não é documento de texto XML", () => {
+    expect(documentKind(undefined, "application/vnd.google-apps.document+xml").label).toBe("XML");
+  });
+});
+
+describe("miniatura nativa do documento", () => {
+  it("lê o thumbnail do _data como data URL, como a miniatura de localização", () => {
+    expect(documentThumbnail(message({ metadata: { _data: { thumbnail: "QUJD" } } }))).toBe("data:image/jpeg;base64,QUJD");
+    expect(documentThumbnail(message({ metadata: { _data: { thumbnail: "data:image/png;base64,QUJD" } } }))).toBe("data:image/png;base64,QUJD");
+  });
+
+  it("devolve indefinido quando o WhatsApp não mandou miniatura", () => {
+    expect(documentThumbnail(message())).toBeUndefined();
+    expect(documentThumbnail(message({ metadata: { _data: { thumbnail: 42 } } }))).toBeUndefined();
+  });
+});
+
+describe("abrir no navegador e prévia de texto", () => {
+  it("só oferece abrir o que o navegador sabe mostrar", () => {
+    expect(browserOpenable("contrato.pdf", null)).toBe(true);
+    expect(browserOpenable("notas.md", null)).toBe(true);
+    expect(browserOpenable("dados.csv", null)).toBe(true);
+    expect(browserOpenable("vetor.svg", null)).toBe(true);
+    expect(browserOpenable("planilha.xlsx", null)).toBe(false);
+    expect(browserOpenable("app.apk", null)).toBe(false);
+    expect(browserOpenable(undefined, "application/pdf")).toBe(true);
+    expect(browserOpenable(undefined, "text/plain")).toBe(true);
+    expect(browserOpenable(undefined, "application/json")).toBe(true);
+    expect(browserOpenable(undefined, "application/zip")).toBe(false);
+  });
+
+  it("só oferece visualizar o que é texto de verdade", () => {
+    expect(textPreviewable("notas.md", null)).toBe(true);
+    expect(textPreviewable("config.json", null)).toBe(true);
+    expect(textPreviewable("dados.csv", null)).toBe(true);
+    expect(textPreviewable("contrato.pdf", null)).toBe(false);
+    expect(textPreviewable(undefined, "application/json")).toBe(true);
+    expect(textPreviewable(undefined, "text/xml")).toBe(true);
+    expect(textPreviewable(undefined, "application/msword")).toBe(false);
+  });
+
+  it("formata JSON bonito quando o conteúdo parseia, cru quando quebra", () => {
+    expect(formatTextPreview('{"a":1}', "application/json", "c.json")).toBe('{\n  "a": 1\n}');
+    expect(formatTextPreview("{quebrado", "application/json", "c.json")).toBe("{quebrado");
+    expect(formatTextPreview("linha 1\nlinha 2", "text/plain", "a.txt")).toBe("linha 1\nlinha 2");
+  });
+
+  it("trunca conteúdo além do limite com aviso de download", () => {
+    const grande = "x".repeat(TEXT_PREVIEW_LIMIT + 10);
+    const saida = formatTextPreview(grande, "text/plain", "a.txt");
+    expect(saida).toContain("Conteúdo truncado");
+    expect(saida.indexOf("Conteúdo truncado")).toBeGreaterThanOrEqual(TEXT_PREVIEW_LIMIT);
+    expect(saida.length).toBeLessThanOrEqual(TEXT_PREVIEW_LIMIT + 60);
   });
 });

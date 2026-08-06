@@ -32,7 +32,9 @@ services:
       WAHA_DASHBOARD_ENABLED: "false"
       WHATSAPP_SWAGGER_ENABLED: "false"
       WHATSAPP_HOOK_URL: http://host.docker.internal:3000/api/v1/webhooks/waha
-      WHATSAPP_HOOK_EVENTS: message,message.any,session.status
+      # message.reaction: sem ele a WAHA não entrega reações de contatos nem
+      # das feitas no telefone — só as do operador existiriam na Inbox.
+      WHATSAPP_HOOK_EVENTS: message,message.any,session.status,message.reaction
       # Vazia, a WAHA assinaria o webhook com nada e a API recusaria com 401 —
       # a ingestão morreria em silêncio, porque a recusa fica do lado dela.
       WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_HMAC_KEY:?defina WAHA_WEBHOOK_HMAC_KEY (use --env-file .env.local)}

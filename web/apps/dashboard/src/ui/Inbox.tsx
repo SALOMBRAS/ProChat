@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type {
   ConversationContext,
   ConversationEvent,
   ConversationPriority,
   ConversationStatus,
+  GroupParticipant,
   HistorySyncJob,
   InboxConversation,
   InboxMessage,
+  MessageReaction,
   Page,
   SlaMetrics,
 } from "../api/inbox.js";
@@ -21,8 +23,12 @@ import { MicrophonePermission } from "./MicrophonePermission.js";
 import { audioInputs, isSilent, microphoneErrorMessage, microphoneState, signalLevel, SILENCE_WARNING } from "./microphone.js";
 import { conversationIdFromLocation, inboxUrlForConversation } from "./conversationNavigation.js";
 import { contactLabel, conversationPhone, participantLabel } from "./contactIdentity.js";
-import { Media } from "./MessageMedia.js";
-import { bodyRepeatsCard, mapsUrl } from "./messageMedia.js";
+import { Media } from "./MessageMediaCard.js";
+import { LinkPreview, linkify } from "./LinkPreviewCard.js";
+import { cachedLinkPreview, domainFromUrl, findUrls, type LinkPreviewData } from "./linkPreview.js";
+import { MentionAutocomplete } from "./MentionAutocomplete.js";
+import { filterParticipants, insertMention, isGroupAdmin, mentionJidsOf, mentionTrigger, participantDisplay, serializeMentions, tokenizeMentions, type MentionRecord } from "./mentions.js";
+import { bodyRepeatsCard, mapsUrl, phoneDisplay } from "./messageMedia.js";
 // Os leitores de localização moram em messageMedia.ts junto dos outros; o
 // reexporte mantém o caminho de importação que já existia.
 export { coordinatesLabel, locationOf, mapsUrl } from "./messageMedia.js";
@@ -104,9 +110,6 @@ const CAMERA_ACCEPT = "image/jpeg,image/png,image/webp,video/mp4,video/webm";
  *  nota de voz: ela é gravada no compositor e sai dali, e tomar a conversa para
  *  mostrar uma barra de reprodução acrescentaria um passo sem nada em troca. */
 const STAGE_KINDS: readonly string[] = ["image", "video"];
-/** Página da busca de contato. 79 contatos hoje, mas a base cresce: a lista pede
- *  a próxima página sob demanda em vez de carregar tudo. */
-const CONTACT_PAGE_SIZE = 20;
 /** Os três motivos que a API de geolocalização distingue. O `code` é o contrato —
  *  `message` é texto do navegador, varia por fabricante e não é para o operador. */
 const geolocationErrorMessage = (error: unknown) => {
@@ -198,15 +201,83 @@ const statusIcon = (status: InboxMessage["status"]) =>
       : status === "sending"
         ? "◌"
         : "✓";
-const MessageBubble = ({ message, api, domain, onOpenContact, showAuthor, highlighted = false }: { message: InboxMessage; api: InboxApi; domain?: DomainApi; onOpenContact?: (search: string) => void; showAuthor: boolean; highlighted?: boolean }) => (
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+const reactionGroups = (reactions: MessageReaction[] | undefined) => {
+  const groups = new Map<string, { emoji: string; count: number; mine: boolean; authors: string[] }>();
+  for (const reaction of reactions ?? []) {
+    const group = groups.get(reaction.emoji) ?? { emoji: reaction.emoji, count: 0, mine: false, authors: [] };
+    group.count += 1;
+    group.mine = group.mine || reaction.fromMe;
+    group.authors.push(reaction.fromMe ? "Você" : reaction.reactorName ?? reaction.reactorPhone ?? reaction.reactorWhatsappId ?? "Contato");
+    groups.set(reaction.emoji, group);
+  }
+  return [...groups.values()];
+};
+/** Badges agrupados por emoji (como no WhatsApp Web) + gatilho/seletor rápido.
+ *  As classes seguem o bloco "Reações (T1)" do styles.css: gatilho absoluto no
+ *  hover da bolha, seletor flutuante, `.mine` marca a reação da própria conta.
+ *  Clicar num badge repete a reação daquele emoji — e o toggle do servidor a
+ *  remove. */
+const MessageReactions = ({ message, onReact, failed }: { message: InboxMessage; onReact: (emoji: string) => void; failed: boolean }) => {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const pickerRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: MouseEvent) => { const target = event.target as Node; if (!triggerRef.current?.contains(target) && !pickerRef.current?.contains(target)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", outside);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", escape); };
+  }, [open]);
+  const groups = reactionGroups(message.reactions);
+  return (
+    <>
+      <button ref={triggerRef} type="button" className="reaction-trigger" aria-label="Reagir à mensagem" aria-expanded={open} onClick={() => setOpen((current) => !current)}>😊</button>
+      {open && (
+        <span ref={pickerRef} className="reaction-picker" role="menu">
+          {QUICK_REACTIONS.map((emoji) => (
+            <button key={emoji} type="button" role="menuitem" onClick={() => { setOpen(false); onReact(emoji); }}>{emoji}</button>
+          ))}
+        </span>
+      )}
+      {failed && <span className="message-reaction-error" role="alert" title="Reação não enviada">⚠</span>}
+      {groups.length > 0 && (
+        <span className="message-reactions">
+          {groups.map((group) => (
+            <button key={group.emoji} type="button" className={`message-reaction-badge${group.mine ? " mine" : ""}`} title={group.authors.join(", ")} onClick={() => onReact(group.emoji)}>
+              {group.emoji}{group.count > 1 && <span className="reaction-count">{group.count}</span>}
+            </button>
+          ))}
+        </span>
+      )}
+    </>
+  );
+};
+/** Corpo da mensagem: menções conhecidas viram destaque (`@dígitos` →
+ *  `@Nome`, com fallback nos dígitos); os demais segmentos seguem para o
+ *  linkify, então URL ao lado de menção continua virando link. */
+const renderMessageBody = (message: InboxMessage, mentionResolver?: (jid: string) => string | null) => {
+  const content = message.content;
+  if (!content) return null;
+  const jids = mentionJidsOf(message.metadata);
+  if (!jids.length) return linkify(content);
+  return tokenizeMentions(content, jids, (jid) => mentionResolver?.(jid) ?? null).map((segment, index) =>
+    typeof segment === "string" ? <Fragment key={index}>{linkify(segment)}</Fragment> : <span key={index} className="message-mention">{segment.label}</span>);
+};
+const MessageBubble = ({ message, api, domain, onOpenContact, showAuthor, highlighted = false, onReact, reactionFailed = false, mentionResolver }: { message: InboxMessage; api: InboxApi; domain?: DomainApi; onOpenContact?: (search: string) => void; showAuthor: boolean; highlighted?: boolean; onReact?: (message: InboxMessage, emoji: string) => void; reactionFailed?: boolean; mentionResolver?: (jid: string) => string | null }) => (
   <article id={`conversation-search-result-${message.id}`} className={`message-bubble ${message.direction}${highlighted ? " search-highlighted" : ""}`}>
     {showAuthor && <strong className="message-author">{senderName(message.senderWhatsappId)}:</strong>}
     <Media message={message} api={api} domain={domain} onOpenContact={onOpenContact} />
-    {message.content && !bodyRepeatsCard(message) && <p>{message.content}</p>}
+    {message.content && !bodyRepeatsCard(message) && <p>{renderMessageBody(message, mentionResolver)}</p>}
+    {/* Uma prévia por mensagem, sempre do primeiro link: nativa do WhatsApp
+        quando existe, retaguarda OG da API quando não. */}
+    <LinkPreview message={message} api={api} />
     <span className={`message-meta status-${message.status}`}>
       {message.direction === "outbound" && <b aria-label={`Status: ${message.status}`}>{statusIcon(message.status)}{" "}</b>}
       {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
     </span>
+    {onReact && <MessageReactions message={message} onReact={(emoji) => onReact(message, emoji)} failed={reactionFailed} />}
   </article>
 );
 
@@ -231,6 +302,10 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [editorOpen, setEditorOpen] = useState(false);
   const [attachmentPreview, setAttachmentPreview] = useState<string>();
   const [attachmentStatus, setAttachmentStatus] = useState("");
+  /** Percentual do upload em curso. Só existe enquanto o XHR relata progresso:
+   *  fora de um envio é `undefined`, e a barra some — nunca fica um resíduo de
+   *  "100%" preso na tela depois que a resposta chegou. */
+  const [uploadProgress, setUploadProgress] = useState<number>();
   /** Recado de colar ou arrastar. Fica separado de `attachmentStatus` porque
    *  recusa precisa ser anunciada (`role="alert"`) e não pode passar despercebida
    *  como o "Anexo em processamento" passa. */
@@ -238,7 +313,31 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [dropping, setDropping] = useState(false);
   const dropDepth = useRef(0);
   const [composerText, setComposerText] = useState("");
+  // Prévia do link no compositor (como o WhatsApp): o primeiro URL do texto
+  // mostra o cartão acima do campo e o X envia o link puro, sem prévia.
+  const [composerPreview, setComposerPreview] = useState<LinkPreviewData | null | undefined>(undefined);
+  const [dismissedPreviewUrl, setDismissedPreviewUrl] = useState<string | null>(null);
+  // Menções (T3): o `@` abre autocomplete só em grupo; os registros {display,
+  // jid} vivem num ref porque são derivados do texto no submit — apagar o
+  // `@Nome` descarta a menção (decisão: textarea de texto puro, sem chips).
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [mentionActive, setMentionActive] = useState(0);
+  const mentionsRef = useRef<MentionRecord[]>([]);
+  const participantsCache = useRef(new Map<string, GroupParticipant[]>());
+  const [participantsState, setParticipantsState] = useState<{ loading: boolean; failed: boolean }>({ loading: false, failed: false });
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  // A busca reusa o cache de sessão dos cartões já renderizados na conversa, e
+  // o debounce de 400 ms poupa a API a cada tecla. URL dispensada (X) não
+  // dispara busca nem cartão até o link mudar.
+  const composerFirstUrl = useMemo(() => findUrls(composerText)[0], [composerText]);
+  useEffect(() => {
+    if (!composerFirstUrl || composerFirstUrl === dismissedPreviewUrl) { setComposerPreview(undefined); return; }
+    let active = true;
+    setComposerPreview(undefined);
+    const timer = setTimeout(() => { void cachedLinkPreview(api, composerFirstUrl).then((data) => { if (active) setComposerPreview(data); }); }, 400);
+    return () => { active = false; clearTimeout(timer); };
+  }, [api, composerFirstUrl, dismissedPreviewUrl]);
   const [attachmentAccept, setAttachmentAccept] = useState<string>();
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder>();
@@ -320,7 +419,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     history.pushState({}, "", `/contacts?search=${encodeURIComponent(search)}`);
     dispatchEvent(new PopStateEvent("popstate"));
   };
-  const applyAttachment = (file?: File) => { setAttachment(file); setAttachmentSource(file); setAttachmentEdit(PRISTINE_EDIT); setEditorOpen(false); setIntakeMessage(undefined); };
+  const applyAttachment = (file?: File) => { setAttachment(file); setAttachmentSource(file); setAttachmentEdit(PRISTINE_EDIT); setEditorOpen(false); setIntakeMessage(undefined); setUploadProgress(undefined); };
   /** Só imagem da allowlist entra no editor: vídeo e documento não têm o que
    *  marcar, e um mime fora dela voltaria 415 depois de reexportado. */
   const editableAttachment = isEditableImage(attachmentSource?.type) ? attachmentSource : undefined;
@@ -559,6 +658,30 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       setLoadingMessages(false);
     }
   };
+  const [reactionFailures, setReactionFailures] = useState<ReadonlySet<string>>(new Set());
+  const applyReactions = (messageId: string, reactions: MessageReaction[]) =>
+    setMessages((list) => list.map((item) => (item.id === messageId ? { ...item, reactions } : item)));
+  /** Reação do operador com UI otimista: aplica o toggle local (mesmo emoji da
+   *  conta = remoção; outro emoji substitui), reconcilia com a resposta do
+   *  servidor e desfaz marcando a mensagem com ⚠ se o envio falhar. */
+  const reactToMessage = async (message: InboxMessage, emoji: string) => {
+    const conversation = selectedRef.current;
+    if (!conversation) return;
+    const previous = message.reactions ?? [];
+    const mine = previous.find((reaction) => reaction.fromMe);
+    const optimistic: MessageReaction[] = mine?.emoji === emoji
+      ? previous.filter((reaction) => !reaction.fromMe)
+      : [...previous.filter((reaction) => !reaction.fromMe), { emoji, reactorWhatsappId: null, fromMe: true, reactorName: null, reactorPhone: null, reactedAt: new Date().toISOString() }];
+    applyReactions(message.id, optimistic);
+    setReactionFailures((failures) => { const next = new Set(failures); next.delete(message.id); return next; });
+    try {
+      const result = await api.react(conversation.id, message.id, emoji);
+      if (Array.isArray(result.reactions)) applyReactions(result.messageId, result.reactions);
+    } catch {
+      applyReactions(message.id, previous);
+      setReactionFailures((failures) => new Set(failures).add(message.id));
+    }
+  };
   const loadContext = async (conversationId: string) => {
     if (!api.context) return;
     const request = ++contextRequest.current;
@@ -648,6 +771,66 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
           selected,
       );
   }, [conversationPage]);
+  /** Participantes do grupo, 1× por conversa (cache em ref): autocomplete,
+   *  resolver de `@Nome` no corpo e painel de membros leem daqui. Falha não
+   *  cacheia — o próximo `@` tenta de novo. */
+  const loadParticipants = async (conversationId: string) => {
+    if (participantsCache.current.has(conversationId)) return;
+    setParticipantsState({ loading: true, failed: false });
+    try {
+      const result = await api.participants(conversationId);
+      participantsCache.current.set(conversationId, result.items);
+      setParticipantsState({ loading: false, failed: false });
+    } catch {
+      setParticipantsState({ loading: false, failed: true });
+    }
+  };
+  /** Itens do popup: filtro local (nome/número/dígitos, sem acento) sobre o
+   *  cache da conversa. A ordem é a do backend: recência → alfabética. */
+  const mentionItems = mention && selected ? filterParticipants(participantsCache.current.get(selected.id) ?? [], mention.query) : [];
+  /** Troca o `@query` pelo `@Nome `, registra o JID para a serialização do
+   *  submit (que converte para `@dígitos`, formato que a WAHA exige) e devolve
+   *  o cursor para depois do espaço. */
+  const selectMention = (participant: GroupParticipant) => {
+    if (!mention) return;
+    const textarea = composerRef.current;
+    const current = textarea?.value ?? composerText;
+    const caret = textarea?.selectionStart ?? current.length;
+    const display = participantDisplay(participant);
+    const inserted = insertMention(current, caret, mention.start, display);
+    setComposerText(inserted.text);
+    mentionsRef.current = [...mentionsRef.current.filter((entry) => entry.jid !== participant.whatsappId), { display, jid: participant.whatsappId }];
+    setMention(null);
+    setMentionActive(0);
+    requestAnimationFrame(() => {
+      const target = composerRef.current;
+      if (!target) return;
+      target.focus();
+      target.setSelectionRange(inserted.caret, inserted.caret);
+    });
+  };
+  /** Teclado do composer: com o popup aberto, ↑/↓ navegam, Enter/Tab
+   *  selecionam e Esc fecha (stopPropagation para não disparar atalhos da
+   *  tela). Fechado, nada muda — Enter segue quebrando linha. */
+  const handleComposerKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (!mention) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (mentionItems.length > 0) {
+        setMentionActive((current) => (event.key === "ArrowDown" ? (current + 1) % mentionItems.length : (current - 1 + mentionItems.length) % mentionItems.length));
+      }
+    } else if (event.key === "Enter" || event.key === "Tab") {
+      const participant = mentionItems[mentionActive] ?? mentionItems[0];
+      if (participant) {
+        event.preventDefault();
+        selectMention(participant);
+      }
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      setMention(null);
+    }
+  };
   useEffect(() => {
     activeConversationId.current = selected?.id;
     selectedRef.current = selected;
@@ -661,6 +844,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     setNoteSaveState(draft === undefined ? "saved" : "editing");
     setTag("");
     if (selected) { void loadContext(selected.id); void loadActivity(selected.id); void loadSla(selected.id); }
+    // Grupo: os participantes alimentam o autocomplete de menções, o destaque
+    // de `@Nome` no corpo e o painel de membros — 1 fetch por conversa.
+    if (selected && isGroup(selected)) void loadParticipants(selected.id);
   }, [selected?.id, api]);
   useEffect(
     () =>
@@ -691,6 +877,11 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
         }
         if (["workspace.user.created", "workspace.user.updated", "workspace.team.created", "workspace.team.updated", "workspace.team.members.updated"].includes(event.eventType)) { void refreshDirectory(); return; }
         if (event.eventType === "conversation.sync.updated") {
+          /** O sync de contatos divide o mesmo tipo de evento. Sem esta saída
+           *  ele pisaria no banner do history sync (que lê chatsProcessed e
+           *  messagesProcessed) e dispararia refreshConversations a cada
+           *  página de contatos. O picker acompanha o próprio job por polling. */
+          if (event.payload.syncKind === "contacts") return;
           const wahaSession = String(event.payload.wahaSession ?? "");
           setSyncJob((current) =>
             current && current.wahaSession === wahaSession
@@ -719,6 +910,27 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
           void refreshConversations();
           return;
         }
+        if (event.eventType === "message.reaction.updated") {
+          // Atualização em place: a reação não muda a lista de conversas nem
+          // cria mensagem, então não há reload — só a mensagem visível troca.
+          const messageId = typeof event.payload.messageId === "string" ? event.payload.messageId : "";
+          if (messageId && Array.isArray(event.payload.reactions))
+            applyReactions(messageId, event.payload.reactions as MessageReaction[]);
+          return;
+        }
+        if (event.eventType === "conversation.updated" && event.payload.identitySynchronized === true) {
+          // Identidade sincronizada em segundo plano: se foi o grupo aberto ou
+          // um participante dele, o painel de membros e o autocomplete ganham
+          // nomes novos — o cache é derrubado e a lista relida. Sem return: o
+          // refresh genérico de conversas logo abaixo continua valendo.
+          const current = selectedRef.current;
+          const chatId = typeof event.payload.chatId === "string" ? event.payload.chatId : "";
+          const cached = current && isGroup(current) ? participantsCache.current.get(current.id) : undefined;
+          if (current && cached && (chatId === current.chatId || cached.some((entry) => entry.whatsappId === chatId))) {
+            participantsCache.current.delete(current.id);
+            void loadParticipants(current.id);
+          }
+        }
         if (
           ![
             "message.received",
@@ -729,6 +941,11 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
           return;
         void refreshConversations();
         if (selectedRef.current && atBottomRef.current) void loadLatest(selectedRef.current.id, true);
+      }, () => {
+        // O socket caiu e voltou: eventos se perderam no intervalo, então a
+        // lista e a conversa aberta são relidas em vez de confiar no delta.
+        void refreshConversations();
+        if (selectedRef.current) void loadLatest(selectedRef.current.id, true);
       }),
     [api],
   );
@@ -845,22 +1062,42 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     try {
       if (attachment) {
         setAttachmentStatus("Preparando anexo…");
+        setUploadProgress(0);
         const clientRequestId = crypto.randomUUID();
-        const job = await api.sendAttachment(selected.id, attachment, clientRequestId, text);
+        const job = await api.sendAttachment(selected.id, attachment, clientRequestId, text, undefined, (pct) => { if (mounted.current) setUploadProgress(pct); });
+        setUploadProgress(undefined);
         setAttachmentStatus(
           job.status === "failed"
             ? "Falhou"
             : "Anexo em processamento; aguardando confirmação",
         );
         applyAttachment(undefined);
-      } else await api.sendMessage(selected.id, text);
+      } else {
+        // Serialização: cada `@Nome` rastreado vira `@dígitos` no texto e o JID
+        // entra em `mentions` — é o par que a WAHA usa para notificar de verdade.
+        // Sem menção, a chamada segue de 2 argumentos, como sempre foi.
+        // `linkPreview: false` só viaja quando o operador dispensou o cartão do
+        // compositor — argumento a mais (nem `undefined`) quebraria os espiões
+        // dos testes que conferem a aridade exata da chamada.
+        const serialized = serializeMentions(text, mentionsRef.current);
+        const withoutPreview = composerFirstUrl !== undefined && composerFirstUrl === dismissedPreviewUrl;
+        if (serialized.mentions.length > 0 && withoutPreview) await api.sendMessage(selected.id, serialized.text, serialized.mentions, false);
+        else if (serialized.mentions.length > 0) await api.sendMessage(selected.id, serialized.text, serialized.mentions);
+        else if (withoutPreview) await api.sendMessage(selected.id, serialized.text, undefined, false);
+        else await api.sendMessage(selected.id, serialized.text);
+      }
       form.reset();
       setComposerText("");
+      setDismissedPreviewUrl(null);
+      setComposerPreview(undefined);
+      mentionsRef.current = [];
+      setMention(null);
       await Promise.all([
         loadLatest(selected.id, true),
         refreshConversations(),
       ]);
     } catch (nextError) {
+      setUploadProgress(undefined);
       setAttachmentStatus("Falhou");
       setError(errorMessage(nextError));
     } finally {
@@ -1135,15 +1372,25 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
       atBottomRef.current =
         list.scrollHeight - list.scrollTop - list.clientHeight < 48;
   };
-  /** A listagem já filtra no banco (PR #22), então só o que casa viaja pela rede.
-   *  Estável por `useCallback` porque a tela de contato usa esta função como
-   *  dependência de efeito: recriá-la a cada render dispararia uma busca por
-   *  render. */
-  const searchContacts = useCallback(
-    async (term: string, page: number) => {
-      const result = await domain.contacts({ search: term, page, pageSize: CONTACT_PAGE_SIZE });
-      return { items: result.items, total: result.total };
-    },
+  /** Carrega TODOS os contatos do workspace, paginando de 100 em 100 por
+   *  dentro: o picker novo abre vazio e só chama isto depois da sincronização
+   *  (ou do atalho "já sincronizei"), mostrando a lista inteira em duas
+   *  colunas — nada de "carregar mais" de 20 em 20. Estável por `useCallback`
+   *  porque a tela de contato a recebe como prop. */
+  const loadAllContacts = useCallback(async () => {
+    const all = [];
+    for (let page = 1; ; page += 1) {
+      const result = await domain.contacts({ page, pageSize: 100 });
+      all.push(...result.items);
+      if (!result.items.length || all.length >= result.total) return all;
+    }
+  }, [domain]);
+  /** Memorizado porque o efeito de polling do picker depende da identidade
+   *  deste objeto: recriado a cada render, o intervalo de 2 s seria desmontado
+   *  e remontado sem necessidade. O start vai sem sessão — o servidor resolve a
+   *  sessão conectada e devolve o `wahaSession` que alimenta o polling. */
+  const contactSync = useMemo(
+    () => ({ start: () => domain.startContactSync(), status: (wahaSession: string) => domain.contactSyncStatus(wahaSession) }),
     [domain],
   );
   const openContactPicker = () => { setAttachmentMenuOpen(false); setContactPickerOpen(true); };
@@ -1404,7 +1651,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                           {dateLabel(item.timestamp)}
                         </div>
                       )}
-                      <MessageBubble message={item} api={api} domain={domain} onOpenContact={openContactInCrm} showAuthor={isGroup(selected) && item.direction === "inbound"} highlighted={item.id === activeMatchId} />
+                      <MessageBubble message={item} api={api} domain={domain} onOpenContact={openContactInCrm} showAuthor={isGroup(selected) && item.direction === "inbound"} highlighted={item.id === activeMatchId} onReact={reactToMessage} reactionFailed={reactionFailures.has(item.id)} mentionResolver={(jid) => { const participant = participantsCache.current.get(selected.id)?.find((entry) => entry.whatsappId === jid); return participant ? participantDisplay(participant) : null; }} />
                     </div>
                   ))
                 )}
@@ -1417,10 +1664,11 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 {intakeMessage && <p className={`composer-intake-message${intakeMessage.failed ? " failed" : ""}`} role={intakeMessage.failed ? "alert" : "status"}>{intakeMessage.text}</p>}
                 <input ref={attachmentInputRef} className="attachment-input" type="file" accept={attachmentAccept} capture={attachmentCapture} aria-label="Selecionar anexo" onChange={(event) => { applyAttachment(event.target.files?.[0]); setAttachmentStatus(""); setAttachmentMenuOpen(false); setAttachmentCapture(undefined); }} disabled={sending} />
                 {contactPickerOpen && <ContactPicker
-                  search={searchContacts}
+                  loadAll={loadAllContacts}
                   onSend={(contactIds) => void sendContactCards(contactIds)}
                   onClose={() => setContactPickerOpen(false)}
                   sending={sending}
+                  sync={contactSync}
                 />}
                 {locationOpen && <div className="composer-location" role="dialog" aria-label="Enviar localização">
                   <div className="composer-location-head"><strong>Enviar localização</strong><button type="button" onClick={closeLocation} aria-label="Fechar localização">×</button></div>
@@ -1469,9 +1717,32 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 {isRecording && micSilent && <p className="composer-recording-silent" role="alert">{SILENCE_WARNING}</p>}
                 {/* Só documento e áudio chegam aqui: imagem e vídeo abrem a tela de
                     composição, onde o editor de traço passou a ser acionado. */}
+                {/* Prévia do link antes de enviar, como o WhatsApp: aparece sobre
+                    o campo enquanto digita e o X envia o link puro, sem prévia.
+                    Some com anexo pendente (legenda não gera prévia) e quando a
+                    busca não encontra cartão para o link. */}
+                {!attachment && composerFirstUrl && composerFirstUrl !== dismissedPreviewUrl && composerPreview !== null && (
+                  <div className="composer-link-preview" aria-label="Prévia do link">
+                    {composerPreview === undefined ? (
+                      <span className="link-preview-card is-loading" aria-hidden="true"><i /><i /><i /></span>
+                    ) : (
+                      <>
+                        {composerPreview.imageUrl && <span className="link-preview-image"><img src={composerPreview.imageUrl} alt="" loading="lazy" /></span>}
+                        <span className="link-preview-body">
+                          {composerPreview.title && <strong className="link-preview-title">{composerPreview.title}</strong>}
+                          {composerPreview.description && <span className="link-preview-description">{composerPreview.description}</span>}
+                          <span className="link-preview-domain">{composerPreview.siteName ?? domainFromUrl(composerFirstUrl)}</span>
+                        </span>
+                      </>
+                    )}
+                    <button type="button" className="composer-link-preview-dismiss" onClick={() => setDismissedPreviewUrl(composerFirstUrl)} disabled={sending} aria-label="Enviar sem a prévia do link" title="Enviar sem a prévia do link">×</button>
+                  </div>
+                )}
                 {attachment && <div className="composer-pending-attachment" aria-label={`Anexo pendente: ${attachment.name}`}>
                   <span className="composer-pending-file-icon" aria-hidden="true">{attachmentKind(attachment.type) === "audio" ? "◖" : "▤"}</span>
-                  <div className="composer-pending-details"><strong title={attachment.name}>{attachment.name}</strong><span>{fileSizeLabel(attachment.size)}</span></div>
+                  <div className="composer-pending-details"><strong title={attachment.name}>{attachment.name}</strong><span>{fileSizeLabel(attachment.size)}</span>
+                    {uploadProgress !== undefined && <span className="composer-upload-progress" role="status" aria-label="Progresso do envio"><span className="composer-upload-progress-track"><i style={{ width: `${uploadProgress}%` }} /></span>{uploadProgress < 100 ? `Enviando… ${uploadProgress}%` : "Anexo em processamento…"}</span>}
+                  </div>
                   <span className="composer-pending-tools">
                     <button type="button" className="composer-pending-remove" onClick={clearAttachment} disabled={sending} aria-label={`Remover ${attachment.name}`} title="Remover anexo">×</button>
                   </span>
@@ -1479,7 +1750,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 <div className="composer-attachment-menu">
                   <button type="button" className="composer-action composer-add-action" onClick={() => setAttachmentMenuOpen((open) => !open)} disabled={sending} aria-label="Adicionar anexo" aria-expanded={attachmentMenuOpen} aria-controls="composer-attachment-options"><span aria-hidden="true">+</span></button>
                   {attachmentMenuOpen && <div className="composer-attachment-options" id="composer-attachment-options" role="menu" aria-label="Opções de anexo">
-                    <button type="button" role="menuitem" onClick={() => { setAttachmentAccept(".pdf,.doc,.docx,.xls,.xlsx,.txt"); attachmentInputRef.current?.click(); }}><span className="attachment-option-icon document" aria-hidden="true">▤</span><span>Documento</span></button>
+                    <button type="button" role="menuitem" onClick={() => { setAttachmentAccept("*/*"); attachmentInputRef.current?.click(); }}><span className="attachment-option-icon document" aria-hidden="true">▤</span><span>Documento</span></button>{/* Documento é o coringa: qualquer formato até 50 MB, paridade com o WhatsApp. */}
                     <button type="button" role="menuitem" onClick={() => { setAttachmentAccept(CAMERA_ACCEPT); setAttachmentCapture(undefined); attachmentInputRef.current?.click(); }}><span className="attachment-option-icon media" aria-hidden="true">▣</span><span>Fotos/Vídeos</span></button>
                     <button type="button" role="menuitem" className="future-option" title="Gravação de áudio será disponibilizada em breve"><span className="attachment-option-icon audio" aria-hidden="true">◖</span><span>Áudio</span><small>Em breve</small></button>
                     <button type="button" role="menuitem" onClick={() => void openCamera()}><span className="attachment-option-icon camera" aria-hidden="true">◉</span><span>Câmera</span></button>
@@ -1489,7 +1760,39 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 </div>
                 <button type="button" className="composer-action composer-emoji-action" title="Emojis serão disponibilizados em breve" aria-label="Escolher emoji" disabled={sending}><span aria-hidden="true">☺</span></button>
                 <div className="composer-input-wrap">
-                  <textarea aria-label="Mensagem" name="text" value={composerText} onChange={(event) => setComposerText(event.target.value)} placeholder={attachment ? "Adicionar legenda (opcional)" : "Digite uma mensagem"} maxLength={4096} disabled={sending} />
+                  {/* O popup fica dentro do wrap (position:relative) para abrir
+                      acima do campo; `mention` só existe em conversa de grupo. */}
+                  {mention && selected && isGroup(selected) && (
+                    <MentionAutocomplete
+                      items={mentionItems}
+                      loading={participantsState.loading && !participantsCache.current.has(selected.id)}
+                      failed={participantsState.failed && !participantsCache.current.has(selected.id)}
+                      activeIndex={mentionActive}
+                      onSelect={selectMention}
+                      onHover={setMentionActive}
+                      onClose={() => setMention(null)}
+                    />
+                  )}
+                  <textarea
+                    aria-label="Mensagem"
+                    name="text"
+                    ref={composerRef}
+                    value={composerText}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setComposerText(next);
+                      if (selected && isGroup(selected)) {
+                        const trigger = mentionTrigger(next, event.target.selectionStart ?? next.length);
+                        setMention(trigger);
+                        setMentionActive(0);
+                        if (trigger) void loadParticipants(selected.id);
+                      }
+                    }}
+                    onKeyDown={handleComposerKeyDown}
+                    placeholder={attachment ? "Adicionar legenda (opcional)" : "Digite uma mensagem"}
+                    maxLength={4096}
+                    disabled={sending}
+                  />
                   {attachmentStatus && <span className="attachment-status">{attachmentStatus}</span>}
                 </div>
                 {isRecording ? <button type="button" className="send-button composer-send-action" onClick={() => finishRecording()} aria-label="Concluir gravação">■</button> : composerText.trim() || attachment ? <button className="send-button composer-send-action" disabled={sending} aria-label={sending ? "Enviando mensagem" : "Enviar"}>{sending ? "…" : "➤"}</button> : <button type="button" className="composer-action composer-mic-action" onClick={() => void startRecording()} title="Gravar áudio" aria-label="Gravar áudio" disabled={sending}><span aria-hidden="true">♩</span></button>}
@@ -1660,6 +1963,22 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 </div>
                 <div className="customer-future-fields"><div className="customer-section-title">CAMPOS PERSONALIZADOS</div><div><span>Origem do lead</span><strong>Não informado</strong></div><div><span>Responsável</span><strong>{workspaceUsers.find((user) => user.id === selected.assignedUserId)?.displayName ?? teams.find((team) => team.id === selected.assignedTeamId)?.name ?? "Não atribuído"}</strong></div><div><span>Status</span><strong>{statusLabel[selected.status]}</strong></div><div><span>Informações extras</span><strong>Disponível em breve</strong></div></div>
               </div>
+              {/* Membros do grupo: a mesma fonte do autocomplete de menções
+                  (cache 1× por conversa). Nome + número, com selo de admin. */}
+              {isGroup(selected) && (
+                <div className="customer-details customer-members">
+                  <div className="customer-section-title">MEMBROS{participantsCache.current.has(selected.id) ? ` (${participantsCache.current.get(selected.id)?.length ?? 0})` : ""}</div>
+                  {participantsState.loading && !participantsCache.current.has(selected.id) && <p className="customer-members-hint">Carregando participantes…</p>}
+                  {participantsState.failed && !participantsCache.current.has(selected.id) && <p className="customer-members-hint">Não foi possível carregar os participantes.</p>}
+                  {participantsCache.current.has(selected.id) && (participantsCache.current.get(selected.id)?.length ?? 0) === 0 && <p className="customer-members-hint">Nenhum participante sincronizado ainda — a lista se completa conforme o grupo interage.</p>}
+                  {(participantsCache.current.get(selected.id) ?? []).map((participant) => (
+                    <div key={participant.whatsappId} className="customer-member">
+                      <strong>{participantDisplay(participant)}</strong>
+                      <span>{participant.phone ? phoneDisplay(participant.phone) : "sem número visível"}{isGroupAdmin(participant.role) ? " · admin" : ""}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {!isGroup(selected) && !selected.contactId && (
                 <div className="customer-details customer-contact">
                   <div className="customer-section-title"><span>CONTATO</span>{!creatingContact && <button type="button" onClick={() => setCreatingContact(true)}>Criar contato</button>}</div>

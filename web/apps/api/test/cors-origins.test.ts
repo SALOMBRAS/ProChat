@@ -11,13 +11,17 @@ import { defaultCorsAllowedOrigins, loadConfig } from '../src/config.js';
 // falava com a API — e o navegador recusa antes de a requisição sair, então o
 // sintoma aparece no console do usuário, não no log do servidor.
 const directories: string[] = [];
+// No Windows o handle do SQLite segura o arquivo: fechar antes do rmSync.
+const applications: Array<Awaited<ReturnType<typeof createApp>>> = [];
 const app = async (corsAllowedOrigins?: readonly string[]) => {
   const directory = mkdtempSync(join(tmpdir(), 'chatpro-cors-'));
   directories.push(directory);
-  return createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: 'http://127.0.0.1:1/internal/transport', workerTransportTimeoutMs: 20, databaseProvider: 'sqlite', databasePath: join(directory, 'api.sqlite'), developmentUserId: '00000000-0000-4000-8000-000000000001', ...(corsAllowedOrigins ? { corsAllowedOrigins } : {}) });
+  const server = await createApp({ port: 0, nodeEnv: 'test', workerTransportUrl: 'http://127.0.0.1:1/internal/transport', workerTransportTimeoutMs: 20, databaseProvider: 'sqlite', databasePath: join(directory, 'api.sqlite'), developmentUserId: '00000000-0000-4000-8000-000000000001', ...(corsAllowedOrigins ? { corsAllowedOrigins } : {}) });
+  applications.push(server);
+  return server;
 };
 
-afterEach(() => directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })));
+afterEach(() => { applications.splice(0).forEach(server => server.locals.persistenceDatabase?.close()); directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })); });
 
 describe('origens aceitas pelo navegador', () => {
   it('aceita a origem configurada e devolve o cabeçalho para ela', async () => {

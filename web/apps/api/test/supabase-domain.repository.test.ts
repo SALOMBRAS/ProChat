@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SupabaseDomainRepository } from '../src/persistence/supabase-domain.repository.js';
 
 type Call = { name: string; args: Record<string, unknown> };
 class ControlledClient {
   readonly calls: Call[] = [];
   rpc(name: string, args: Record<string, unknown>) { this.calls.push({ name, args }); return Promise.resolve({ data: name === 'chatpro_create_contact' ? { id: 'contact-1', workspace_id: args.p_workspace_id, phone_number: '5511999990000' } : null, error: name === 'chatpro_set_lead_tag' && args.p_tag_id === 'other-workspace-tag' ? { message: 'tag not found in workspace', code: 'P0001' } : null }); }
-  from(table: string) { this.calls.push({ name: `from:${table}`, args: {} }); const result = { data: [{ id: 'tag-1', workspace_id: 'workspace-a', name: 'VIP' }], error: null }; const query = { select: (_columns?: string, options?: Record<string, unknown>) => { if (options?.head) this.calls.push({ name: `count:${table}`, args: options }); return query; }, eq: () => query, or: () => query, order: () => ({ ...query, then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve(result)), range: () => Promise.resolve({ data: result.data, count: result.data.length, error: null }) }), maybeSingle: () => Promise.resolve({ data: result.data[0], error: null }), update: () => query, insert: () => query, single: () => Promise.resolve({ data: result.data[0], error: null }), delete: () => query, then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve({ data: null, count: table === 'conversations' ? 7 : table === 'whatsapp_messages' ? 42 : null, error: null })) }; return query; }
+  from(table: string) { this.calls.push({ name: `from:${table}`, args: {} }); const result = { data: [{ id: 'tag-1', workspace_id: 'workspace-a', name: 'VIP' }], error: null }; const query = { select: (_columns?: string, options?: Record<string, unknown>) => { if (options?.head) this.calls.push({ name: `count:${table}`, args: options }); return query; }, eq: () => query, in: () => query, or: () => query, order: () => ({ ...query, then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve(result)), range: () => Promise.resolve({ data: result.data, count: result.data.length, error: null }) }), maybeSingle: () => Promise.resolve({ data: result.data[0], error: null }), update: () => query, insert: () => query, single: () => Promise.resolve({ data: result.data[0], error: null }), delete: () => query, then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve({ data: null, count: table === 'conversations' ? 7 : table === 'whatsapp_messages' ? 42 : null, error: null })) }; return query; }
 }
 
 const repositoryFor = () => {
@@ -45,15 +45,30 @@ const CONTACT_TAGS = [
 ];
 const OPT_OUTS = [{ id: 'opt-out-1', workspace_id: 'workspace-a', contact_id: 'contact-2' }];
 const EMBEDS: Record<string, Array<Record<string, unknown>>> = { contact_tags: CONTACT_TAGS, opt_out_history: OPT_OUTS };
-const SOURCES: Record<string, Array<Record<string, unknown>>> = { contacts: CONTACTS, ...EMBEDS };
+/** Duas identidades para o mesmo telefone: a mais recente é a que vale. A linha
+ * do workspace-b não pode vazar para o enriquecimento do workspace-a. */
+const WHATSAPP_IDENTITIES = [
+  { workspace_id: 'workspace-a', phone: '5511999990001', name: 'Ada antiga', push_name: 'old', profile_picture_url: 'https://cdn.example/ada-old.jpg', updated_at: '2026-01-01T00:00:00.000Z' },
+  { workspace_id: 'workspace-a', phone: '5511999990001', name: 'Ada WA', push_name: 'Ada push', profile_picture_url: 'https://cdn.example/ada-new.jpg', updated_at: '2026-02-01T00:00:00.000Z' },
+  { workspace_id: 'workspace-b', phone: '5511999990002', name: 'Alan de outro workspace', push_name: null, profile_picture_url: 'https://cdn.example/alan-other.jpg', updated_at: '2026-02-02T00:00:00.000Z' },
+];
+/** Origem dos contatos: contact-1 nasceu da agenda ('waha_contact_sync' →
+ * 'phonebook'), contact-3 das conversas, contact-2 de cadastro manual. A linha
+ * do workspace-b não pode vazar para o enriquecimento do workspace-a. */
+const CONTACT_IDENTIFIERS = [
+  { workspace_id: 'workspace-a', contact_id: 'contact-1', identifier: '5511999990001@c.us', source: 'waha_contact_sync' },
+  { workspace_id: 'workspace-a', contact_id: 'contact-3', identifier: '120363363444637332@g.us', source: 'waha_chat_history' },
+  { workspace_id: 'workspace-b', contact_id: 'contact-1', identifier: 'intruso@c.us', source: 'waha_contact_sync' },
+];
+const SOURCES: Record<string, Array<Record<string, unknown>>> = { contacts: CONTACTS, whatsapp_identities: WHATSAPP_IDENTITIES, contact_identifiers: CONTACT_IDENTIFIERS, ...EMBEDS };
 
 /** Records what reached the transport and answers like PostgREST: embedding,
  * filtering, ordering, counting and slicing all happen on the server side, so a
  * provider that paginates in memory cannot pass these tests. */
 class ContactsClient {
-  readonly requests: Array<{ table: string; select?: string; count?: unknown; head?: boolean; eq: Array<[string, unknown]>; is: Array<[string, unknown]>; or?: string; order?: [string, boolean]; range?: [number, number] }> = [];
+  readonly requests: Array<{ table: string; select?: string; count?: unknown; head?: boolean; eq: Array<[string, unknown]>; is: Array<[string, unknown]>; in: Array<[string, unknown[]]>; or?: string; order?: [string, boolean]; range?: [number, number] }> = [];
   from(table: string) {
-    const request: (typeof this.requests)[number] = { table, eq: [], is: [] };
+    const request: (typeof this.requests)[number] = { table, eq: [], is: [], in: [] };
     this.requests.push(request);
     // `*,contact_tags!inner(tag_id)` -> [{ name: 'contact_tags', inner: true }]
     const embeds = () => (request.select ?? '*').split(',').flatMap((part) => { const [, name, inner] = /^([a-z_]+)(!inner)?\(/.exec(part.trim()) ?? []; return name ? [{ name, inner: Boolean(inner) }] : []; });
@@ -62,6 +77,7 @@ class ContactsClient {
       let result: Array<Record<string, unknown>> = (SOURCES[table] ?? []).filter((row) => request.eq.every(([column, value]) => column.includes('.') || row[column] === value));
       for (const embed of embeds()) result = result.map((row) => ({ ...row, [embed.name]: embedded(embed.name, String(row.id)) })).filter((row) => !embed.inner || (row[embed.name] as unknown[]).length > 0);
       for (const [column] of request.is) result = result.filter((row) => !((row[column] as unknown[] | undefined) ?? []).length);
+      for (const [column, values] of request.in) result = result.filter((row) => values.includes(row[column]));
       if (request.or) result = applyOrFilter(result as ContactRow[], request.or);
       if (request.order) { const [column, ascending] = request.order; result = [...result].sort((a, b) => String(a[column]).localeCompare(String(b[column])) * (ascending ? 1 : -1)); }
       return result;
@@ -71,6 +87,7 @@ class ContactsClient {
       select: (columns?: string, options?: Record<string, unknown>) => { request.select = columns; request.count = options?.count; request.head = Boolean(options?.head); return query; },
       eq: (column: string, value: unknown) => { request.eq.push([column, value]); return query; },
       is: (column: string, value: unknown) => { request.is.push([column, value]); return query; },
+      in: (column: string, values: unknown[]) => { request.in.push([column, values]); return query; },
       or: (filter: string) => { request.or = filter; return query; },
       order: (column: string, options?: { ascending?: boolean }) => { request.order = [column, options?.ascending !== false]; return query; },
       range: (from: number, to: number) => {
@@ -117,7 +134,7 @@ describe('Supabase domain repository', () => {
   });
   it('filters contacts in the database and returns only the matches', async () => {
     const { client, repository } = contactsRepositoryFor();
-    const result = await repository.contacts('workspace-a', { search: 'ada' }) as { items: Array<{ id: string }>; total: number };
+    const result = await repository.contacts('workspace-a', { search: 'ada' }) as unknown as { items: Array<{ id: string }>; total: number };
     expect(result.items.map((item) => item.id)).toEqual(['contact-1']);
     expect(result.total).toBe(1);
     const [request] = client.requests;
@@ -129,11 +146,11 @@ describe('Supabase domain repository', () => {
 
   it('matches contacts partially and case-insensitively, like the SQLite provider', async () => {
     const { repository } = contactsRepositoryFor();
-    const byName = await repository.contacts('workspace-a', { search: 'LOVELACE' }) as { items: Array<{ id: string }> };
+    const byName = await repository.contacts('workspace-a', { search: 'LOVELACE' }) as unknown as { items: Array<{ id: string }> };
     expect(byName.items.map((item) => item.id)).toEqual(['contact-1']);
-    const byPhone = await repository.contacts('workspace-a', { search: '98888' }) as { items: Array<{ id: string }> };
+    const byPhone = await repository.contacts('workspace-a', { search: '98888' }) as unknown as { items: Array<{ id: string }> };
     expect(byPhone.items.map((item) => item.id)).toEqual(['contact-3']);
-    const byEmail = await repository.contacts('workspace-a', { search: 'Alan@Example' }) as { items: Array<{ id: string }> };
+    const byEmail = await repository.contacts('workspace-a', { search: 'Alan@Example' }) as unknown as { items: Array<{ id: string }> };
     expect(byEmail.items.map((item) => item.id)).toEqual(['contact-2']);
   });
 
@@ -146,23 +163,71 @@ describe('Supabase domain repository', () => {
 
   it('paginates in the database while keeping the filter applied', async () => {
     const { client, repository } = contactsRepositoryFor();
-    const first = await repository.contacts('workspace-a', { search: '55119999', page: 1, pageSize: 1 }) as { items: Array<{ id: string }>; total: number };
+    const first = await repository.contacts('workspace-a', { search: '55119999', page: 1, pageSize: 1 }) as unknown as { items: Array<{ id: string }>; total: number };
     expect(first.items.map((item) => item.id)).toEqual(['contact-1']);
     expect(first.total).toBe(2);
     expect(client.requests[0].range).toEqual([0, 0]);
-    const second = await repository.contacts('workspace-a', { search: '55119999', page: 2, pageSize: 1 }) as { items: Array<{ id: string }>; total: number };
+    const second = await repository.contacts('workspace-a', { search: '55119999', page: 2, pageSize: 1 }) as unknown as { items: Array<{ id: string }>; total: number };
     expect(second.items.map((item) => item.id)).toEqual(['contact-2']);
     expect(second.total).toBe(2);
-    expect(client.requests[1].range).toEqual([1, 1]);
-    expect(client.requests[1].or).toBe(client.requests[0].or);
+    // Cada consulta de contatos agora também dispara a consulta em lote de
+    // identidades, então a posição dos requests de contatos não é mais 0 e 1.
+    const contactRequests = client.requests.filter((request) => request.table === 'contacts');
+    expect(contactRequests[1].range).toEqual([1, 1]);
+    expect(contactRequests[1].or).toBe(contactRequests[0].or);
   });
 
   it('keeps the search inside the workspace and orders like the SQLite provider', async () => {
     const { client, repository } = contactsRepositoryFor();
-    const result = await repository.contacts('workspace-a', {}) as { items: Array<{ id: string }>; total: number };
+    const result = await repository.contacts('workspace-a', {}) as unknown as { items: Array<{ id: string }>; total: number };
     expect(result.items.map((item) => item.id)).toEqual(['contact-1', 'contact-2', 'contact-3']);
     expect(result.total).toBe(3);
     expect(client.requests[0].order).toEqual(['created_at', false]);
+  });
+
+  it('marks each contact with its origin: phonebook when the agenda created it, history otherwise', async () => {
+    const { client, repository } = contactsRepositoryFor();
+    const result = await repository.contacts('workspace-a', {}) as unknown as { items: Array<{ id: string; origin: string }> };
+    expect(result.items.find((item) => item.id === 'contact-1')!.origin).toBe('phonebook');
+    expect(result.items.find((item) => item.id === 'contact-2')!.origin).toBe('history');
+    expect(result.items.find((item) => item.id === 'contact-3')!.origin).toBe('history');
+    // Uma consulta em lote, escopada ao workspace — nunca uma por linha.
+    const identifiers = client.requests.filter((request) => request.table === 'contact_identifiers');
+    expect(identifiers).toHaveLength(1);
+    expect(identifiers[0]!.eq).toEqual([['workspace_id', 'workspace-a']]);
+    expect(identifiers[0]!.in).toEqual([['contact_id', ['contact-1', 'contact-2', 'contact-3']]]);
+  });
+
+  it('enriches each contact with the latest WhatsApp identity of its phone in one batch query', async () => {
+    const { client, repository } = contactsRepositoryFor();
+    const result = await repository.contacts('workspace-a', {}) as unknown as { items: Array<{ id: string } & Record<string, unknown>> };
+    const ada = result.items.find((item) => item.id === 'contact-1')!;
+    expect(ada).toMatchObject({ photoUrl: 'https://cdn.example/ada-new.jpg', whatsappName: 'Ada WA', whatsappPushName: 'Ada push' });
+    // Sem identidade no MESMO workspace o contato volta intocado — a linha do
+    // workspace-b para o telefone do Alan não pode vazar.
+    const alan = result.items.find((item) => item.id === 'contact-2')!;
+    expect('photoUrl' in alan).toBe(false);
+    const grace = result.items.find((item) => item.id === 'contact-3')!;
+    expect('photoUrl' in grace).toBe(false);
+    const identity = client.requests.find((request) => request.table === 'whatsapp_identities')!;
+    expect(identity.eq).toEqual([['workspace_id', 'workspace-a']]);
+    expect(identity.in).toEqual([['phone', ['5511999990001', '5511999990002', '5511988880003']]]);
+    expect(identity.order).toEqual(['updated_at', false]);
+  });
+
+  it('lists contacts without enrichment when the identity table does not answer', async () => {
+    const { client, repository } = contactsRepositoryFor();
+    const baseFrom = client.from.bind(client);
+    vi.spyOn(client, 'from').mockImplementation((table: string) => {
+      if (table !== 'whatsapp_identities') return baseFrom(table);
+      const query: Record<string, unknown> = {};
+      const self = () => query;
+      Object.assign(query, { select: self, eq: self, in: self, order: self, then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve({ data: null, error: { code: '42P01', message: 'relation "whatsapp_identities" does not exist' } })) });
+      return query as ReturnType<typeof baseFrom>;
+    });
+    const result = await repository.contacts('workspace-a', {}) as unknown as { items: Array<Record<string, unknown>>; total: number };
+    expect(result.items).toHaveLength(3);
+    expect(result.items.every((item) => !('photoUrl' in item))).toBe(true);
   });
 
   it('quotes search terms so PostgREST cannot read them as extra filter clauses', async () => {
@@ -180,7 +245,7 @@ describe('Supabase domain repository', () => {
 
   it('filters by tag through an inner embed instead of reading every contact', async () => {
     const { client, repository } = contactsRepositoryFor();
-    const result = await repository.contacts('workspace-a', { tagId: TAG_VIP }) as { items: Array<{ id: string }>; total: number };
+    const result = await repository.contacts('workspace-a', { tagId: TAG_VIP }) as unknown as { items: Array<{ id: string }>; total: number };
     expect(result.items.map((item) => item.id)).toEqual(['contact-1']);
     expect(result.total).toBe(1);
     expect(client.requests[0].select).toBe('*,contact_tags!inner(tag_id)');
@@ -189,18 +254,19 @@ describe('Supabase domain repository', () => {
 
   it('separates opted-out contacts from the rest in the database', async () => {
     const { client, repository } = contactsRepositoryFor();
-    const optedOut = await repository.contacts('workspace-a', { optOut: 'true' }) as { items: Array<{ id: string }> };
+    const optedOut = await repository.contacts('workspace-a', { optOut: 'true' }) as unknown as { items: Array<{ id: string }> };
     expect(optedOut.items.map((item) => item.id)).toEqual(['contact-2']);
     expect(client.requests[0].select).toBe('*,opt_out_history!inner(id)');
-    const reachable = await repository.contacts('workspace-a', { optOut: 'false' }) as { items: Array<{ id: string }> };
+    const reachable = await repository.contacts('workspace-a', { optOut: 'false' }) as unknown as { items: Array<{ id: string }> };
     expect(reachable.items.map((item) => item.id)).toEqual(['contact-1', 'contact-3']);
-    expect(client.requests[1].select).toBe('*,opt_out_history(id)');
-    expect(client.requests[1].is).toEqual([['opt_out_history', null]]);
+    const contactRequests = client.requests.filter((request) => request.table === 'contacts');
+    expect(contactRequests[1].select).toBe('*,opt_out_history(id)');
+    expect(contactRequests[1].is).toEqual([['opt_out_history', null]]);
   });
 
   it('lists only opted-out contacts for the opt-out endpoint', async () => {
     const { repository } = contactsRepositoryFor();
-    const result = await repository.optOutContacts('workspace-a', {}) as { items: Array<{ id: string }>; total: number };
+    const result = await repository.optOutContacts('workspace-a', {}) as unknown as { items: Array<{ id: string }>; total: number };
     expect(result.items.map((item) => item.id)).toEqual(['contact-2']);
     expect(result.total).toBe(1);
   });
@@ -208,7 +274,7 @@ describe('Supabase domain repository', () => {
   it('never leaks the join machinery into a contact', async () => {
     const { repository } = contactsRepositoryFor();
     const result = await repository.contacts('workspace-a', { tagId: TAG_LEAD, optOut: 'true' }) as { items: Array<Record<string, unknown>> };
-    expect(result.items).toEqual([{ id: 'contact-2', workspaceId: 'workspace-a', displayName: 'Alan Turing', phoneNumber: '5511999990002', email: 'alan@example.com', createdAt: '2026-01-02T00:00:00.000Z' }]);
+    expect(result.items).toEqual([{ id: 'contact-2', workspaceId: 'workspace-a', displayName: 'Alan Turing', phoneNumber: '5511999990002', email: 'alan@example.com', createdAt: '2026-01-02T00:00:00.000Z', origin: 'history' }]);
   });
 
   it('answers an empty page with the real total when the page is past the end', async () => {

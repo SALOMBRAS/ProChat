@@ -16,13 +16,15 @@ import { SqliteWahaWebhookStore, SupabaseWahaWebhookStore } from '../src/service
  * de extração (json_extract vs `->>`).
  */
 const directories: string[] = [];
+// No Windows o handle do SQLite segura o arquivo: fechar antes do rmSync.
+const databases: SqlitePersistenceDatabase[] = [];
 const sqlite = () => {
   const directory = mkdtempSync(join(tmpdir(), 'chatpro-media-type-')); directories.push(directory);
   const database = new SqlitePersistenceDatabase(join(directory, 'db.sqlite'), join(process.cwd(), 'migrations'));
-  database.migrate();
+  database.migrate(); databases.push(database);
   return { database, store: new SqliteWahaWebhookStore(database.sqlite) };
 };
-afterEach(() => directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })));
+afterEach(() => { databases.splice(0).forEach(database => database.close()); directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })); });
 
 /** Uma mensagem de mídia como a ingestão a grava, com o tipo real só em `_data`. */
 const insertMedia = (database: ReturnType<typeof sqlite>['database'], input: { id: string; payload: Record<string, unknown>; mime: string | null; storagePath?: string | null; messageTypeColumn: string }) => {

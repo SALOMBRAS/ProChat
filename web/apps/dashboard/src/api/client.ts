@@ -33,6 +33,33 @@ export class ApiClient {
   async blob(path: string, signal?: AbortSignal): Promise<Blob> { const response = await this.fetcher(`${this.baseUrl}${path}`, { method: 'GET', signal, headers: { 'x-workspace-id': this.workspaceId, 'x-user-id': this.userId } }); if (!response.ok) throw new ApiError('REQUEST_FAILED', 'Não foi possível carregar a mídia.', { endpoint: path, status: response.status }); return response.blob(); }
   post<T>(path: string, body?: unknown, signal?: AbortSignal) { return this.request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }, signal); }
   postForm<T>(path: string, body: FormData) { return this.request<T>(path, { method: 'POST', body }); }
+  /** Mesma fronteira e mesmos erros do `request` — só muda o transporte e o
+   *  `onProgress`. `fetch` não expõe progresso de upload; o XHR expõe. */
+  postFormProgress<T>(path: string, body: FormData, onProgress?: (percent: number) => void): Promise<T> {
+    const method = 'POST';
+    return new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open(method, `${this.baseUrl}${path}`);
+      xhr.timeout = this.timeoutMs;
+      xhr.setRequestHeader('x-workspace-id', this.workspaceId);
+      xhr.setRequestHeader('x-user-id', this.userId);
+      // Sem `content-type`: o browser define o boundary do multipart.
+      xhr.upload.onprogress = (event) => { if (event.lengthComputable && event.total > 0) onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100))); };
+      xhr.onload = () => {
+        if (xhr.status === 204) { resolve(undefined as T); return; }
+        let body: unknown;
+        try { body = xhr.responseText ? JSON.parse(xhr.responseText) : undefined; } catch (error) { reject(new ApiError('REQUEST_FAILED', `Resposta inválida da API.${import.meta.env.DEV ? ` [PARSE ${xhr.status} ${path}]` : ''}`, { phase: 'parse', endpoint: path, method, status: xhr.status, errorName: error instanceof Error ? error.name : 'UnknownError', reason: safeText(error instanceof Error ? error.message : error) })); return; }
+        if (xhr.status >= 200 && xhr.status < 300) { resolve(body as T); return; }
+        const error = body as { error?: { message?: string; details?: Record<string, unknown> } } | null | undefined;
+        const safeMessage = error?.error?.message ?? 'Não foi possível concluir a operação.';
+        reject(new ApiError('REQUEST_FAILED', `${safeMessage}${import.meta.env.DEV ? ` [REQUEST_FAILED ${xhr.status} ${path}]` : ''}`, { ...error?.error?.details, phase: 'response', endpoint: path, method, status: xhr.status }));
+      };
+      xhr.onerror = () => reject(new ApiError('API_UNAVAILABLE', `A API está indisponível.${import.meta.env.DEV ? ` [API_UNAVAILABLE 0 ${path}]` : ''}`, { phase: 'fetch', endpoint: path, method, status: 0 }));
+      xhr.onabort = () => reject(new ApiError('REQUEST_FAILED', 'Solicitação cancelada.', { phase: 'abort', endpoint: path, method, status: 0 }));
+      xhr.ontimeout = () => reject(new ApiError('TIMEOUT', `A API demorou para responder.${import.meta.env.DEV ? ` [TIMEOUT 0 ${path}]` : ''}`, { phase: 'timeout', endpoint: path, method, status: 0 }));
+      xhr.send(body);
+    });
+  }
   patch<T>(path: string, body: unknown) { return this.request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }); }
   put<T>(path: string, body: unknown) { return this.request<T>(path, { method: 'PUT', body: JSON.stringify(body) }); }
   delete(path: string) { return this.request<void>(path, { method: 'DELETE' }); }
