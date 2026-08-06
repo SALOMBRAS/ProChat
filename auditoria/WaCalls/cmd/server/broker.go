@@ -26,6 +26,9 @@ type CallRecord struct {
 	Status    CallStatus `json:"status"`
 	EndedAt   *int64     `json:"endedAt,omitempty"`
 	EndReason string     `json:"endReason,omitempty"`
+	// Recording é preenchido apenas no histórico HTTP, quando o WAV da chamada
+	// existe em disco — o dashboard usa isso para mostrar o player.
+	Recording bool `json:"recording,omitempty"`
 }
 
 type AuthSnapshot struct {

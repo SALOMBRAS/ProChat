@@ -1,6 +1,7 @@
 import type { RequestContext } from '@chatpro/contracts';
 import { AppError } from '../errors.js';
 import type { RealtimeHub } from '../realtime.js';
+import { conversationAudience } from '../realtime.js';
 import type { SlaService } from './sla.service.js';
 import type { ConversationEvent, ConversationPriority, ConversationStatus, ConversationStore, ConversationSummary } from './waha-webhook.service.js';
 import type { WorkspaceDirectoryService } from './workspace-directory.service.js';
@@ -70,7 +71,7 @@ export class ConversationManagementService {
 
   private async publish(context: RequestContext, conversationId: string, current: ConversationSummary, event: ConversationEvent | undefined) {
     const conversation = await this.requireConversation(context.workspaceId, conversationId);
-    if (event) this.realtime.publish(context.workspaceId, 'conversation.management.updated', { conversationId, conversation, event });
+    if (event) this.realtime.publish(context.workspaceId, 'conversation.management.updated', { conversationId, conversation, event }, conversationAudience(conversation));
     return { conversation, event, changed: current.updatedAt !== conversation.updatedAt };
   }
 }

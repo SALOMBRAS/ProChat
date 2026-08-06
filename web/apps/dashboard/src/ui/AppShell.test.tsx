@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const shellMocks = vi.hoisted(() => ({
   dashboard: vi.fn(),
@@ -24,6 +24,8 @@ vi.mock("./SlaOperationalDashboard.js", () => ({
 }));
 
 import { App } from "./App.js";
+import { clearAuthSession } from "../api/auth-storage.js";
+import { seedSession } from "../test/auth-session.js";
 
 const dashboard = {
   contacts: 12,
@@ -42,7 +44,12 @@ const dashboard = {
 describe("App shell", () => {
   beforeEach(() => {
     history.replaceState({}, "", "/dashboard");
+    seedSession();
     shellMocks.dashboard.mockReset().mockResolvedValue(dashboard);
+  });
+
+  afterEach(() => {
+    clearAuthSession();
   });
 
   it("renders the existing home through its loading state with one dashboard request", async () => {

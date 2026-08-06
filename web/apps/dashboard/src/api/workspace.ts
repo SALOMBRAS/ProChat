@@ -3,7 +3,7 @@ import { ApiClient } from './client';
 export class WorkspaceApi {
   constructor(private readonly http = new ApiClient()) {}
   users = () => this.http.get<WorkspaceUser[]>('/api/v1/workspace/users');
-  createUser = (input: Pick<WorkspaceUser, 'email' | 'displayName'> & Partial<Pick<WorkspaceUser, 'avatarUrl' | 'role' | 'status'>>) => this.http.post<WorkspaceUser>('/api/v1/workspace/users', input);
+  createUser = (input: Pick<WorkspaceUser, 'email' | 'displayName'> & Partial<Pick<WorkspaceUser, 'avatarUrl' | 'role' | 'status'>> & { password?: string }) => this.http.post<WorkspaceUser>('/api/v1/workspace/users', input);
   updateUser = (id: string, input: Partial<Pick<WorkspaceUser, 'displayName' | 'avatarUrl' | 'role' | 'status'>>) => this.http.patch<WorkspaceUser>(`/api/v1/workspace/users/${encodeURIComponent(id)}`, input);
   disableUser = (id: string) => this.http.post<WorkspaceUser>(`/api/v1/workspace/users/${encodeURIComponent(id)}/disable`);
   enableUser = (id: string) => this.http.post<WorkspaceUser>(`/api/v1/workspace/users/${encodeURIComponent(id)}/enable`);

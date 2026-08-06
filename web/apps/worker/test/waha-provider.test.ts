@@ -92,4 +92,37 @@ describe('WahaProvider link preview', () => {
     expect(sent).toMatchObject({ id: 'sent-message-a' });
     expect(sent).not.toHaveProperty('linkPreview');
   });
+  it('merges a second registry entry once both learn they are the same phone number', async () => {
+    const client = new FakeWahaClient();
+    client.listSessions = async () => [{ name: 'chatpro-new', status: 'WORKING', me: { id: '5585999990000:4@c.us' } }];
+    let saved: Array<{ sessionId: string; wahaName: string; aliases?: string[]; phone?: string }> = [];
+    const provider = new WahaProvider(client, 60_000, {
+      load: async () => [
+        { workspaceId: 'workspace-a', sessionId: 'session-old', name: 'Casa', wahaName: 'chatpro-old', phone: '5585999990000' },
+        { workspaceId: 'workspace-a', sessionId: 'session-new', name: 'Trabalho', wahaName: 'chatpro-new' },
+      ],
+      save: async entries => { saved = entries; },
+    });
+    const listed = await provider.execute(context, { type: 'listSessions' }) as Array<{ id: string; phone?: string; aliases?: string[] }>;
+    expect(listed).toEqual([expect.objectContaining({ id: 'session-new', phone: '5585999990000', aliases: ['chatpro-old'] })]);
+    expect(saved).toEqual([expect.objectContaining({ sessionId: 'session-new', wahaName: 'chatpro-new', aliases: ['chatpro-old'], phone: '5585999990000' })]);
+    // A conversa gravada com o nome antigo aceita envio pela sessão viva.
+    client.status = 'WORKING';
+    await provider.execute(context, { type: 'sendMessage', wahaSession: 'chatpro-old', chatId: '5511999999999@c.us', text: 'Olá' });
+    expect(client.calls).toContain('sendText');
+  });
+  it('registers historical names discovered by the API as aliases of the live session', async () => {
+    const client = new FakeWahaClient();
+    let saved: Array<{ sessionId: string; aliases?: string[] }> = [];
+    const provider = new WahaProvider(client, 60_000, {
+      load: async () => [{ workspaceId: 'workspace-a', sessionId: 'session-a', name: 'Primary', wahaName: 'chatpro-live' }],
+      save: async entries => { saved = entries; },
+    });
+    await provider.execute(context, { type: 'mergeSessionAliases', sessionId: 'session-a', aliases: ['chatpro-legado', 'chatpro-live'] });
+    expect(saved).toEqual([expect.objectContaining({ sessionId: 'session-a', aliases: ['chatpro-legado'] })]);
+    // Idempotente: repetir o merge não duplica nem regrava.
+    await provider.execute(context, { type: 'mergeSessionAliases', sessionId: 'session-a', aliases: ['chatpro-legado'] });
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.aliases).toEqual(['chatpro-legado']);
+  });
 });

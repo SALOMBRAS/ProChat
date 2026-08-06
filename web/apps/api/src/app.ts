@@ -42,7 +42,13 @@ import { SupabaseKanbanService } from './services/supabase-kanban.service.js';
 import { KanbanAutomationCoordinator } from './services/kanban-automation.service.js';
 import { WhatsAppSessionActivityService } from './services/whatsapp-session-activity.service.js';
 import { CallService } from './services/call.service.js';
+import { CallLogService } from './services/call-log.service.js';
 import { CallsController } from './controllers/calls.controller.js';
+import { AuthController } from './controllers/auth.controller.js';
+import { DepartmentAssignmentService } from './services/department-assignment.service.js';
+import { ConversationVisibilityService } from './services/conversation-visibility.service.js';
+import { AuthService, SqliteAuthStore, SupabaseAuthStore } from './services/auth.service.js';
+import { createAuthMiddlewares } from './middleware/auth.js';
 import { log } from './logging.js';
 export async function createApp(config: ApiConfig = loadConfig()) {
   const app = express();
@@ -57,7 +63,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     if (!allowedOrigins.has(origin)) return res.status(403).json({ error: { code: 'CORS_ORIGIN_DENIED', message: 'Origin is not allowed for this API.' } });
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Headers', 'content-type, x-workspace-id, x-user-id, x-correlation-id');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-workspace-id, x-user-id, x-correlation-id');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
@@ -93,6 +99,13 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const outboxStore = database ? new SqliteAttachmentOutboxStore(database.sqlite) : new SupabaseAttachmentOutboxStore(supabase!);
     const attachmentStorage = database ? new UnavailableTemporaryAttachmentStorage() : new SupabaseTemporaryAttachmentStorage(supabase!); const permanentMedia = database ? undefined : new SupabaseWhatsAppMediaStorage(supabase!);
     const directory = new WorkspaceDirectoryService(database ? new SqliteWorkspaceDirectoryStore(database.sqlite) : new SupabaseWorkspaceDirectoryStore(supabase!), realtimeHub, config.developmentUserId);
+    // O realtime filtra eventos de conversa por departamento com o mesmo escopo
+    // da Inbox; o cache curto do hub evita uma consulta ao diretório por evento.
+    realtimeHub.setScopeResolver((workspaceId, userId) => directory.userScope({ workspaceId, userId, correlationId: 'realtime-listener-scope' }));
+    const auth = new AuthService(database ? new SqliteAuthStore(database.sqlite) : new SupabaseAuthStore(supabase!), config.authSessionTtlHours ?? 168);
+    if (config.adminEmail && config.adminPassword) { const created = await auth.bootstrapOwner(config.wahaWebhookWorkspaceId ?? 'default-workspace', config.adminEmail, config.adminPassword); if (created) log('info', 'Workspace owner bootstrap', { workspaceId: created.workspaceId, email: created.email }); }
+    const authMiddlewares = createAuthMiddlewares(auth, { allowLegacyHeaders: config.nodeEnv !== 'production' });
+    const authController = new AuthController(auth);
     const routingStore = database ? new SqliteRoutingStore(database.sqlite) : new SupabaseRoutingStore(supabase!);
     const sla = new SlaService(database ? new SqliteSlaStore(database.sqlite) : new SupabaseSlaStore(supabase!), realtimeHub);
     const slaMessages = new SlaMessageCoordinator(sla);
@@ -103,6 +116,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const kanbanAutomation = new KanbanAutomationCoordinator(kanban);
     webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite, kanbanAutomation, config.ownWhatsappNumbers, slaMessages) : new SupabaseWahaWebhookStore(supabase!, kanbanAutomation, config.ownWhatsappNumbers, slaMessages);
     app.locals.wahaWebhookStore = webhookStore;
+    sessions.sessionPhoneHistory = async (workspaceId) => { const pairs = await webhookStore.ownSessionPhones(workspaceId); const byPhone = new Map<string, string[]>(); for (const pair of pairs) byPhone.set(pair.phone, [...(byPhone.get(pair.phone) ?? []), pair.wahaSession]); return byPhone; };
     const mediaPersistence = new WhatsAppMediaPersistenceService(webhookStore, permanentMedia, { baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey });
     if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void sla.tick().catch(error => log('error', 'SLA tick failed', { error: error instanceof Error ? error.stack ?? error.message : String(error) })); }, 60_000); timer.unref(); }
     // Janela fixa de 60 s: o que se quer saber é taxa por minuto, e zerar a cada
@@ -117,16 +131,20 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void attachments.cleanupExpired().catch(error => log('error', 'Attachment cleanup failed', { error: error instanceof Error ? error.stack ?? error.message : String(error) })); }, 60 * 60 * 1000); timer.unref(); }
     const identitySync = new WhatsAppIdentitySyncService(workerClient, identityStore, target => realtimeHub.publish(target.workspaceId, 'conversation.updated', { wahaSession: target.wahaSession, chatId: target.chatId, identitySynchronized: true }));
     if (config.nodeEnv !== 'test') identitySync.enqueueBackfill();
-    app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }, identitySync, async (workspaceId, externalMessageId) => { await attachments.confirm(workspaceId, externalMessageId); }, mediaPersistence).receive); if (mediaPersistence.enabled) setImmediate(() => { void Promise.all([mediaPersistence.importPending(), mediaPersistence.repairStoredMime()]).catch(() => undefined); });
     const repositories = await createDomainRepositoryForProvider(config, database?.sqlite);
+    const domainService = new DomainService(repositories);
+    const departmentAssignment = new DepartmentAssignmentService(domainService, webhookStore, realtimeHub);
+    const conversationVisibility = new ConversationVisibilityService(directory);
+    app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }, identitySync, async (workspaceId, externalMessageId) => { await attachments.confirm(workspaceId, externalMessageId); }, mediaPersistence, departmentAssignment).receive); if (mediaPersistence.enabled) setImmediate(() => { void Promise.all([mediaPersistence.importPending(), mediaPersistence.repairStoredMime()]).catch(() => undefined); });
     const historySync = new WhatsAppHistorySyncService(workerClient, webhookStore, syncStore, realtimeHub, { maxChatsPerRun: config.whatsappHistorySyncBatchChats, maxMessagesPerRun: config.whatsappHistorySyncBatchMessages, emergencyMaxMessages: config.whatsappHistorySyncEmergencyMaxMessages });
     const contactSync = new WhatsAppContactSyncService(workerClient, database ? new SqliteContactIdentityResolver(database.sqlite) : new SupabaseContactIdentityResolver(supabase!), new MemoryContactSyncStore(), identitySync, realtimeHub, { nameRepair: database ? new SqliteContactNameRepair(database.sqlite) : new SupabaseContactNameRepair(supabase!) });
     app.locals.routingJobs = database ? new SqliteRoutingJobStore(database.sqlite) : undefined;
-    const callService = new CallService({ baseUrl: config.callServiceUrl ?? 'http://127.0.0.1:8080', ownWhatsappNumbers: config.ownWhatsappNumbers ?? [], realtimeHub, eventsWorkspaceId: config.wahaWebhookWorkspaceId });
+    const callLog = new CallLogService(webhookStore);
+    const callService = new CallService({ baseUrl: config.callServiceUrl ?? 'http://127.0.0.1:8080', ownWhatsappNumbers: config.ownWhatsappNumbers ?? [], realtimeHub, eventsWorkspaceId: config.wahaWebhookWorkspaceId, callLog: entry => callLog.record(entry) });
     // Fora de teste: a ponte SSE abre uma conexão permanente com o serviço Go.
     // Em teste ela poluiria o fetch stubado e seguraria o event loop.
     if (config.nodeEnv !== 'test') callService.startEventBridge();
-    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(new DomainService(repositories), sessions, contactSync), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub, kanbanAutomation, slaMessages, sessionActivity), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, sla, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments, new WahaMediaProxyService({ baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey, signingKey: config.mediaProxyTokenSecret }), permanentMedia, sla, kanban, new InboxContactService(webhookStore, repositories), sessionActivity, new LinkPreviewService(), identitySync), new WorkspaceDirectoryController(directory), new RoutingController(routing), new CallsController(webhookStore, callService))); app.use(errorHandler);
+    app.use('/api/v1', createV1Router(new CatalogController(sessions, new UnavailableContactService(), new UnavailableTemplateService()), new DomainController(domainService, sessions, contactSync), new InboxController(webhookStore, new InternalInboxService(workerClient, webhookStore, realtimeHub, kanbanAutomation, slaMessages, sessionActivity), new ConversationContextService(webhookStore, contextStore, realtimeHub), new ConversationManagementService(webhookStore, realtimeHub, directory, sla, routing.cancelForManualAssignment.bind(routing)), historySync, sessions, attachments, new WahaMediaProxyService({ baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey, signingKey: config.mediaProxyTokenSecret }), permanentMedia, sla, kanban, new InboxContactService(webhookStore, repositories), sessionActivity, new LinkPreviewService(), identitySync, conversationVisibility), new WorkspaceDirectoryController(directory, auth), new RoutingController(routing), new CallsController(webhookStore, callService), { controller: authController, middlewares: authMiddlewares })); app.use(errorHandler);
   } catch (error) { database?.close(); throw error; }
   return app;
 }

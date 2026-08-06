@@ -9,6 +9,7 @@ import (
 type activeCall struct {
 	cm     *call.CallManager
 	bridge *Bridge
+	rec    *callRecorder // nil quando a gravação falhou ao iniciar
 }
 
 type callRegistry struct {

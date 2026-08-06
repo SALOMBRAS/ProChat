@@ -1,6 +1,7 @@
 export const routes = [
   ["/dashboard", "Painel", "▦"],
   ["/inbox", "Inbox", "◌"],
+  ["/calls", "Chamadas", "✆"],
   ["/devices", "Dispositivos", "◈"],
   ["/team", "Equipe", "◉"],
   ["/queues", "Filas", "Q"],
@@ -20,13 +21,18 @@ type AppNavigationProps = {
   open: boolean;
   path: string;
   onNavigate: (path: string) => void;
+  /** Papel do usuário logado. `agent` só vê as páginas de operação (Painel e
+   *  Inbox); os demais papéis veem tudo, incluindo a gestão. */
+  role?: 'owner' | 'admin' | 'manager' | 'agent';
 };
 
 export function AppNavigation({
   open,
   path,
   onNavigate,
+  role,
 }: AppNavigationProps) {
+  const visibleRoutes = role === 'agent' ? routes.filter(([to]) => to === '/dashboard' || to === '/inbox') : routes;
   const navigationButton = ([to, name, icon]: (typeof routes)[number]) => (
     <button
       key={to}
@@ -38,6 +44,10 @@ export function AppNavigation({
     </button>
   );
 
+  const central = visibleRoutes.slice(0, 4);
+  const management = visibleRoutes.slice(4, -1);
+  const settings = visibleRoutes.slice(-1).filter(([to]) => to === '/settings');
+
   return (
     <aside className={open ? "sidebar open" : "sidebar"}>
       <div className="brand">
@@ -46,10 +56,10 @@ export function AppNavigation({
         <b>Pro</b>
       </div>
       <p className="nav-label">CENTRAL</p>
-      {routes.slice(0, 3).map(navigationButton)}
-      <p className="nav-label">GESTÃO</p>
-      {routes.slice(3, -1).map(navigationButton)}
-      {futureRoutes.map(([name, icon]) => (
+      {central.map(navigationButton)}
+      {management.length > 0 && <p className="nav-label">GESTÃO</p>}
+      {management.map(navigationButton)}
+      {role !== 'agent' && futureRoutes.map(([name, icon]) => (
         <button
           key={name}
           className="nav future"
@@ -62,7 +72,7 @@ export function AppNavigation({
         </button>
       ))}
       <div className="nav-spacer" />
-      {routes.slice(-1).map(navigationButton)}
+      {settings.map(navigationButton)}
       <div className="sidebar-upgrade">
         <span>✦</span>
         <div>

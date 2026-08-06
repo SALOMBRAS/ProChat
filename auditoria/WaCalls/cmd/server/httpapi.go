@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/accept", s.handleAccept)
 	mux.HandleFunc("POST /api/sessions/{sid}/calls/{id}/reject", s.handleReject)
 	mux.HandleFunc("DELETE /api/sessions/{sid}/calls/{id}", s.handleEndCall)
+	mux.HandleFunc("GET /api/sessions/{sid}/calls/{id}/recording", s.handleRecording)
 	mux.HandleFunc("GET /api/sessions/{sid}/history", s.handleHistory)
 
 	mux.HandleFunc("GET /api/events", s.handleEvents)
@@ -153,8 +155,41 @@ func (s *server) handleEndCall(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	if sess := s.sessionByID(w, r.PathValue("sid")); sess != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"rows": s.broker.historyRows(sess.id, 50)})
+		rows := s.broker.historyRows(sess.id, 50)
+		// Marca as chamadas que têm gravação em disco para o dashboard
+		// mostrar o player.
+		for i := range rows {
+			rows[i].Recording = s.recordingExists(rows[i].CallID)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"rows": rows})
 	}
+}
+
+// recordingPath resolve o caminho do WAV da chamada, sem permitir path
+// traversal via callID (filepath.Base descarta qualquer diretório).
+func (s *server) recordingPath(callID string) string {
+	return filepath.Join(s.recordingsDir, filepath.Base(callID)+".wav")
+}
+
+func (s *server) recordingExists(callID string) bool {
+	if s.recordingsDir == "" || callID == "" {
+		return false
+	}
+	info, err := os.Stat(s.recordingPath(callID))
+	return err == nil && !info.IsDir()
+}
+
+func (s *server) handleRecording(w http.ResponseWriter, r *http.Request) {
+	if sess := s.sessionByID(w, r.PathValue("sid")); sess == nil {
+		return
+	}
+	callID := r.PathValue("id")
+	if !s.recordingExists(callID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such recording"})
+		return
+	}
+	w.Header().Set("Content-Type", "audio/wav")
+	http.ServeFile(w, r, s.recordingPath(callID))
 }
 
 func (s *server) doStartCall(sess *Session, w http.ResponseWriter, r *http.Request) {
@@ -248,6 +283,9 @@ func (s *server) doWebRTC(sess *Session, w http.ResponseWriter, r *http.Request)
 	}
 
 	bridge.OnBrowserPCM = func(pcm []float32) {
+		if ac.rec != nil {
+			ac.rec.writeLeft(pcm)
+		}
 		ac.cm.FeedCapturedPCM(pcm)
 	}
 	bridge.OnTerminalICE = func() {

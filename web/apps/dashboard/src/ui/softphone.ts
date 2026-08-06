@@ -22,7 +22,12 @@ export type OpenCall = {
 
 export const openCall = async (api: CallsApi, callId: string, micDeviceId: string | null = null): Promise<OpenCall> => {
   const micStream = await navigator.mediaDevices.getUserMedia({
-    audio: micDeviceId ? { deviceId: { exact: micDeviceId } } : true,
+    // Tratamento de voz pelo DSP nativo do navegador: supressão de ruído,
+    // cancelamento de eco e ganho automático. Explícito para não depender do
+    // default de cada browser.
+    audio: micDeviceId
+      ? { deviceId: { exact: micDeviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      : { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   });
 
   const pc = new RTCPeerConnection({ iceServers: [] });
