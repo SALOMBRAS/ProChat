@@ -1629,11 +1629,11 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                     {Object.entries(priorityLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select></label>
                 </div>
-                {!isGroup(selected) && conversationPhone(selected) ? (
+                {!isGroup(selected) && (conversationPhone(selected) ?? (selected.chatId.endsWith("@lid") ? selected.chatId.split("@", 1)[0] : undefined)) ? (
                   <button
                     type="button"
                     className="conversation-call-trigger"
-                    onClick={() => void calls.startCall(selected.id, conversationPhone(selected)!, contactName(selected))}
+                    onClick={() => void calls.startCall(selected.id, conversationPhone(selected) ?? selected.chatId.split("@", 1)[0]!, contactName(selected))}
                     disabled={Boolean(calls.call && calls.call.status !== "ended")}
                     aria-label={`Ligar para ${contactName(selected)}`}
                     title="Chamada de voz pelo WhatsApp"

@@ -42,7 +42,9 @@ Exemplos de documentos que já funcionam pelo catch-all (testados ou cobertos pe
 
 - URLs no texto viram **âncoras clicáveis** (linkify) com segurança (`rel="noopener noreferrer"`, `target="_blank"`);
 - O **primeiro link** da mensagem ganha **cartão de prévia** (título, descrição, imagem, domínio, favicon);
-- Envio usa a **prévia nativa da WAHA** (`linkPreview: true`); quando a prévia nativa não existe, uma **retaguarda própria** raspa OG/Twitter e enriquece com oEmbed (YouTube, TikTok).
+- **Prévia antes de enviar (como o WhatsApp):** ao digitar/colar um link, o cartão aparece **acima do compositor**; o botão **×** dispensa a prévia e envia só o link — `linkPreview: false` desce por toda a cadeia (dashboard → API → transporte interno → worker → WAHA);
+- Envio usa a **prévia nativa da WAHA** (`linkPreview: true`); quando a prévia nativa não existe, uma **retaguarda própria** raspa OG/Twitter e enriquece com oEmbed (YouTube, TikTok);
+- O cartão usa **layout compacto** (miniatura lateral, como o WhatsApp) — banner largo esticava a imagem pequena do provedor e parecia "baixa resolução".
 
 ### ❌ NÃO pode ainda (backlog para futuras versões desta spec)
 
@@ -333,12 +335,35 @@ createdAt, updatedAt
   rel="noopener noreferrer">` — sempre os dois atributos, sem exceção;
 - Só o **primeiro link** da mensagem dispara prévia (como o WhatsApp).
 
-### 8.2 Envio com prévia nativa
+### 8.2 Prévia no compositor (antes de enviar) — com opção de dispensar
+
+Como o WhatsApp Web: o cartão aparece **enquanto o operador digita**, e o **×**
+envia o link puro, sem prévia.
+
+- **Detecção:** `findUrls(composerText)[0]` — só o primeiro link, memoizado no texto;
+- **Debounce de 400 ms** antes de chamar a API — poupa a retaguarda a cada tecla;
+- **Cache de sessão reutilizado** (`previewCache`): o link que já tem cartão na
+  conversa não custa rede de novo; falha vira `null` cacheado e o cartão some
+  sem resíduo;
+- **Estado de dispensa por URL:** o × guarda a URL dispensada; o cartão volta
+  automaticamente quando o primeiro link do texto **muda**. Com anexo pendente
+  (legenda), o cartão não aparece — legenda não gera prévia;
+- **Dispensa atravessa a cadeia inteira:** `sendMessage(id, text, mentions?,
+  linkPreview?)` → body da API → comando `message.send` do transporte interno →
+  `sendText` do worker → body da WAHA. Só o `false` viaja; omitido, a prévia
+  segue ligada (default do WhatsApp);
+- **Disciplina de aridade:** sem dispensa e sem menção, a chamada segue de 2
+  argumentos, como sempre foi — argumento a mais (nem `undefined`) quebraria os
+  espiões dos testes que conferem a chamada exata.
+
+### 8.3 Envio com prévia nativa
 
 - `POST /api/sendText` com `linkPreview: true` e `linkPreviewHighQuality: true` —
-  a WAHA gera a prévia como o cliente WhatsApp faria.
+  a WAHA gera a prévia como o cliente WhatsApp faria;
+- **Operador dispensou no compositor → `linkPreview: false`**, e nem a versão de
+  alta qualidade é pedida.
 
-### 8.3 Retaguarda de prévia (para quando a nativa não existe)
+### 8.4 Retaguarda de prévia (para quando a nativa não existe)
 
 > Não há endpoint WAHA para prévia de URL arbitrária e
 > `/api/send/link-custom-preview` não roda no engine WEBJS — a retaguarda é própria.
@@ -364,6 +389,15 @@ Pipeline:
 7. **Enriquecimento oEmbed** (timeout próprio de 4 s): YouTube
    (`youtube.com/oembed`) e TikTok (`tiktok.com/oembed`);
 8. Validação final com `linkPreviewSchema` (Zod) antes de responder.
+
+### 8.5 Layout do cartão (a correção de "qualidade")
+
+O cartão usa **layout compacto com miniatura lateral** (≈ 92 px na conversa,
+≈ 72 px no compositor), como o WhatsApp Web. A tentação é um banner largo com
+`width: 100%` — **não faça**: a imagem que o provedor devolve é pequena, e
+esticada num banner de 360 px ela parece "baixa resolução". Renderizada no
+tamanho certo, a mesma imagem fica nítida. Sem imagem, o corpo ocupa o cartão
+inteiro (flex, não grid fixa).
 
 ---
 
@@ -446,7 +480,9 @@ WHERE id = 'chatpro-temporary-attachments';
 **Worker / provedor**
 9. [ ] Roteamento WAHA: `sendImage` / `sendVoice` (voiceNote) / `sendVideo` /
        **`sendFile` para todo o resto**;
-10. [ ] `sendText` com `linkPreview: true` + `linkPreviewHighQuality: true`;
+10. [ ] `sendText` com `linkPreview: true` + `linkPreviewHighQuality: true` por
+        padrão, e **`linkPreview: false` quando o operador dispensou** a prévia
+        no compositor (a flag atravessa: comando interno → provider → cliente WAHA);
 11. [ ] Webhook de confirmação → `confirmed` + remoção do objeto;
 12. [ ] Extração de `_data` no recebimento com `safeParse`.
 
@@ -455,7 +491,11 @@ WHERE id = 'chatpro-temporary-attachments';
 14. [ ] `accept="*/*"`; GIF colado/arrastado anexa como documento;
 15. [ ] Cartão de documento: etiqueta/ton por `documentKind` (extensão → mime),
         ações abrir/visualizar/baixar, prévia de texto inline (md/json/csv/xml/txt);
-16. [ ] Linkify com `noopener noreferrer`; cartão de prévia do primeiro link.
+16. [ ] Linkify com `noopener noreferrer`; cartão de prévia do primeiro link com
+        **layout compacto de miniatura lateral** (§8.5); **prévia no compositor
+        antes de enviar** (§8.2): debounce 400 ms, cache de sessão, × que
+        dispensa por URL e envia `linkPreview: false`, cartão oculto com anexo
+        pendente, aridade exata nas chamadas (sem argumento `undefined` a mais).
 
 **Infra (passo de confirmação!)**
 17. [ ] **❓ SQL do §10 — perguntar ao dono antes de aplicar** (`allowed_mime_types
@@ -489,4 +529,4 @@ WHERE id = 'chatpro-temporary-attachments';
 ---
 
 *Spec gerada a partir da implementação T4 do ChatPro (branch `feat/replace-repository-with-chatpro`),
-validada com 517 testes de API, 97 de worker e 680 de dashboard.*
+validada com 530 testes de API, 100 de worker, 8 de contratos e 706 de dashboard.*

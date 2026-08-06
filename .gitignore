@@ -50,3 +50,15 @@ Thumbs.db
 
 # Estado local do agente de IA (worktrees, sessões, configuração de máquina).
 .claude/
+
+# Backups locais de cura de dados (JSON gerado antes de UPDATE/DELETE na base;
+# vivem só na máquina que operou, como garantia de rollback).
+/*-backup-*.json
+
+# Toolchain Go local do Call Service (327 MB) e repositórios de referência
+# clonados pela auditoria de chamadas (277 MB) — documentação fica, código
+# de terceiros e binários não.
+/tools/
+/auditoria/BulkWhatsAppCall/
+/auditoria/WaCalls/
+/auditoria/whatsapp-web.js/
