@@ -66,9 +66,9 @@ const SOURCES: Record<string, Array<Record<string, unknown>>> = { contacts: CONT
  * filtering, ordering, counting and slicing all happen on the server side, so a
  * provider that paginates in memory cannot pass these tests. */
 class ContactsClient {
-  readonly requests: Array<{ table: string; select?: string; count?: unknown; head?: boolean; eq: Array<[string, unknown]>; is: Array<[string, unknown]>; in: Array<[string, unknown[]]>; or?: string; order?: [string, boolean]; range?: [number, number] }> = [];
+  readonly requests: Array<{ table: string; select?: string; count?: unknown; head?: boolean; eq: Array<[string, unknown]>; is: Array<[string, unknown]>; in: Array<[string, unknown[]]>; notIn: Array<[string, unknown[]]>; or?: string; order?: [string, boolean]; range?: [number, number] }> = [];
   from(table: string) {
-    const request: (typeof this.requests)[number] = { table, eq: [], is: [], in: [] };
+    const request: (typeof this.requests)[number] = { table, eq: [], is: [], in: [], notIn: [] };
     this.requests.push(request);
     // `*,contact_tags!inner(tag_id)` -> [{ name: 'contact_tags', inner: true }]
     const embeds = () => (request.select ?? '*').split(',').flatMap((part) => { const [, name, inner] = /^([a-z_]+)(!inner)?\(/.exec(part.trim()) ?? []; return name ? [{ name, inner: Boolean(inner) }] : []; });
@@ -78,6 +78,7 @@ class ContactsClient {
       for (const embed of embeds()) result = result.map((row) => ({ ...row, [embed.name]: embedded(embed.name, String(row.id)) })).filter((row) => !embed.inner || (row[embed.name] as unknown[]).length > 0);
       for (const [column] of request.is) result = result.filter((row) => !((row[column] as unknown[] | undefined) ?? []).length);
       for (const [column, values] of request.in) result = result.filter((row) => values.includes(row[column]));
+      for (const [column, values] of request.notIn) result = result.filter((row) => !values.includes(row[column]));
       if (request.or) result = applyOrFilter(result as ContactRow[], request.or);
       if (request.order) { const [column, ascending] = request.order; result = [...result].sort((a, b) => String(a[column]).localeCompare(String(b[column])) * (ascending ? 1 : -1)); }
       return result;
@@ -88,6 +89,9 @@ class ContactsClient {
       eq: (column: string, value: unknown) => { request.eq.push([column, value]); return query; },
       is: (column: string, value: unknown) => { request.is.push([column, value]); return query; },
       in: (column: string, values: unknown[]) => { request.in.push([column, values]); return query; },
+      // Único uso: `not('id', 'in', '(a,b)')` do filtro origin=history — o
+      // NOT EXISTS do SQLite traduzido para PostgREST.
+      not: (column: string, operator: string, value: unknown) => { if (operator === 'in') request.notIn.push([column, String(value).replace(/^\(|\)$/g, '').split(',').filter(Boolean)]); return query; },
       or: (filter: string) => { request.or = filter; return query; },
       order: (column: string, options?: { ascending?: boolean }) => { request.order = [column, options?.ascending !== false]; return query; },
       range: (from: number, to: number) => {
@@ -198,6 +202,35 @@ describe('Supabase domain repository', () => {
     expect(identifiers[0]!.in).toEqual([['contact_id', ['contact-1', 'contact-2', 'contact-3']]]);
   });
 
+  it('filters the listing by origin: phonebook returns only agenda contacts, with the ids from one batched lookup', async () => {
+    const { client, repository } = contactsRepositoryFor();
+    const result = await repository.contacts('workspace-a', { origin: 'phonebook' }) as unknown as { items: Array<{ id: string }>; total: number };
+    expect(result.items.map((item) => item.id)).toEqual(['contact-1']);
+    expect(result.total).toBe(1);
+    // Os ids da agenda vêm de UMA consulta aos identificadores, filtrada pela
+    // fonte; o filtro em si é um `in` na tabela de contatos — PostgREST não
+    // expressa o EXISTS do SQLite.
+    const lookups = client.requests.filter((request) => request.table === 'contact_identifiers' && request.eq.some(([column, value]) => column === 'source' && value === 'waha_contact_sync'));
+    expect(lookups).toHaveLength(1);
+    expect(lookups[0]!.eq).toEqual([['workspace_id', 'workspace-a'], ['source', 'waha_contact_sync']]);
+    expect(client.requests.find((request) => request.table === 'contacts')!.in).toContainEqual(['id', ['contact-1']]);
+  });
+
+  it('filters history as everyone without an agenda identifier, the NOT EXISTS of the SQLite provider', async () => {
+    const { client, repository } = contactsRepositoryFor();
+    const result = await repository.contacts('workspace-a', { origin: 'history' }) as unknown as { items: Array<{ id: string }>; total: number };
+    expect(result.items.map((item) => item.id)).toEqual(['contact-2', 'contact-3']);
+    expect(result.total).toBe(2);
+    expect(client.requests.find((request) => request.table === 'contacts')!.notIn).toContainEqual(['id', ['contact-1']]);
+  });
+
+  it('answers an empty phonebook page without touching the contacts table', async () => {
+    const { client, repository } = contactsRepositoryFor();
+    const result = await repository.contacts('workspace-c', { origin: 'phonebook' }) as { items: unknown[]; total: number };
+    expect(result).toMatchObject({ items: [], total: 0 });
+    expect(client.requests.some((request) => request.table === 'contacts')).toBe(false);
+  });
+
   it('enriches each contact with the latest WhatsApp identity of its phone in one batch query', async () => {
     const { client, repository } = contactsRepositoryFor();
     const result = await repository.contacts('workspace-a', {}) as unknown as { items: Array<{ id: string } & Record<string, unknown>> };
@@ -240,7 +273,7 @@ describe('Supabase domain repository', () => {
     const { repository } = contactsRepositoryFor();
     await expect(repository.contacts('workspace-a', { page: 'not-a-number' })).rejects.toThrow();
     await expect(repository.contacts('workspace-a', { page: -1 })).rejects.toThrow();
-    await expect(repository.contacts('workspace-a', { pageSize: 500 })).rejects.toThrow();
+    await expect(repository.contacts('workspace-a', { pageSize: 501 })).rejects.toThrow();
   });
 
   it('filters by tag through an inner embed instead of reading every contact', async () => {

@@ -70,3 +70,40 @@ export class SupabaseContactIdentityResolver implements ContactIdentityResolver 
     return { contactId: typeof row?.contact_id === 'string' ? row.contact_id : undefined, canonicalPhone: typeof row?.phone_number === 'string' ? row.phone_number : undefined, canonicalChatId: normalizeWhatsAppIdentifier(input.chatId ?? input.identifier) ?? knownAliases[0]?.identifier ?? '', identifiers: knownAliases.map(item => item.identifier), pendingIdentity: typeof row?.pending_identifier === 'string' ? row.pending_identifier : undefined, resolutionSource: (row?.resolution_source as ContactIdentityResolution['resolutionSource']) ?? (phone ? 'phone' : 'pending'), createdContact: Boolean(row?.created_contact), attachedAliases: attached.filter((value): value is string => typeof value === 'string') };
   }
 }
+
+/** Nome "técnico" é o que nenhuma pessoa escolheu: vazio, ou só dígitos e
+ *  pontuação de telefone. É o rótulo dos contatos criados pelo webhook a
+ *  partir de identidades LID ("200339068317777"). Só ele pode ser trocado
+ *  pelo nome que o WhatsApp conhece — nome de verdade, inclusive o que o
+ *  operador digitou no CRM, nunca é sobrescrito. A prova é por exclusão: um
+ *  nome real sempre tem algum caractere fora do conjunto de telefone (letra
+ *  de qualquer alfabeto, CJK, árabe…). */
+export const isTechnicalDisplayName = (value: string | null | undefined): boolean => !value?.trim() || !/[^\d()\s+.\-]/u.test(value.trim());
+
+/** Reparo de rótulo técnico: a resolução de identidade (RPC
+ *  `chatpro_resolve_contact_identity` e o INSERT do SQLite) só usa o nome na
+ *  CRIAÇÃO do contato — quem já existia ficaria sem nome para sempre, mesmo
+ *  com o WhatsApp sabendo o nome da pessoa. A sincronização da agenda chama
+ *  isto depois de resolver: se o rótulo atual é técnico, ele cede lugar ao
+ *  nome real que veio do provedor. */
+export interface ContactNameRepair { repairIfTechnical(workspaceId: string, contactId: string, name: string): Promise<void>; }
+
+export class SqliteContactNameRepair implements ContactNameRepair {
+  constructor(private readonly database: SqliteDatabase) {}
+  async repairIfTechnical(workspaceId: string, contactId: string, name: string): Promise<void> {
+    const row = this.database.prepare('SELECT displayName FROM contacts WHERE workspaceId=? AND id=?').get(workspaceId, contactId) as { displayName?: string | null } | undefined;
+    if (!row || !isTechnicalDisplayName(row.displayName)) return;
+    this.database.prepare('UPDATE contacts SET displayName=?, updatedAt=? WHERE workspaceId=? AND id=?').run(name, new Date().toISOString(), workspaceId, contactId);
+  }
+}
+
+export class SupabaseContactNameRepair implements ContactNameRepair {
+  constructor(private readonly client: SupabaseClient) {}
+  async repairIfTechnical(workspaceId: string, contactId: string, name: string): Promise<void> {
+    const { data, error } = await this.client.from('contacts').select('display_name').eq('workspace_id', workspaceId).eq('id', contactId).maybeSingle();
+    if (error) throw error;
+    if (!data || !isTechnicalDisplayName(typeof data.display_name === 'string' ? data.display_name : null)) return;
+    const { error: updateError } = await this.client.from('contacts').update({ display_name: name, updated_at: new Date().toISOString() }).eq('workspace_id', workspaceId).eq('id', contactId);
+    if (updateError) throw updateError;
+  }
+}

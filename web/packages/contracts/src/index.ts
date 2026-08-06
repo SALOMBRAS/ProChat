@@ -114,7 +114,7 @@ export type GroupParticipant = z.infer<typeof groupParticipantSchema>;
 export const conversationEventSchema = z.object({ id: z.string().uuid(), conversationId: z.string().uuid(), workspaceId: safeIdentifierSchema, userId: z.string().uuid(), action: conversationEventActionSchema, previousValue: z.string().nullable(), newValue: z.string().nullable(), createdAt: z.string().datetime() });
 export type ConversationEvent = z.infer<typeof conversationEventSchema>;
 
-export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.sent','message.status.updated','message.reaction.updated','conversation.updated','conversation.management.updated','conversation.context.updated','conversation.sync.updated','conversation.sla.updated','conversation.kanban.moved','kanban.stage.created','kanban.stage.updated','kanban.stage.reordered','workspace.user.created','workspace.user.updated','workspace.team.created','workspace.team.updated','workspace.team.members.updated','routing.queue.created','routing.queue.updated','routing.queue.members.updated','conversation.routing.queued','conversation.routing.processing','conversation.routing.updated','worker.error'] as const;
+export const eventTypes = ['system.connected','session.status.changed','session.qr.updated','message.received','message.sent','message.status.updated','message.reaction.updated','conversation.updated','conversation.management.updated','conversation.context.updated','conversation.sync.updated','conversation.sla.updated','conversation.kanban.moved','kanban.stage.created','kanban.stage.updated','kanban.stage.reordered','workspace.user.created','workspace.user.updated','workspace.team.created','workspace.team.updated','workspace.team.members.updated','routing.queue.created','routing.queue.updated','routing.queue.members.updated','conversation.routing.queued','conversation.routing.processing','conversation.routing.updated','worker.error','call.updated'] as const;
 export const eventEnvelopeSchema = z.object({ eventId: z.string().min(1), eventType: z.enum(eventTypes), workspaceId: safeIdentifierSchema, timestamp: z.string().datetime(), correlationId: z.string().min(1), payload: z.record(z.unknown()) });
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
 
@@ -216,7 +216,13 @@ export const internalHistoryPageCommandSchema = z.object({ type: z.literal('hist
  * sob o job a cada mensagem que chegasse.
  */
 export const internalContactsPageCommandSchema = z.object({ type: z.literal('contacts.page'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), offset: z.number().int().nonnegative(), limit: z.number().int().positive().max(100) }) });
-export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema, internalSendMessageCommandSchema, internalSendAttachmentCommandSchema, internalSendContentCommandSchema, internalSendReactionCommandSchema, internalIdentitySyncCommandSchema, internalHistoryPageCommandSchema, internalContactsPageCommandSchema]);
+/** O mapa LID → número real da sessão (`GET /api/{session}/lids` da WAHA). É o
+ *  que permite gravar o telefone discável já na ingestão, em vez do
+ *  identificador técnico — o WhatsApp moderno endereça muita gente só por LID.
+ *  Páginas maiores que a agenda (500) porque cada item é minúsculo e o mapa de
+ *  uma sessão chega a milhares de entradas. */
+export const internalLidsPageCommandSchema = z.object({ type: z.literal('lids.page'), payload: z.object({ wahaSession: z.string().trim().min(1).max(200), offset: z.number().int().nonnegative(), limit: z.number().int().positive().max(500) }) });
+export const internalTransportCommandSchema = z.discriminatedUnion('type', [internalTransportPingCommandSchema, internalListSessionsCommandSchema, internalCreateSessionCommandSchema, internalSessionCommandSchema, internalSendMessageCommandSchema, internalSendAttachmentCommandSchema, internalSendContentCommandSchema, internalSendReactionCommandSchema, internalIdentitySyncCommandSchema, internalHistoryPageCommandSchema, internalContactsPageCommandSchema, internalLidsPageCommandSchema]);
 export type InternalTransportCommand = z.infer<typeof internalTransportCommandSchema>;
 export const internalTransportRequestSchema = z.object({ correlationId: z.string().min(1).max(128), workspaceId: safeIdentifierSchema, timeoutMs: internalTransportTimeoutSchema, command: internalTransportCommandSchema });
 export type InternalTransportRequest = z.infer<typeof internalTransportRequestSchema>;
@@ -232,6 +238,7 @@ export const internalTransportDataSchema = z.union([
   z.object({ identitySync: z.object({ identity: whatsappIdentitySnapshotSchema.nullable(), group: whatsappGroupSnapshotSchema.nullable() }) }),
   z.object({ historyPage: z.object({ kind: z.enum(['chats','messages']), items: z.array(z.record(z.unknown())), unsupported: z.array(z.string()), hasMore: z.boolean() }) }),
   z.object({ contactsPage: z.object({ items: z.array(z.record(z.unknown())), unsupported: z.array(z.string()), hasMore: z.boolean() }) }),
+  z.object({ lidsPage: z.object({ items: z.array(z.record(z.unknown())), unsupported: z.array(z.string()), hasMore: z.boolean() }) }),
   z.object({ removed: z.literal(true) }),
   z.object({ completed: z.literal(true) }),
 ]);

@@ -50,22 +50,39 @@ export class SupabaseDomainRepository implements DomainRepository {
 
   /** Search, tag and opt-out all run in the database. Reading the workspace's
    * whole contact table to slice it in memory does not scale and silently
-   * dropped `search`, so the Inbox saw an unfiltered list. */
-  private contactQuery(w: string, filters: ContactListFilters, head: boolean) {
+   * dropped `search`, so the Inbox saw an unfiltered list. O filtro de origem
+   * chega pronto (`phonebookIds`): PostgREST não expressa EXISTS/NOT EXISTS
+   * sobre outra tabela, então os ids da agenda vêm de uma consulta em lote. */
+  private contactQuery(w: string, filters: ContactListFilters, head: boolean, phonebookIds?: ReadonlySet<string>) {
     let query = this.client.from('contacts').select(contactColumns(filters), head ? { count: 'exact', head: true } : { count: 'exact' }).eq('workspace_id', w);
     if (filters.tagId) query = query.eq('contact_tags.tag_id', filters.tagId);
     if (filters.optOut === 'false') query = query.is('opt_out_history', null);
     if (filters.search) query = query.or(contactSearchFilter(filters.search));
+    if (filters.origin === 'phonebook' && phonebookIds) query = query.in('id', [...phonebookIds]);
+    if (filters.origin === 'history' && phonebookIds?.size) query = query.not('id', 'in', `(${[...phonebookIds].join(',')})`);
     return query;
   }
   async contacts(w: string, q: Record<string, unknown>) {
     const filters = parseContactListQuery(q), offset = (filters.page - 1) * filters.pageSize;
-    const { data, count, error: queryError } = await this.contactQuery(w, filters, false).order('created_at', { ascending: false }).range(offset, offset + filters.pageSize - 1);
+    // A agenda do celular é pequena por definição (centenas), então os ids
+    // cabem num filtro `in`. Falha fechada de propósito: sem saber a agenda,
+    // 'phonebook' devolveria a base inteira como se fosse celular — pior que
+    // um erro honesto. Vazia, a página é vazia sem nem bater na tabela.
+    const phonebookIds = filters.origin ? await this.phonebookContactIds(w) : undefined;
+    if (filters.origin === 'phonebook' && phonebookIds && !phonebookIds.size) return { items: [], page: filters.page, pageSize: filters.pageSize, total: 0 };
+    const { data, count, error: queryError } = await this.contactQuery(w, filters, false, phonebookIds).order('created_at', { ascending: false }).range(offset, offset + filters.pageSize - 1);
     // PostgREST rejects an offset past the last row; SQLite answers an empty
     // page. Re-count so the caller still learns the real total.
-    if (queryError?.code === 'PGRST103') { const { count: total, error: countError } = await this.contactQuery(w, filters, true); error(countError); return { items: [], page: filters.page, pageSize: filters.pageSize, total: total ?? 0 }; }
+    if (queryError?.code === 'PGRST103') { const { count: total, error: countError } = await this.contactQuery(w, filters, true, phonebookIds); error(countError); return { items: [], page: filters.page, pageSize: filters.pageSize, total: total ?? 0 }; }
     error(queryError);
     return { items: await this.withContactOrigin(w, await this.withWhatsAppIdentity(w, (data ?? []).map(contactRow) as Record<string, unknown>[])), page: filters.page, pageSize: filters.pageSize, total: count ?? 0 };
+  }
+  /** Ids dos contatos com algum identificador nascido da agenda do WhatsApp
+   *  ('waha_contact_sync') — a base do filtro `origin` da listagem. */
+  private async phonebookContactIds(workspaceId: string): Promise<Set<string>> {
+    const { data, error: identifiersError } = await this.client.from('contact_identifiers').select('contact_id').eq('workspace_id', workspaceId).eq('source', 'waha_contact_sync');
+    error(identifiersError);
+    return new Set((data ?? []).map(row => String(row.contact_id)));
   }
   /** Origem do contato para as duas colunas do picker: 'phonebook' quando algum
    *  identificador dele nasceu da agenda do WhatsApp ('waha_contact_sync'),

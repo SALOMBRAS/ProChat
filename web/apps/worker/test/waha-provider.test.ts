@@ -10,6 +10,7 @@ class FakeWahaClient implements WahaClientPort {
   async sendReaction() { this.calls.push('reaction'); }
   async listChats() { return { items: [], unsupported: [], hasMore: false }; } async listMessages() { return { items: [], unsupported: [], hasMore: false }; }
   async listContacts() { this.calls.push('contacts'); return { items: [{ id: '5511999999999@c.us', name: 'Contato' }], unsupported: [], hasMore: false }; }
+  async listLidMappings() { this.calls.push('lids'); return { items: [{ lid: '96139068104886@lid', pn: '5511999999999@c.us' }], unsupported: [], hasMore: false }; }
 }
 describe('WahaProvider', () => {
   it('pages the address book only through a connected workspace WAHA session', async () => {
@@ -22,6 +23,17 @@ describe('WahaProvider', () => {
     const page = await provider.execute(context, { type: 'contactsPage', wahaSession: session, offset: 0, limit: 100 });
     expect(page).toMatchObject({ items: [{ id: '5511999999999@c.us' }], hasMore: false });
     expect(client.calls).toContain('contacts');
+  });
+  it('pages the lid mappings through the same connected-session guards as the address book', async () => {
+    const client = new FakeWahaClient(); const provider = new WahaProvider(client, 60_000);
+    await provider.execute(context, { type: 'createSession', sessionId: 'session-a', input: { name: 'Primary' } });
+    const session = 'chatpro-b60c5708e0c4a09d91258bd25a5a81a0c48104a9';
+    await expect(provider.execute(context, { type: 'lidsPage', wahaSession: session, offset: 0, limit: 500 })).rejects.toMatchObject({ response: { error: { code: 'CONFLICT' } } });
+    await expect(provider.execute(context, { type: 'lidsPage', wahaSession: 'chatpro-unknown', offset: 0, limit: 500 })).rejects.toMatchObject({ response: { error: { code: 'NOT_FOUND' } } });
+    client.status = 'WORKING';
+    const page = await provider.execute(context, { type: 'lidsPage', wahaSession: session, offset: 0, limit: 500 });
+    expect(page).toMatchObject({ items: [{ lid: '96139068104886@lid', pn: '5511999999999@c.us' }], hasMore: false });
+    expect(client.calls).toContain('lids');
   });
   it('maps the asynchronous WAHA lifecycle without leaking its wire responses', async () => { const client = new FakeWahaClient(); const provider = new WahaProvider(client, 60_000); const created = await provider.execute(context, { type: 'createSession', sessionId: 'session-a', input: { name: 'Primary' } }); expect(created).toMatchObject({ status: 'connecting', name: 'Primary' }); await provider.execute(context, { type: 'connectSession', sessionId: 'session-a' }); expect(await provider.execute(context, { type: 'getSession', sessionId: 'session-a' })).toMatchObject({ status: 'waiting_qr' }); const qr = await provider.execute(context, { type: 'getQr', sessionId: 'session-a' }); expect(qr).toMatchObject({ sessionId: 'session-a', qr: 'temporary-real-qr' }); expect(JSON.stringify(qr)).not.toContain('SCAN_QR_CODE'); await provider.execute(context, { type: 'disconnectSession', sessionId: 'session-a' }); await provider.execute(context, { type: 'logoutSession', sessionId: 'session-a' }); await provider.execute(context, { type: 'removeSession', sessionId: 'session-a' }); expect(client.calls).toEqual(['create', 'start', 'qr', 'stop', 'logout', 'remove']); });
   it('keeps a durable session record when WAHA is unavailable', async () => { const client = new FakeWahaClient(); client.createSession = async () => { throw new WahaClientError('unavailable'); }; client.getSession = async () => { throw new WahaClientError('unavailable'); }; const provider = new WahaProvider(client, 60_000); await expect(provider.execute(context, { type: 'createSession', sessionId: 'session-a', input: { name: 'Primary' } })).resolves.toMatchObject({ id: 'session-a', status: 'connecting' }); await new Promise(resolve => setImmediate(resolve)); await expect(provider.execute(context, { type: 'getSession', sessionId: 'session-a' })).rejects.toMatchObject({ response: { error: { code: 'SERVICE_UNAVAILABLE' } } }); });
