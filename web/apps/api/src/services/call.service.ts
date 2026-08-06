@@ -140,7 +140,15 @@ export class CallService {
     if (!session) {
       await this.request('POST', '/api/sessions', { name });
     } else if (!session.paired && session.state !== 'qr') {
-      await this.request('POST', `/api/sessions/${session.id}/pair`);
+      try {
+        await this.request('POST', `/api/sessions/${session.id}/pair`);
+      } catch (error) {
+        // Sessão deslogada pelo WhatsApp pode manter o device local e o /pair
+        // responde 400 "session already paired": reseta o cliente e re-pareia.
+        if (!(error instanceof AppError) || error.status !== 400) throw error;
+        await this.request('POST', `/api/sessions/${session.id}/logout`);
+        await this.request('POST', `/api/sessions/${session.id}/pair`);
+      }
     }
     return this.pairingStatus();
   }
