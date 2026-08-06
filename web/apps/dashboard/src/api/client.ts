@@ -4,21 +4,41 @@ export class ApiError extends Error {
   constructor(public readonly code: ApiErrorCode, message: string, public readonly details: Record<string, unknown> = {}) { super(message); }
 }
 
+import { SESSION_EXPIRED_EVENT, clearAuthSession, loadAuthSession } from './auth-storage';
+
+/** Cabeçalhos de identidade de toda requisição: workspace/usuário legados +
+ *  Bearer da sessão autenticada, quando existe login. */
+const authHeaders = (): Record<string, string> => { const session = loadAuthSession(); return session ? { authorization: `Bearer ${session.token}` } : {}; };
+/** 401 com sessão ativa = sessão expirada/revogada no servidor: limpa local e
+ *  avisa a UI para voltar ao login. O próprio login errado (sem Bearer) não
+ *  passa por aqui. */
+const handleUnauthorized = (endpoint: string, status: number, hadSession: boolean) => {
+  if (status !== 401 || !hadSession || endpoint === '/api/v1/auth/login') return;
+  clearAuthSession(); window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+};
+
 export interface ApiClientOptions { baseUrl?: string; workspaceId?: string; userId?: string; timeoutMs?: number; fetcher?: typeof fetch; }
 const safeText = (value: unknown) => String(value ?? '').replace(/(authorization|api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]').slice(0, 240);
+
+/** Simulação de operador sem login (só dev): o seletor do topo grava aqui e o
+ *  ApiClient passa a falar como aquele usuário. A sessão real (login) ganha
+ *  sempre — quando existir, o override é ignorado. */
+export const DEV_USER_KEY = 'chatpro.devUserId';
+const devUserOverride = (): string | undefined => { try { return globalThis.localStorage?.getItem(DEV_USER_KEY) ?? undefined; } catch { return undefined; } };
 
 /** Single transport boundary for the dashboard. Components never call fetch directly. */
 export class ApiClient {
   private readonly baseUrl: string; private readonly workspaceId: string; private readonly userId: string; private readonly timeoutMs: number; private readonly fetcher: typeof fetch;
-  constructor(options: ApiClientOptions = {}) { this.baseUrl = options.baseUrl ?? import.meta.env.VITE_API_URL ?? ''; this.workspaceId = options.workspaceId ?? import.meta.env.VITE_WORKSPACE_ID ?? 'default-workspace'; this.userId = options.userId ?? import.meta.env.VITE_USER_ID ?? '00000000-0000-4000-8000-000000000001'; this.timeoutMs = options.timeoutMs ?? 35_000; this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis); }
+  constructor(options: ApiClientOptions = {}) { this.baseUrl = options.baseUrl ?? import.meta.env.VITE_API_URL ?? ''; this.workspaceId = options.workspaceId ?? import.meta.env.VITE_WORKSPACE_ID ?? 'default-workspace'; this.userId = options.userId ?? loadAuthSession()?.user.id ?? devUserOverride() ?? import.meta.env.VITE_USER_ID ?? '00000000-0000-4000-8000-000000000001'; this.timeoutMs = options.timeoutMs ?? 35_000; this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis); }
   async request<T>(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<T> {
     const startedAt = performance.now(); const controller = new AbortController(); const timeout = window.setTimeout(() => controller.abort(), this.timeoutMs);
     const abort = () => controller.abort(); signal?.addEventListener('abort', abort, { once: true }); const method = init.method ?? 'GET';
     try {
-      const response = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: controller.signal, headers: { ...(init.body instanceof FormData ? {} : { 'content-type': 'application/json' }), 'x-workspace-id': this.workspaceId, 'x-user-id': this.userId, ...init.headers } });
+      const response = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: controller.signal, headers: { ...(init.body instanceof FormData ? {} : { 'content-type': 'application/json' }), 'x-workspace-id': this.workspaceId, 'x-user-id': this.userId, ...authHeaders(), ...init.headers } });
       if (response.status === 204) return undefined as T;
       let body: unknown;
       try { body = await response.json(); } catch (error) { throw new ApiError('REQUEST_FAILED', `Resposta inválida da API.${import.meta.env.DEV ? ` [PARSE ${response.status} ${path}]` : ''}`, { phase: 'parse', endpoint: path, method, status: response.status, errorName: error instanceof Error ? error.name : 'UnknownError', reason: safeText(error instanceof Error ? error.message : error) }); }
+      handleUnauthorized(path, response.status, Boolean(loadAuthSession()));
       if (!response.ok) { const error = body as { error?: { message?: string; details?: Record<string, unknown> } } | null; const safeMessage = error?.error?.message ?? 'Não foi possível concluir a operação.'; throw new ApiError('REQUEST_FAILED', `${safeMessage}${import.meta.env.DEV ? ` [REQUEST_FAILED ${response.status} ${path}]` : ''}`, { ...error?.error?.details, phase: 'response', endpoint: path, method, status: response.status }); }
       return body as T;
     } catch (error) {
@@ -30,7 +50,7 @@ export class ApiClient {
     } finally { window.clearTimeout(timeout); signal?.removeEventListener('abort', abort); }
   }
   get<T>(path: string, signal?: AbortSignal) { return this.request<T>(path, { method: 'GET' }, signal); }
-  async blob(path: string, signal?: AbortSignal): Promise<Blob> { const response = await this.fetcher(`${this.baseUrl}${path}`, { method: 'GET', signal, headers: { 'x-workspace-id': this.workspaceId, 'x-user-id': this.userId } }); if (!response.ok) throw new ApiError('REQUEST_FAILED', 'Não foi possível carregar a mídia.', { endpoint: path, status: response.status }); return response.blob(); }
+  async blob(path: string, signal?: AbortSignal): Promise<Blob> { const response = await this.fetcher(`${this.baseUrl}${path}`, { method: 'GET', signal, headers: { 'x-workspace-id': this.workspaceId, 'x-user-id': this.userId, ...authHeaders() } }); if (!response.ok) { handleUnauthorized(path, response.status, Boolean(loadAuthSession())); throw new ApiError('REQUEST_FAILED', 'Não foi possível carregar a mídia.', { endpoint: path, status: response.status }); } return response.blob(); }
   post<T>(path: string, body?: unknown, signal?: AbortSignal) { return this.request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }, signal); }
   postForm<T>(path: string, body: FormData) { return this.request<T>(path, { method: 'POST', body }); }
   /** Mesma fronteira e mesmos erros do `request` — só muda o transporte e o
@@ -43,6 +63,8 @@ export class ApiClient {
       xhr.timeout = this.timeoutMs;
       xhr.setRequestHeader('x-workspace-id', this.workspaceId);
       xhr.setRequestHeader('x-user-id', this.userId);
+      const session = loadAuthSession();
+      if (session) xhr.setRequestHeader('authorization', `Bearer ${session.token}`);
       // Sem `content-type`: o browser define o boundary do multipart.
       xhr.upload.onprogress = (event) => { if (event.lengthComputable && event.total > 0) onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100))); };
       xhr.onload = () => {

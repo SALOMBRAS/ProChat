@@ -18,6 +18,8 @@ import { ApiError } from "../api/client.js";
 import type { ActiveCall } from "../api/calls.js";
 import { useCalls } from "./useCalls.js";
 import { CallModal } from "./CallModal.js";
+import { CallHistory } from "./CallHistory.js";
+import { callEventText } from "./callEvent.js";
 import { WorkspaceApi } from "../api/workspace.js";
 import { DomainApi } from "../api/domain.js";
 import type { PersistenceContact, Team, WorkspaceUser } from "@chatpro/contracts";
@@ -271,6 +273,7 @@ const renderMessageBody = (message: InboxMessage, mentionResolver?: (jid: string
 const MessageBubble = ({ message, api, domain, onOpenContact, showAuthor, highlighted = false, onReact, reactionFailed = false, mentionResolver }: { message: InboxMessage; api: InboxApi; domain?: DomainApi; onOpenContact?: (search: string) => void; showAuthor: boolean; highlighted?: boolean; onReact?: (message: InboxMessage, emoji: string) => void; reactionFailed?: boolean; mentionResolver?: (jid: string) => string | null }) => (
   <article id={`conversation-search-result-${message.id}`} className={`message-bubble ${message.direction}${highlighted ? " search-highlighted" : ""}`}>
     {showAuthor && <strong className="message-author">{senderName(message.senderWhatsappId)}:</strong>}
+    {message.messageType === "call" && <p className="message-call"><span aria-hidden="true">📞</span> {callEventText(message.metadata)}</p>}
     <Media message={message} api={api} domain={domain} onOpenContact={onOpenContact} />
     {message.content && !bodyRepeatsCard(message) && <p>{renderMessageBody(message, mentionResolver)}</p>}
     {/* Uma prévia por mensagem, sempre do primeiro link: nativa do WhatsApp
@@ -1634,9 +1637,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                     type="button"
                     className="conversation-call-trigger"
                     onClick={() => void calls.startCall(selected.id, conversationPhone(selected) ?? selected.chatId.split("@", 1)[0]!, contactName(selected))}
-                    disabled={Boolean(calls.call && calls.call.status !== "ended")}
+                    disabled={Boolean(calls.call && calls.call.status !== "ended") || calls.workspaceBusy}
                     aria-label={`Ligar para ${contactName(selected)}`}
-                    title="Chamada de voz pelo WhatsApp"
+                    title={calls.workspaceBusy ? "Em ligação — outro operador está em chamada nesta instância" : "Chamada de voz pelo WhatsApp"}
                   >📞 Ligar</button>
                 ) : null}
                 <button type="button" className="conversation-search-trigger" onClick={() => setConversationSearchOpen((open) => !open)} aria-expanded={conversationSearchOpen}>⌕ Buscar nesta conversa</button>
@@ -2000,6 +2003,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
                 </div>
                 <div className="customer-future-fields"><div className="customer-section-title">CAMPOS PERSONALIZADOS</div><div><span>Origem do lead</span><strong>Não informado</strong></div><div><span>Responsável</span><strong>{workspaceUsers.find((user) => user.id === selected.assignedUserId)?.displayName ?? teams.find((team) => team.id === selected.assignedTeamId)?.name ?? "Não atribuído"}</strong></div><div><span>Status</span><strong>{statusLabel[selected.status]}</strong></div><div><span>Informações extras</span><strong>Disponível em breve</strong></div></div>
               </div>
+              {/* Chamadas da conversa com as gravações (avaliação de
+                  atendimento). Só conversa direta: grupo não tem chamada. */}
+              {!isGroup(selected) && <CallHistory conversationId={selected.id} />}
               {/* Membros do grupo: a mesma fonte do autocomplete de menções
                   (cache 1× por conversa). Nome + número, com selo de admin. */}
               {isGroup(selected) && (

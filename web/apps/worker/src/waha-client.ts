@@ -1,7 +1,7 @@
 import { log } from './logging.js';
 import { remainingBudgetMs } from './request-deadline.js';
 
-export type WahaSession = { name: string; status: string };
+export type WahaSession = { name: string; status: string; me?: { id: string; pushName?: string } };
 /** `url` é sempre a canônica quando existe; a thumbnail chega em base64 e viaja
  *  como data URL, que é o formato que o contrato aceita. */
 export type WahaLinkPreview = { url: string; title?: string; description?: string; imageUrl?: string };
@@ -216,7 +216,7 @@ export class WahaHttpClient implements WahaClientPort {
   }
   private async optionalRequest(path: string): Promise<unknown> { try { return await this.request(path); } catch (error) { if (error instanceof WahaClientError && error.status === 404) return {}; throw error; } }
 }
-function session(value: unknown): WahaSession { if (!value || typeof value !== 'object' || typeof (value as { name?: unknown }).name !== 'string' || typeof (value as { status?: unknown }).status !== 'string') throw new WahaClientError('response'); return value as WahaSession; }
+function session(value: unknown): WahaSession { if (!value || typeof value !== 'object' || typeof (value as { name?: unknown }).name !== 'string' || typeof (value as { status?: unknown }).status !== 'string') throw new WahaClientError('response'); const raw = value as { name: string; status: string; me?: unknown }; const me = raw.me && typeof raw.me === 'object' && !Array.isArray(raw.me) ? raw.me as Record<string, unknown> : undefined; const meId = me ? serializedId(me.id) : null; return { name: raw.name, status: raw.status, ...(meId ? { me: { id: meId, ...(me && typeof me.pushName === 'string' ? { pushName: me.pushName } : {}) } } : {}) }; }
 function object(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new WahaClientError('response'); return value as Record<string, unknown>; }
 function objectOrEmpty(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function stringValue(value: unknown): string | null { return typeof value === 'string' && value.trim() ? value.trim() : null; }

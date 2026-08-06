@@ -3,6 +3,7 @@ import { createServer } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dashboard = resolve(root, 'apps', 'dashboard');
@@ -26,6 +27,11 @@ function apiHosts() {
   return '0.0.0.0';
 }
 
+// O `npm run dev` não passa --env-file como os outros runtimes; sem isto as
+// credenciais de bootstrap (CHATPRO_ADMIN_EMAIL/PASSWORD) e demais ajustes do
+// .env.local nunca chegariam aos processos filhos.
+const envFile = resolve(root, '.env.local');
+if (existsSync(envFile) && typeof process.loadEnvFile === 'function') process.loadEnvFile(envFile);
 const databaseProvider = process.env.DATABASE_PROVIDER ?? 'sqlite';
 const environment = {
   ...process.env,

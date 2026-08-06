@@ -35,6 +35,11 @@ export function useCalls(api: CallsApi = defaultCallsApi) {
   const [call, setCall] = useState<CallUiState | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Chamadas de OUTROS operadores na mesma instância (eventos `call.updated`
+   *  que não pertencem à minha chamada). Enquanto houver uma ativa, o botão
+   *  📞 fica desabilitado — a instância atende uma ligação por vez. */
+  const otherCalls = useRef(new Set<string>());
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const connectionRef = useRef<OpenCall | null>(null);
   const dismissTimer = useRef<number | undefined>(undefined);
   /** Espelho síncrono do estado: o handler realtime não pode ler `call` do
@@ -48,9 +53,13 @@ export function useCalls(api: CallsApi = defaultCallsApi) {
     setRemoteStream(null);
   }, []);
 
-  const finish = useCallback((reason?: string) => {
+  /** `reason` é o motivo vindo do WhatsApp (timeout, recusa...); `error` é a
+   *  falha local/da API (mic negado, Call Service fora, 4xx/5xx). O modal
+   *  mostra `error` quando existe — sem isso toda falha virava a genérica
+   *  "Chamada encerrada" e o problema real ficava invisível. */
+  const finish = useCallback((reason?: string, error?: string) => {
     closeConnection();
-    setCall((current) => (current ? { ...current, status: "ended", endedReason: reason } : current));
+    setCall((current) => (current ? { ...current, status: "ended", endedReason: reason, error } : current));
     window.clearTimeout(dismissTimer.current);
     dismissTimer.current = window.setTimeout(() => setCall(null), 4_000);
   }, [closeConnection]);
@@ -74,7 +83,7 @@ export function useCalls(api: CallsApi = defaultCallsApi) {
         return true;
       } catch (error) {
         await api.end(callId).catch(() => undefined);
-        finish(errorText(error));
+        finish(undefined, errorText(error));
         return false;
       }
     },
@@ -92,7 +101,7 @@ export function useCalls(api: CallsApi = defaultCallsApi) {
         setCall({ callId: started.callId, direction: "outbound", peer, label, status: "ringing" });
         await attachAudio(started.callId);
       } catch (error) {
-        finish(errorText(error));
+        finish(undefined, errorText(error));
       } finally {
         setBusy(false);
       }
@@ -108,7 +117,7 @@ export function useCalls(api: CallsApi = defaultCallsApi) {
       setCall((current) => (current ? { ...current, status: "connecting" } : current));
       await attachAudio(call.callId);
     } catch (error) {
-      finish(errorText(error));
+      finish(undefined, errorText(error));
     } finally {
       setBusy(false);
     }
@@ -148,6 +157,14 @@ export function useCalls(api: CallsApi = defaultCallsApi) {
    *  contato na lista de conversas, quando existe. */
   const handleCallEvent = useCallback(
     (payload: ActiveCall, resolveLabel?: (peerDigits: string) => string | undefined) => {
+      const current = callRef.current;
+      const mine = Boolean(current && (!current.callId || current.callId === payload.callId));
+      const opensMine = !current && payload.direction === "inbound" && payload.status === "ringing";
+      if (!mine && !opensMine && payload.callId) {
+        if (payload.status === "ended") otherCalls.current.delete(payload.callId);
+        else otherCalls.current.add(payload.callId);
+        setWorkspaceBusy(otherCalls.current.size > 0);
+      }
       const peer = digitsOf(payload.peer ?? "");
       if (payload.status === "ended") {
         // Fecha o softphone mesmo quando o modal ainda está em `dialing` (sem
@@ -182,5 +199,5 @@ export function useCalls(api: CallsApi = defaultCallsApi) {
     [finish],
   );
 
-  return { call, remoteStream, busy, startCall, accept, reject, hangup, dismiss, handleCallEvent };
+  return { call, remoteStream, busy, workspaceBusy, startCall, accept, reject, hangup, dismiss, handleCallEvent };
 }

@@ -50,7 +50,17 @@ func newSession(mgr *SessionManager, id, name string, client *whatsmeow.Client) 
 func (s *Session) createCall(callID string) *call.CallManager {
 	cm := call.NewCallManager(wa.NewSocket(s.client), s.log)
 	s.wireCall(cm, callID)
-	s.reg.add(callID, &activeCall{cm: cm})
+	ac := &activeCall{cm: cm}
+	// Gravação sempre ativa: um WAV mono por chamada (mix operador+contato).
+	// Falha ao criar o recorder apenas desabilita a gravação, nunca a chamada.
+	if dir := s.mgr.recordingsDir; dir != "" {
+		if rec, err := newCallRecorder(dir, callID, s.log); err != nil {
+			s.log.Warn("call recording disabled: create failed", "call_id", callID, "err", err)
+		} else {
+			ac.rec = rec
+		}
+	}
+	s.reg.add(callID, ac)
 	return cm
 }
 
@@ -89,7 +99,13 @@ func (s *Session) wireCall(cm *call.CallManager, callID string) {
 	}
 	cm.OnPeerAudio = func(pcm16 []float32) {
 		ac, ok := s.reg.get(callID)
-		if !ok || ac.bridge == nil {
+		if !ok {
+			return
+		}
+		if ac.rec != nil {
+			ac.rec.writeRight(pcm16)
+		}
+		if ac.bridge == nil {
 			return
 		}
 		_ = ac.bridge.WritePCM(pcm16)
@@ -247,6 +263,11 @@ func (s *Session) removeCall(callID string) {
 	if ac.bridge != nil {
 		ac.bridge.Close()
 	}
+	if ac.rec != nil {
+		if err := ac.rec.finalize(); err != nil {
+			s.log.Warn("call recording finalize failed", "call_id", callID, "err", err)
+		}
+	}
 }
 
 func (s *Session) terminateCall(callID string, reason core.EndCallReason) {
@@ -262,6 +283,13 @@ func (s *Session) teardownAllCalls() {
 		_ = ac.cm.EndCall(context.Background(), core.EndCallReasonUserEnded)
 		if ac.bridge != nil {
 			ac.bridge.Close()
+		}
+		// O drain esvazia o registry, então removeCall não roda para estas
+		// chamadas: finalize a gravação aqui para não perder o WAV.
+		if ac.rec != nil {
+			if err := ac.rec.finalize(); err != nil {
+				s.log.Warn("call recording finalize failed", "err", err)
+			}
 		}
 	}
 }
