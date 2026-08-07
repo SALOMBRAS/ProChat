@@ -1974,6 +1974,21 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
               )}
             </div>
           </div>
+          <div className="inbox-funnel" role="group" aria-label="Funil de conversas">
+            <i aria-hidden="true">⏷</i>
+            <select value={funnelSession} onChange={(event) => setFunnelSession(event.target.value)} aria-label="Filtrar por instância">
+              <option value="">Todas as instâncias</option>
+              {sessions.map((session) => (
+                <option key={session.id} value={session.wahaName ?? session.id}>{session.name}</option>
+              ))}
+            </select>
+            <select value={funnelTeam} onChange={(event) => setFunnelTeam(event.target.value)} aria-label="Filtrar por departamento">
+              <option value="">Todos os departamentos</option>
+              {teams.filter((team) => team.isActive).map((team) => (
+                <option key={team.id} value={team.id}>{team.name}</option>
+              ))}
+            </select>
+          </div>
           <label className="inbox-list-search">
             <span>⌕</span>
             <input value={listSearch} onChange={(event) => setListSearch(event.target.value)} placeholder="Pesquisar ou começar uma nova conversa" aria-label="Pesquisar conversas" />
