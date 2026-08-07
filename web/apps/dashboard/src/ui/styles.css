@@ -911,9 +911,6 @@
 .device-menu > button:disabled { opacity: .5; }
 .device-menu > button small { color: #8d8a9f; font-size: 11px; }
 .device-menu > button.danger { color: #ff9aa8; }
-.device-menu-dept { margin: 4px 0; padding: 9px 11px; border-top: 1px solid #24173a; border-bottom: 1px solid #24173a; }
-.device-menu-dept label { display: grid; gap: 6px; color: #c5c1d1; font-size: 12px; }
-.device-menu-dept > small { display: block; margin-top: 5px; color: #8d8a9f; font-size: 11px; }
 
 /* ===== Rail expansível: fechado é ícone grande e centrado; o hover abre ===== */
 @media (min-width: 761px) {
@@ -951,11 +948,7 @@
 }
 
 
-/* ===== Correções do menu de dispositivos — multi-seleção de departamentos ===== */
+/* ===== Correções do menu de dispositivos ===== */
 .device-menu-wrap { position: relative; }
 .device-card { overflow: visible; }
 .device-menu { max-height: 380px; overflow-y: auto; }
-.device-dept-list { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; margin: 6px 0; padding-right: 4px; }
-.device-dept-item { display: flex; align-items: center; gap: 8px; padding: 5px 7px; border-radius: 7px; cursor: pointer; font-size: 12px; color: #ddd8e6; }
-.device-dept-item:hover { background: #8b5cf622; }
-.device-dept-item input[type="checkbox"] { width: 14px; height: 14px; accent-color: #a855f7; cursor: pointer; }
