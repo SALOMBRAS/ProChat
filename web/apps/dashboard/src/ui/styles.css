@@ -933,8 +933,12 @@
   .sidebar:hover .nav-label { max-height: 26px; margin: 12px 13px 7px; opacity: 1; }
   /* O botão é sempre full-width: fechado, as margens automáticas do <i> o
    *  centralizam; no hover elas zeram, então o ícone desliza para a esquerda
-   *  encolhendo (margin e font-size são animáveis) e o rótulo surge. */
-  .nav { justify-content: flex-start; width: 100%; min-height: 52px; margin: 0; padding: 0; border-radius: 14px; transition: min-height .22s ease, padding .22s ease, background .2s, color .2s; }
+   *  encolhendo (margin e font-size são animáveis) e o rótulo surge.
+   *  O gap do `.nav` base (12px) PRECISA zerar aqui: ele continua contando na
+   *  linha de flex mesmo com o rótulo colapsado, e as margens auto dividiam só
+   *  o espaço restante — o ícone ficava 6px à esquerda do centro do quadrado
+   *  ativo. A separação no hover vem do margin-left do .nav-text. */
+  .nav { justify-content: flex-start; width: 100%; min-height: 52px; margin: 0; padding: 0; gap: 0; border-radius: 14px; transition: min-height .22s ease, padding .22s ease, background .2s, color .2s; }
   .sidebar:hover .nav { min-height: 46px; padding: 0 12px; }
   .nav i { width: 30px; flex: 0 0 30px; margin-right: auto; margin-left: auto; text-align: center; font-size: 24px; transition: margin .22s ease, font-size .22s ease; }
   .sidebar:hover .nav i { margin-right: 0; margin-left: 0; font-size: 17px; }
