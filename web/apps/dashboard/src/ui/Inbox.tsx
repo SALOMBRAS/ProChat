@@ -1995,18 +1995,19 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
           </label>
           <div className="inbox-filter-chips" role="group" aria-label="Filtrar conversas">
             {filterChips.map((chip) => (
-              <button key={chip.key} type="button" className={filter === chip.key ? "chip active" : "chip"} onClick={() => setFilter(chip.key)} aria-pressed={filter === chip.key}>
-                <i aria-hidden="true">{chip.icon}</i>{chip.label}<b>{chip.count}</b>
+              <button key={chip.key} type="button" className={filter === chip.key ? "chip active" : "chip"} onClick={() => setFilter(chip.key)} aria-pressed={filter === chip.key} title={chip.label} aria-label={`${chip.label}: ${chip.count}`}>
+                <i aria-hidden="true">{chip.icon}</i><b>{chip.count}</b>
               </button>
             ))}
             <select
               className={moreFilters.includes(filter) ? "chip chip-select active" : "chip chip-select"}
               aria-label="Mais filtros de conversas"
+              title="Mais filtros"
               value={moreFilters.includes(filter) ? filter : ""}
               onChange={(event) => setFilter((event.target.value || "all") as InboxFilter)}
             >
-              <option value="">Mais ▾</option>
-              <option value="waiting_customer">Aguardando cliente</option>
+              <option value="">▾</option>
+              <option value="waiting_customer">Aguardando</option>
               <option value="resolved">Resolvidas</option>
             </select>
           </div>
