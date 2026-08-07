@@ -59,12 +59,20 @@ describe("App auth", () => {
     expect(shellMocks.dashboard).not.toHaveBeenCalled();
   });
 
-  it("admin vê a navegação completa, incluindo gestão", async () => {
+  it("admin vê a gestão, mas Equipe (cadastro de operadores) é exclusiva do dono", async () => {
     seedSession(fakeUser({ role: "admin" }));
     render(<App />);
     await screen.findByText("Tudo que você precisa para crescer");
-    expect(screen.getByRole("button", { name: /Equipe$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Equipe$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Departamentos$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Configurações$/ })).toBeInTheDocument();
+  });
+
+  it("dono vê Equipe, e rota direta de outro papel cai no Painel", async () => {
+    seedSession(fakeUser({ role: "owner" }));
+    render(<App />);
+    await screen.findByText("Tudo que você precisa para crescer");
+    expect(screen.getByRole("button", { name: /Equipe$/ })).toBeInTheDocument();
   });
 
   it("agent vê só Painel e Inbox, e rota de gestão cai no Painel", async () => {

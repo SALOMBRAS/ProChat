@@ -37,6 +37,7 @@ func main() {
 	if recDir == "" {
 		recDir = filepath.Join(filepath.Dir(*dbPath), "recordings")
 	}
+	log.Info("startup config", "addr", *addr, "db", *dbPath, "recordings_dir", recDir, "max_calls", *maxCalls)
 
 	srv, err := newServer(ctx, *dbPath, *staticDir, *maxCalls, recDir, log)
 	if err != nil {

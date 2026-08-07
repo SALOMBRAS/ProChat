@@ -112,3 +112,33 @@ describe('WahaHttpClient sendText link preview', () => {
     await expect(client(vi.fn().mockResolvedValue(response(201, { id: 'm4', _data: {} }))).sendText('session-a', '5511999999999@c.us', 'Veja https://example.com')).resolves.toEqual({ id: 'm4', pending: false });
   });
 });
+
+/* LID não é telefone: a WAHA preenche `contact.number` com os dígitos do
+ * próprio LID quando não conhece o número. Aceitar isso como `phone` era a
+ * origem dos contatos gêmeos (LID como telefone) e dos chats separados na
+ * inbox. O telefone só sai do `pn` do mapa de LIDs ou de um `contact.number`
+ * que não seja os dígitos do próprio LID. */
+describe('WahaHttpClient getIdentity LID', () => {
+  const byUrl = (map: Record<string, Response>): typeof fetch => vi.fn().mockImplementation((url: unknown) => {
+    for (const [needle, res] of Object.entries(map)) if (String(url).includes(needle)) return Promise.resolve(res.clone());
+    return Promise.resolve(response(404));
+  }) as unknown as typeof fetch;
+
+  it('takes the phone from the lid map pn, not from the lid digits in contact.number', async () => {
+    const fetcher = byUrl({
+      '/api/contacts?contactId=': response(200, { id: '274319762546912@lid', number: '274319762546912', name: 'Luan' }),
+      '/lids/': response(200, { lid: '274319762546912@lid', pn: '558599518906@c.us' }),
+    });
+    await expect(client(fetcher).getIdentity('session-a', '274319762546912@lid')).resolves.toMatchObject({ whatsappId: '274319762546912@lid', canonicalWhatsappId: '558599518906@c.us', phone: '558599518906', name: 'Luan' });
+  });
+
+  it('reports no phone instead of the lid digits when the mapping is unknown', async () => {
+    const fetcher = byUrl({ '/api/contacts?contactId=': response(200, { id: '274319762546912@lid', number: '274319762546912' }) });
+    await expect(client(fetcher).getIdentity('session-a', '274319762546912@lid')).resolves.toMatchObject({ canonicalWhatsappId: '274319762546912@lid', phone: null });
+  });
+
+  it('keeps a contact.number that is a real phone, different from the lid digits', async () => {
+    const fetcher = byUrl({ '/api/contacts?contactId=': response(200, { id: '274319762546912@lid', number: '558599518906' }) });
+    await expect(client(fetcher).getIdentity('session-a', '274319762546912@lid')).resolves.toMatchObject({ phone: '558599518906' });
+  });
+});

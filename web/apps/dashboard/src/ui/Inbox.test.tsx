@@ -235,9 +235,10 @@ describe("Inbox — separação visual entre conversas", () => {
     expect(chrome).toBeLessThanOrEqual(25);
   });
 
-  // A hierarquia é o objetivo declarado: nome, prévia, hora e chips em degraus
+  // A hierarquia é o objetivo declarado: nome, prévia e hora em degraus
   // legíveis. Antes o nome tinha 13px e a prévia 12px — um degrau de 1px, que o
-  // olho não distingue.
+  // olho não distingue. O pill de status, que substituiu o antigo chip de
+  // gestão, é um acento colorido e fica fora da escala que apaga.
   it("estabelece a escala tipográfica do item", () => {
     const escala = (seletor: string) => {
       const style = getComputedStyle(plain.querySelector(seletor)!);
@@ -246,19 +247,21 @@ describe("Inbox — separação visual entre conversas", () => {
     const nome = escala(".conversation-top strong");
     const previa = escala(".conversation-preview");
     const hora = escala(".conversation-top time");
-    const chip = escala(".conversation-management-meta b");
+    const pill = escala(".conversation-status");
 
     expect(nome).toMatchObject({ px: 15, peso: 600 });
     expect(previa.px).toBe(13);
     expect(hora.px).toBe(11);
-    expect(chip.px).toBe(10);
+    // Acento compacto: menor que a hora, mas em peso de destaque.
+    expect(pill.px).toBeLessThan(hora.px);
+    expect(pill.peso).toBeGreaterThanOrEqual(700);
 
     // Cada nível é menor que o anterior, com degrau de pelo menos 1px...
-    const tamanhos = [nome.px, previa.px, hora.px, chip.px];
+    const tamanhos = [nome.px, previa.px, hora.px];
     for (let i = 1; i < tamanhos.length; i++) expect(tamanhos[i]).toBeLessThan(tamanhos[i - 1]);
     expect(nome.px - previa.px).toBeGreaterThanOrEqual(2);
     // ...e mais apagado que o anterior, que é o que separa nome de contexto.
-    const brilho = [nome, previa, hora, chip].map(nivel => luminance(over(nivel.cor, base)));
+    const brilho = [nome, previa, hora].map(nivel => luminance(over(nivel.cor, base)));
     for (let i = 1; i < brilho.length; i++) expect(brilho[i]).toBeLessThan(brilho[i - 1]);
   });
 

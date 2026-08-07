@@ -151,6 +151,9 @@ func (r *callRecorder) finalize() error {
 			r.failLocked(err)
 		}
 	}
+		if !r.failed {
+		r.log.Info("call recording finalized", "call_id", r.id, "data_bytes", r.dataBytes, "file_size", wavHeaderSize+r.dataBytes)
+	}
 	return r.f.Close()
 }
 

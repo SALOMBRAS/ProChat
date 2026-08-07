@@ -100,7 +100,17 @@ export class WahaHttpClient implements WahaClientPort {
     const picture = objectOrEmpty(await this.optionalRequest(`/api/contacts/profile-picture?contactId=${encodeURIComponent(whatsappId)}&session=${encodeURIComponent(session)}`));
     const lid = whatsappId.endsWith('@lid') ? objectOrEmpty(await this.optionalRequest(`/api/${encodeURIComponent(session)}/lids/${encodeURIComponent(whatsappId)}`)) : {};
     const canonicalWhatsappId = stringValue(lid.pn) ?? (whatsappId.endsWith('@c.us') ? whatsappId : stringValue(contact.id) ?? whatsappId);
-    return { whatsappId, canonicalWhatsappId, phone: stringValue(contact.number) ?? phoneFromChat(canonicalWhatsappId), name: stringValue(contact.name), pushName: stringValue(contact.pushname) ?? stringValue(contact.pushName), shortName: stringValue(contact.shortName), profilePictureUrl: stringValue(picture.profilePictureURL) ?? stringValue(picture.url) };
+    // LID não é telefone: a WAHA preenche `contact.number` com os dígitos do
+    // próprio LID quando não conhece o número, e `phoneFromChat` extrai dígitos
+    // de qualquer chatId — inclusive `@lid`. Gravar esses dígitos como `phone`
+    // criava um contato gêmeo da pessoa (LID no lugar do telefone) e um chat
+    // separado na inbox. Só entra telefone discável: o sufixo de um canônico
+    // `@c.us` ou um `contact.number` que não seja os dígitos do próprio LID.
+    const lidDigits = whatsappId.endsWith('@lid') ? whatsappId.split('@', 1)[0].replace(/\D/g, '') : undefined;
+    const contactNumber = stringValue(contact.number);
+    const dialableNumber = contactNumber && contactNumber.replace(/\D/g, '') !== lidDigits ? contactNumber : undefined;
+    const canonicalPhone = canonicalWhatsappId.endsWith('@c.us') ? phoneFromChat(canonicalWhatsappId) : null;
+    return { whatsappId, canonicalWhatsappId, phone: canonicalPhone ?? dialableNumber ?? null, name: stringValue(contact.name), pushName: stringValue(contact.pushname) ?? stringValue(contact.pushName), shortName: stringValue(contact.shortName), profilePictureUrl: stringValue(picture.profilePictureURL) ?? stringValue(picture.url) };
   }
   async getGroup(session: string, chatId: string): Promise<WahaGroup> {
     const group = object(await this.request(`/api/${encodeURIComponent(session)}/groups/${encodeURIComponent(chatId)}`));

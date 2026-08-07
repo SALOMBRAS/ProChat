@@ -11,6 +11,7 @@
     "dev:whatsapp": "node --env-file=.env.local scripts/whatsapp-runtime.mjs",
     "dev:waha": "node --env-file=.env.local scripts/waha-runtime.mjs",
     "dev:waha:keep": "node --env-file=.env.local scripts/waha-runtime.mjs --keep-waha",
+    "dev:calls": "node scripts/wacalls-runtime.mjs",
     "dev:api": "npm run dev -w @chatpro/api",
     "dev:worker": "npm run dev -w @chatpro/worker",
     "build": "npm run build -w @chatpro/contracts && npm run build -w @chatpro/api && npm run build -w @chatpro/worker && npm run build -w @chatpro/dashboard",

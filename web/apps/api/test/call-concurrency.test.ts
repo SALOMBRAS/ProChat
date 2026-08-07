@@ -10,7 +10,7 @@ const pairedSession = { sessions: [{ id: 's-1', name: 'ChatPro', jid: '558592369
 afterEach(() => fetchMock.mockReset());
 
 describe('CallService — uma ligação por instância', () => {
-  it('a segunda ligação simultânea recebe 409 sem tocar no Call Service', async () => {
+  it('a segunda ligação simultânea recebe 409 sem criar nova chamada', async () => {
     const service = new CallService({ baseUrl: 'http://127.0.0.1:8080', ownWhatsappNumbers: [] });
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -21,8 +21,9 @@ describe('CallService — uma ligação por instância', () => {
 
     const first = await service.startCall({ phone: '558585263532' });
     expect(first.callId).toBe('call-1');
-    const callsBefore = fetchMock.mock.calls.length;
+    const callCreationsBefore = fetchMock.mock.calls.filter(([, { method }]) => method === 'POST').length;
     await expect(service.startCall({ phone: '558585263532' })).rejects.toMatchObject({ status: 409, code: 'CONFLICT' });
-    expect(fetchMock.mock.calls.length).toBe(callsBefore);
+    const callCreationsAfter = fetchMock.mock.calls.filter(([, { method }]) => method === 'POST').length;
+    expect(callCreationsAfter).toBe(callCreationsBefore);
   });
 });

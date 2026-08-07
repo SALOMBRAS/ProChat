@@ -58,6 +58,7 @@ func (s *Session) createCall(callID string) *call.CallManager {
 			s.log.Warn("call recording disabled: create failed", "call_id", callID, "err", err)
 		} else {
 			ac.rec = rec
+			s.log.Info("call recording started", "call_id", callID, "file", rec.id)
 		}
 	}
 	s.reg.add(callID, ac)
@@ -104,6 +105,7 @@ func (s *Session) wireCall(cm *call.CallManager, callID string) {
 		}
 		if ac.rec != nil {
 			ac.rec.writeRight(pcm16)
+			s.log.Debug("call recording peer audio", "call_id", callID, "samples", len(pcm16), "data_bytes", ac.rec.dataBytes)
 		}
 		if ac.bridge == nil {
 			return
@@ -264,8 +266,11 @@ func (s *Session) removeCall(callID string) {
 		ac.bridge.Close()
 	}
 	if ac.rec != nil {
+		dataBytes := ac.rec.dataBytes
 		if err := ac.rec.finalize(); err != nil {
 			s.log.Warn("call recording finalize failed", "call_id", callID, "err", err)
+		} else {
+			s.log.Info("call recording finalized", "call_id", callID, "data_bytes", dataBytes)
 		}
 	}
 }
@@ -287,8 +292,11 @@ func (s *Session) teardownAllCalls() {
 		// O drain esvazia o registry, então removeCall não roda para estas
 		// chamadas: finalize a gravação aqui para não perder o WAV.
 		if ac.rec != nil {
+			dataBytes := ac.rec.dataBytes
 			if err := ac.rec.finalize(); err != nil {
 				s.log.Warn("call recording finalize failed", "err", err)
+			} else {
+				s.log.Info("call recording finalized", "data_bytes", dataBytes)
 			}
 		}
 	}
