@@ -21,6 +21,7 @@ import { CallModal } from "./CallModal.js";
 import { CallHistory } from "./CallHistory.js";
 import { callEventText } from "./callEvent.js";
 import { WorkspaceApi } from "../api/workspace.js";
+import { SessionsApi, type Session } from "../api/sessions.js";
 import { DomainApi } from "../api/domain.js";
 import type { PersistenceContact, Team, WorkspaceUser } from "@chatpro/contracts";
 import { InboxKanban } from "./InboxKanban.js";
@@ -57,6 +58,7 @@ import {
 
 const defaultApi = new InboxApi();
 const workspaceApi = new WorkspaceApi();
+const sessionsApi = new SessionsApi();
 const defaultDomainApi = new DomainApi();
 const pageSize = 50;
 const workspaceId = import.meta.env.VITE_WORKSPACE_ID || "default-workspace";
@@ -408,6 +410,11 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [conversationSearchInput, setConversationSearchInput] = useState("");
   const [conversationSearchTerm, setConversationSearchTerm] = useState("");
   const [listSearch, setListSearch] = useState("");
+  /** Funil da lista: recorta a inbox por instância (whatsappSessionId) e/ou por
+   *  departamento (assignedTeamId). Vazio = sem recorte. */
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [funnelSession, setFunnelSession] = useState("");
+  const [funnelTeam, setFunnelTeam] = useState("");
   const [activeConversationMatch, setActiveConversationMatch] = useState(0);
   const [visualQueue, setVisualQueue] = useState("");
   const [creatingContact, setCreatingContact] = useState(false);
@@ -742,7 +749,10 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     void refreshConversations();
   }, [api]);
   const refreshDirectory = async () => { try { const [users, nextTeams] = await Promise.all([workspaceApi.users(), workspaceApi.teams()]); setWorkspaceUsers(users); setTeams(nextTeams); } catch (nextError) { setError(errorMessage(nextError)); } };
-  useEffect(() => { void refreshDirectory(); }, []);
+  /** Instâncias para o funil da lista. Separado do refreshDirectory de propósito:
+   *  se /api/v1/sessions falhar, usuários e equipes continuam carregando. */
+  const refreshSessions = async () => { try { setSessions(await sessionsApi.list()); } catch { setSessions([]); } };
+  useEffect(() => { void refreshDirectory(); void refreshSessions(); }, []);
   useEffect(() => {
     const session = syncJob?.wahaSession ?? conversationPage.items[0]?.whatsappSessionId;
     if (!session || !api.syncStatus) return;
