@@ -4,9 +4,11 @@ import { CallsController } from '../src/controllers/calls.controller.js';
 const conversationId = '10000000-0000-4000-8000-000000000001';
 
 const build = (conversation: unknown) => {
-  const conversations = { getConversation: vi.fn().mockResolvedValue(conversation), callPeerNames: vi.fn().mockResolvedValue(new Map()) };
+  const conversations = { getConversation: vi.fn().mockResolvedValue(conversation), callPeerNames: vi.fn().mockResolvedValue(new Map()), ownSessionPhones: vi.fn().mockResolvedValue([]) };
   const calls = {
     startCall: vi.fn().mockResolvedValue({ callId: 'call-1', sessionId: 's-1', direction: 'outbound', peer: 'x', status: 'ringing', startedAt: 1 }),
+    startCallOnSession: vi.fn().mockResolvedValue({ callId: 'call-1', sessionId: 's-1', direction: 'outbound', peer: 'x', status: 'ringing', startedAt: 1 }),
+    findSessionByPhone: vi.fn().mockResolvedValue(undefined),
     callHistory: vi.fn().mockResolvedValue([]),
   };
   const controller = new CallsController(conversations as never, calls as never);
@@ -19,6 +21,7 @@ const directConversation = (chatId: string, phone: string | null) => ({
   id: conversationId,
   workspaceId: 'workspace-a',
   chatId,
+  whatsappSessionId: 'waha-a',
   conversationType: 'direct',
   identity: { phone },
 });

@@ -174,7 +174,18 @@ const cameraErrorMessage = (error: unknown) => {
 const statusLabel: Record<ConversationStatus, string> = { open: "Aberta", in_progress: "Em atendimento", waiting_customer: "Aguardando cliente", resolved: "Resolvida", archived: "Arquivada" };
 const priorityLabel: Record<ConversationPriority, string> = { low: "Baixa", normal: "Normal", high: "Alta", urgent: "Urgente" };
 const operationLabel: Record<ConversationEvent["action"], string> = { assigned: "Responsável alterado", unassigned: "Conversa sem responsável", status_changed: "Status alterado", priority_changed: "Prioridade alterada", archived: "Conversa arquivada", reopened: "Conversa reaberta" };
-type InboxFilter = "all" | "mine" | "unassigned" | "in_progress" | "waiting_customer" | "resolved" | "archived" | "high_priority";
+type InboxFilter = "all" | "unread" | "mine" | "unassigned" | "in_progress" | "waiting_customer" | "resolved" | "archived" | "high_priority";
+/** Rótulo do agrupamento por dia da lista, como na referência: HOJE, ONTEM e
+ *  depois a data curta. A lista já vem ordenada por `lastMessageAt` desc, então
+ *  os grupos saem em blocos contíguos. */
+const inboxDayLabel = (iso: string): string => {
+  const value = new Date(iso); const today = new Date();
+  const key = (day: Date) => `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+  if (key(value) === key(today)) return "HOJE";
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  if (key(value) === key(yesterday)) return "ONTEM";
+  return value.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).replace(/\./g, "").toUpperCase();
+};
 const currentUserId = import.meta.env.VITE_USER_ID || "00000000-0000-4000-8000-000000000001";
 const Avatar = ({
   conversation,
@@ -396,6 +407,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
   const [conversationSearchOpen, setConversationSearchOpen] = useState(false);
   const [conversationSearchInput, setConversationSearchInput] = useState("");
   const [conversationSearchTerm, setConversationSearchTerm] = useState("");
+  const [listSearch, setListSearch] = useState("");
   const [activeConversationMatch, setActiveConversationMatch] = useState(0);
   const [visualQueue, setVisualQueue] = useState("");
   const [creatingContact, setCreatingContact] = useState(false);
@@ -1576,6 +1588,7 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     finally { setChangingManagement(false); }
   };
   const filteredConversations = conversationPage.items.filter((conversation) => {
+    if (filter === "unread") return conversation.unreadCount > 0;
     if (filter === "mine") return conversation.assignedUserId === currentUserId;
     if (filter === "unassigned") return !conversation.assignedUserId;
     if (filter === "in_progress") return conversation.status === "in_progress";
@@ -1583,8 +1596,46 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     if (filter === "resolved") return conversation.status === "resolved";
     if (filter === "archived") return conversation.status === "archived";
     if (filter === "high_priority") return conversation.priority === "high" || conversation.priority === "urgent";
-    return true;
+    return conversation.status !== "archived";
   });
+  // Busca da lista (referência Trynux): nome do contato, telefone e prévia da
+  // última mensagem, no cliente — instantâneo sobre a página já carregada.
+  const listSearchTerm = listSearch.trim().toLocaleLowerCase("pt-BR");
+  const searchedConversations = listSearchTerm
+    ? filteredConversations.filter((conversation) =>
+        contactName(conversation).toLocaleLowerCase("pt-BR").includes(listSearchTerm)
+        || (conversation.lastMessage ?? "").toLocaleLowerCase("pt-BR").includes(listSearchTerm)
+        || (conversation.identity?.phone ?? "").includes(listSearchTerm)
+        || conversation.chatId.includes(listSearchTerm))
+    : filteredConversations;
+  // Contadores dos chips, calculados sobre a página carregada.
+  const allItems = conversationPage.items;
+  const chipCounts = {
+    active: allItems.filter((conversation) => conversation.status !== "archived").length,
+    unread: allItems.filter((conversation) => conversation.unreadCount > 0).length,
+    mine: allItems.filter((conversation) => conversation.assignedUserId === currentUserId).length,
+    unassigned: allItems.filter((conversation) => !conversation.assignedUserId).length,
+    inProgress: allItems.filter((conversation) => conversation.status === "in_progress").length,
+    highPriority: allItems.filter((conversation) => conversation.priority === "high" || conversation.priority === "urgent").length,
+    archived: allItems.filter((conversation) => conversation.status === "archived").length,
+  };
+  const filterChips: Array<{ key: InboxFilter; icon: string; label: string; count: number }> = [
+    { key: "all", icon: "✓", label: "Ativos", count: chipCounts.active },
+    { key: "unread", icon: "✉", label: "Não lidos", count: chipCounts.unread },
+    { key: "mine", icon: "◉", label: "Minhas", count: chipCounts.mine },
+    { key: "unassigned", icon: "◌", label: "Sem responsável", count: chipCounts.unassigned },
+    { key: "in_progress", icon: "▶", label: "Em atendimento", count: chipCounts.inProgress },
+    { key: "high_priority", icon: "⚑", label: "Prioridade", count: chipCounts.highPriority },
+  ];
+  const moreFilters: InboxFilter[] = ["waiting_customer", "resolved"];
+  // Agrupamento por dia (HOJE / ONTEM / data), preservando a ordem da lista.
+  const conversationGroups: Array<{ label: string; items: typeof searchedConversations }> = [];
+  for (const conversation of searchedConversations) {
+    const label = inboxDayLabel(conversation.lastMessageAt);
+    const last = conversationGroups[conversationGroups.length - 1];
+    if (last && last.label === label) last.items.push(conversation);
+    else conversationGroups.push({ label, items: [conversation] });
+  }
   const sync = syncView(syncJob, syncResume, startingSync);
   /** A conversa da Inbox, uma vez só. A coluna do meio da lista e a janela
    *  flutuante do Kanban renderizam ESTE bloco — não uma cópia dele. É closure
@@ -1910,12 +1961,30 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
               )}
             </div>
           </div>
-          <label className="inbox-management-filter">
-            <span>Filtro</span>
-            <select aria-label="Filtrar conversas" value={filter} onChange={(event) => setFilter(event.target.value as InboxFilter)}>
-              <option value="all">Todas</option><option value="mine">Minhas</option><option value="unassigned">Sem responsável</option><option value="in_progress">Em atendimento</option><option value="waiting_customer">Aguardando cliente</option><option value="resolved">Resolvidas</option><option value="archived">Arquivadas</option><option value="high_priority">Alta prioridade</option>
-            </select>
+          <label className="inbox-list-search">
+            <span>⌕</span>
+            <input value={listSearch} onChange={(event) => setListSearch(event.target.value)} placeholder="Pesquisar ou começar uma nova conversa" aria-label="Pesquisar conversas" />
           </label>
+          <div className="inbox-filter-chips" role="group" aria-label="Filtrar conversas">
+            {filterChips.map((chip) => (
+              <button key={chip.key} type="button" className={filter === chip.key ? "chip active" : "chip"} onClick={() => setFilter(chip.key)} aria-pressed={filter === chip.key}>
+                <i aria-hidden="true">{chip.icon}</i>{chip.label}<b>{chip.count}</b>
+              </button>
+            ))}
+            <select
+              className={moreFilters.includes(filter) ? "chip chip-select active" : "chip chip-select"}
+              aria-label="Mais filtros de conversas"
+              value={moreFilters.includes(filter) ? filter : ""}
+              onChange={(event) => setFilter((event.target.value || "all") as InboxFilter)}
+            >
+              <option value="">Mais ▾</option>
+              <option value="waiting_customer">Aguardando cliente</option>
+              <option value="resolved">Resolvidas</option>
+            </select>
+          </div>
+          <button type="button" className={filter === "archived" ? "inbox-archived-row active" : "inbox-archived-row"} onClick={() => setFilter("archived")} aria-pressed={filter === "archived"}>
+            <i aria-hidden="true">▣</i>Arquivadas<b>{chipCounts.archived}</b>
+          </button>
           {error && (
             <p className="alert" role="alert">
               {error}
@@ -1925,42 +1994,58 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
           {deepLinkError && <div className="alert" role="alert"><span>{deepLinkError}</span><button type="button" className="secondary" onClick={() => setDeepLinkAttempt((attempt) => attempt + 1)}>Tentar novamente</button></div>}
           {loadingConversations ? (
             <p className="inbox-loading">Carregando conversas…</p>
+          ) : searchedConversations.length === 0 ? (
+            <p className="inbox-loading">{listSearchTerm ? `Nenhuma conversa para “${listSearch.trim()}”.` : "Nenhuma conversa neste filtro."}</p>
           ) : (
-            filteredConversations.map((conversation) => (
-              <button
-                className={
-                  selected?.id === conversation.id
-                    ? "conversation-item selected"
-                    : "conversation-item"
-                }
-                key={conversation.id}
-                onClick={() => void openConversation(conversation)}
-              >
-                <Avatar conversation={conversation} />
-                <span className="conversation-content">
-                  <span className="conversation-top">
-                    <strong>
-                      {contactName(conversation)}
-                      {isGroup(conversation) && " · Grupo"}
-                    </strong>
-                    <time>
-                      {new Date(conversation.lastMessageAt).toLocaleTimeString(
-                        [],
-                        { hour: "2-digit", minute: "2-digit" },
-                      )}
-                    </time>
-                  </span>
-                  <span className="conversation-bottom">
-                    <span className="conversation-preview">
-                      {conversation.lastMessage ?? "Sem mensagens de texto"}
-                    </span>
-                    {conversation.unreadCount > 0 && (
-                      <span className="unread">{conversation.unreadCount}</span>
-                    )}
-                  </span>
-                  <span className="conversation-management-meta"><b className={`priority-${conversation.priority}`}>{priorityLabel[conversation.priority]}</b><small>{statusLabel[conversation.status]}</small><small>{conversation.assignedUserId ? workspaceUsers.find(user => user.id === conversation.assignedUserId)?.displayName ?? "Responsável definido" : "Sem responsável"}</small>{conversation.assignedTeamId && <small>{teams.find(team => team.id === conversation.assignedTeamId)?.name ?? "Equipe"}</small>}</span>
-                </span>
-              </button>
+            conversationGroups.map((group) => (
+              <div className="conversation-day-group" key={group.label}>
+                <p className="conversation-day-label">{group.label}</p>
+                {group.items.map((conversation) => {
+                  const assignedUser = conversation.assignedUserId ? workspaceUsers.find((user) => user.id === conversation.assignedUserId) : undefined;
+                  return (
+                    <button
+                      className={
+                        selected?.id === conversation.id
+                          ? "conversation-item selected"
+                          : "conversation-item"
+                      }
+                      key={conversation.id}
+                      onClick={() => void openConversation(conversation)}
+                    >
+                      <Avatar conversation={conversation} />
+                      <span className="conversation-content">
+                        <span className="conversation-top">
+                          <strong>
+                            {contactName(conversation)}
+                            {isGroup(conversation) && " · Grupo"}
+                          </strong>
+                          <time className={conversation.unreadCount > 0 ? "has-unread" : ""}>
+                            {new Date(conversation.lastMessageAt).toLocaleTimeString(
+                              [],
+                              { hour: "2-digit", minute: "2-digit" },
+                            )}
+                          </time>
+                        </span>
+                        <span className="conversation-bottom">
+                          <span className="conversation-preview">
+                            {(conversation.priority === "high" || conversation.priority === "urgent") && (
+                              <i className={`conversation-flag priority-${conversation.priority}`} title={`Prioridade ${priorityLabel[conversation.priority]}`}>⚑</i>
+                            )}
+                            {conversation.lastMessage ?? "Sem mensagens de texto"}
+                          </span>
+                          <span className="conversation-side">
+                            {assignedUser && <span className="conversation-agent" title={`Responsável: ${assignedUser.displayName}`}>{assignedUser.displayName.trim().charAt(0).toUpperCase()}</span>}
+                            <span className={`conversation-status status-${conversation.status}`}>{statusLabel[conversation.status]}</span>
+                            {conversation.unreadCount > 0 && (
+                              <span className="unread">{conversation.unreadCount}</span>
+                            )}
+                          </span>
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             ))
           )}
         </aside>

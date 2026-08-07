@@ -233,15 +233,22 @@ export class WhatsAppContactSyncService {
     if (!id || group || technical || !conversation) return 'skipped';
     // LID não disca: o mapa `lids.page` da sessão devolve o telefone de verdade
     // (`pn`), e é ele que vira o `phone` do contato — a agenda nasce discável
-    // de primeira, sem depender de uma cura posterior na base.
+    // de primeira, sem depender de uma cura posterior na base. O `number` do
+    // item NÃO pode vencer o mapa quando ele é os dígitos do próprio LID: a
+    // WAHA preenche `number` com o LID quando não conhece o telefone, e aceitar
+    // isso como telefone criava um contato gêmeo (LID como `phoneNumber`) com
+    // chat separado na inbox.
     const lidPn = id.endsWith('@lid') ? await this.lidPhone(job, id.split('@')[0]) : undefined;
-    const phone = normalizedPhone(typeof item.number === 'string' ? item.number : undefined) ?? lidPn ?? phoneFromIdentifier(id);
+    const itemNumber = normalizedPhone(typeof item.number === 'string' ? item.number : undefined);
+    const lidDigits = id.endsWith('@lid') ? id.split('@', 1)[0].replace(/\D/g, '') : undefined;
+    const dialableNumber = itemNumber && itemNumber !== lidDigits ? itemNumber : undefined;
+    const phone = dialableNumber ?? lidPn ?? phoneFromIdentifier(id);
     const displayName = text(item.name) ?? text(item.pushname);
     // Um identificador sem nome e sem telefone discável não vira contato: não
     // exibe, não busca, não liga — é o que inchava a base com linhas vazias
     // (LIDs que a WAHA conhece de grupos). Se a pessoa falar com a conta, o
     // webhook cria o contato na hora, com os dados da mensagem de verdade.
-    const lidOnly = id.endsWith('@lid') && !normalizedPhone(typeof item.number === 'string' ? item.number : undefined) && !lidPn;
+    const lidOnly = id.endsWith('@lid') && !dialableNumber && !lidPn;
     // Nome que é só o próprio identificador em dígitos ("200339068317777") não é
     // nome: a WAHA preenche `name` com o id quando não conhece a pessoa. Ele
     // conta como ausência de nome — com telefone discável o contato entra e o

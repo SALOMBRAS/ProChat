@@ -241,7 +241,7 @@
 .chat-inbox .conversation-content { gap: 3px; }
 .chat-inbox .conversation-top strong { font-size: 15px; font-weight: 600; color: #f0eaf5; }
 .chat-inbox .conversation-top time { font-size: 11px; color: #827d8f; }
-.chat-inbox .conversation-preview { font-size: 13px; color: #9b96a6; }
+.chat-inbox .conversation-preview { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; color: #9b96a6; }
 .chat-inbox .conversation-management-meta b,
 .chat-inbox .conversation-management-meta small { padding: 1px 5px; background: #ffffff08; color: #777486; font-size: 10px; font-weight: 600; }
 /* `.conversation-top`/`.conversation-bottom` são itens de grid com `min-width:auto`,
@@ -262,6 +262,54 @@
 /* O peso do badge vinha da regra genérica de botão; sem declarar aqui, o número
    afinaria para o peso normal. O brilho o mantém legível sobre o fundo selecionado. */
 .chat-inbox .unread { box-shadow: 0 0 10px #8b5cf680; font-weight: 800; }
+
+/* Barra de organização da lista (busca + chips + arquivadas), seguindo a
+   referência de layout do Trynux, mas na paleta roxa padrão do ChatPro. */
+.chat-inbox .inbox-list-search { display: flex; align-items: center; gap: 8px; margin: 8px 10px 0; padding: 8px 11px; border: 1px solid #ffffff10; border-radius: 10px; background: #ffffff06; color: #827d8f; transition: border-color .16s ease, box-shadow .16s ease; }
+.chat-inbox .inbox-list-search:focus-within { border-color: #8b5cf677; box-shadow: 0 0 0 3px #8b5cf61f; }
+.chat-inbox .inbox-list-search span { font-size: 13px; }
+.chat-inbox .inbox-list-search input { flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: #eeeaf5; font-size: 12px; outline: none; }
+.chat-inbox .inbox-list-search input::placeholder { color: #6f6a80; }
+
+.chat-inbox .inbox-filter-chips { display: flex; gap: 6px; padding: 9px 10px 3px; overflow-x: auto; scrollbar-width: none; }
+.chat-inbox .inbox-filter-chips::-webkit-scrollbar { display: none; }
+.chat-inbox .inbox-filter-chips .chip { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 4px 9px 4px 5px; border: 1px solid #ffffff0f; border-radius: 999px; background: #ffffff05; color: #a29cae; font-size: 11px; font-weight: 600; white-space: nowrap; transition: background .16s ease, color .16s ease, border-color .16s ease; }
+.chat-inbox .inbox-filter-chips .chip i { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #8b5cf62e; color: #cfaaff; font-size: 10px; font-style: normal; }
+.chat-inbox .inbox-filter-chips .chip b { min-width: 15px; padding: 1px 5px; border-radius: 999px; background: #ffffff0c; color: #cfc9db; font-size: 10px; font-weight: 700; text-align: center; }
+.chat-inbox .inbox-filter-chips .chip:hover { background: #ffffff0b; color: #ddd7e8; }
+.chat-inbox .inbox-filter-chips .chip.active { border-color: #8b5cf688; background: linear-gradient(135deg, #7c3aed, #9b5cf0); color: #fff; box-shadow: 0 4px 14px #7c3aed40; }
+.chat-inbox .inbox-filter-chips .chip.active i { background: #ffffff2b; color: #fff; }
+.chat-inbox .inbox-filter-chips .chip.active b { background: #ffffff26; color: #fff; }
+.chat-inbox .inbox-filter-chips .chip-select { appearance: none; padding-left: 9px; cursor: pointer; }
+.chat-inbox .inbox-filter-chips .chip-select option { background: #15152b; color: #ddd7e5; }
+
+.chat-inbox .inbox-archived-row { display: flex; align-items: center; gap: 8px; margin: 6px 10px 4px; padding: 7px 10px; border: 0; border-radius: 9px; background: transparent; color: #8f89a0; font-size: 12px; font-weight: 600; text-align: left; transition: background .16s ease, color .16s ease; }
+.chat-inbox .inbox-archived-row i { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 6px; background: #ffffff09; color: #a79ec0; font-size: 10px; font-style: normal; }
+.chat-inbox .inbox-archived-row b { margin-left: auto; padding: 1px 6px; border-radius: 999px; background: #ffffff0a; color: #8f89a0; font-size: 10px; }
+.chat-inbox .inbox-archived-row:hover { background: #ffffff06; color: #cfc9db; }
+.chat-inbox .inbox-archived-row.active { background: #8b5cf61f; color: #e6d9ff; box-shadow: inset 2px 0 #b97cff; }
+.chat-inbox .inbox-archived-row.active b { background: #8b5cf633; color: #e6d9ff; }
+
+/* Agrupamento por dia: rótulo fino, um degrau abaixo do nome da conversa. */
+.chat-inbox .conversation-day-group { display: contents; }
+.chat-inbox .conversation-day-label { margin: 10px 12px 2px; color: #77758b; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+
+/* Hora em destaque roxo quando há não lidas (na referência ela muda de cor). */
+.chat-inbox .conversation-top time.has-unread { color: #c78cff; font-weight: 700; }
+
+/* Cluster à direita da prévia: bandeira de prioridade, avatar do responsável,
+   pill de status e o badge de não lidas — a linha de metadados da referência. */
+.chat-inbox .conversation-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chat-inbox .conversation-side { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+.chat-inbox .conversation-flag { margin-right: 4px; font-size: 10px; font-style: normal; }
+.chat-inbox .conversation-flag.priority-high { color: #f9d87b; }
+.chat-inbox .conversation-flag.priority-urgent { color: #ff8b95; }
+.chat-inbox .conversation-agent { display: grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; background: linear-gradient(135deg, #7c3aed55, #a855f733); border: 1px solid #a855f755; color: #dfc6ff; font-size: 9px; font-weight: 800; }
+.chat-inbox .conversation-status { padding: 1px 6px; border-radius: 999px; background: #8b5cf61f; color: #bfa4e6; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.chat-inbox .conversation-status.status-in_progress { background: #7c3aed33; color: #d9bdff; }
+.chat-inbox .conversation-status.status-waiting_customer { background: #fbbf241f; color: #f9d87b; }
+.chat-inbox .conversation-status.status-resolved { background: #22c55e1f; color: #8be2a6; }
+.chat-inbox .conversation-status.status-archived { background: #ffffff0c; color: #8f89a0; }
 
 /* Contact editing inside the Inbox customer panel. */
 .customer-contact .customer-section-title { display: flex; align-items: center; justify-content: space-between; }

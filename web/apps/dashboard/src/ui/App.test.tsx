@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session, SessionsApi } from '../api/sessions';
 import type { InboxApi } from '../api/inbox';
 import { ApiError } from '../api/client';
-import { Contacts, Devices, Inbox } from './App';
+import { Contacts, Inbox } from './App';
+import { Devices } from './Devices.js';
 import type { DomainApi } from '../api/domain';
 
 const realtime = vi.hoisted(() => ({ handler: undefined as undefined | ((event: any) => void) }));

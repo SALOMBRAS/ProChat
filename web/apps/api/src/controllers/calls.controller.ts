@@ -23,7 +23,11 @@ export class CallsController {
    *  do chatId (endereço de protocolo); conversa @lid usa o telefone curado da
    *  identidade (LID→telefone) quando ele difere do LID, e sem ele a chamada
    *  segue pelo LID: o Call Service resolve LID→PN pelo store da sessão (e
-   *  disca o @lid direto quando o mapa ainda não existe). */
+   *  disca o @lid direto quando o mapa ainda não existe).
+   *
+   *  Roteamento por instância: a chamada sai da sessão WaCalls que tem o mesmo
+   *  número da sessão WAHA que gerencia a conversa. Se não houver pareamento
+   *  correspondente, cai no fallback de sessão única. */
   start: RequestHandler = async (req, res) => {
     const { conversationId } = startCallSchema.parse(req.body);
     const conversation = await this.conversations.getConversation(req.context!.workspaceId, conversationId);
@@ -31,16 +35,25 @@ export class CallsController {
     if (conversation.conversationType === 'group') throw new AppError(409, 'CONFLICT', 'Chamadas de grupo ainda não são suportadas.');
     const chatDigits = conversation.chatId.split('@', 1)[0]!.replace(/\D/g, '');
     const isLidChat = conversation.chatId.endsWith('@lid');
-    // identity.phone pode guardar os dígitos do próprio LID (dado sujo de
-    // sync). Isso NÃO é telefone discável: o Call Service mandaria o offer
-    // para <lid>@s.whatsapp.net e o WhatsApp descartaria em silêncio —
-    // "chamando" eterno. Telefone curado só vale quando difere do LID;
-    // conversa @c.us já é endereçada pelo número real.
     const curated = conversation.identity.phone;
     const phone = isLidChat ? (curated && curated !== chatDigits ? curated : null) : conversation.chatId.endsWith('@c.us') ? chatDigits : curated;
     const lid = isLidChat ? chatDigits : null;
     if (!phone && !lid) throw new AppError(409, 'CONFLICT', 'O contato não possui telefone nem LID identificável. Sincronize a identidade do contato.');
-    const call = await this.calls.startCall(phone ? { phone } : { lid: lid! });
+
+    const target = phone ? { phone } : { lid: lid! };
+    const wahaSession = conversation.whatsappSessionId;
+    const sessionPhones = await this.conversations.ownSessionPhones(req.context!.workspaceId);
+    const ownPhone = sessionPhones.find(pair => pair.wahaSession === wahaSession)?.phone;
+    if (ownPhone) {
+      const callSession = await this.calls.findSessionByPhone(ownPhone.replace(/\D/g, ''));
+      if (callSession) {
+        const call = await this.calls.startCallOnSession(callSession.id, target);
+        res.status(201).json({ ...call, conversationId });
+        return;
+      }
+    }
+
+    const call = await this.calls.startCall(target);
     res.status(201).json({ ...call, conversationId });
   };
 

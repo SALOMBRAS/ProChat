@@ -12,7 +12,7 @@ import { TeamDirectory } from './TeamDirectory.js';
 import { Departments } from './Departments.js';
 import RoutingQueues from './RoutingQueues.js';
 import { InboxKanban } from './InboxKanban.js';
-import { CallPairingPanel } from './CallPairing.js';
+import { Devices } from './Devices.js';
 import { CallsPage } from './CallsPage.js';
 import { AppNavigation, routes } from './AppNavigation.js';
 import { HomeDashboard } from './HomeDashboard.js';
@@ -192,83 +192,6 @@ function LegacyInbox({ api = inboxApi }: { api?: InboxApi }) {
   return <section className="page inbox"><div className="inbox-layout"><aside className="inbox-list" aria-label="Conversas"><div className="inbox-list-head"><div><p className="inbox-eyebrow">ATENDIMENTO</p><h2>Conversas <span>{conversationPage?.total ?? 0}</span></h2></div><button className="secondary refresh-button" disabled={loading} onClick={() => void refresh()} aria-label="Atualizar conversas">↻</button></div><div className="inbox-filter"><span>⌕</span><input aria-label="Buscar conversa" placeholder="Buscar conversa" /></div><ErrorNotice error={error || actionError} />{loading ? <p className="inbox-loading">Carregando conversas…</p> : conversations.length ? conversations.map(conversation => <button className={selected?.id === conversation.id ? 'conversation-item selected' : 'conversation-item'} key={conversation.id} onClick={() => void openConversation(conversation)} aria-label={`Abrir conversa ${conversation.chatId}`}><span className="conversation-avatar">{initials(conversation)}<i className={conversation.status === 'open' ? 'online' : ''} /></span><span className="conversation-content"><span className="conversation-top"><strong>{contactName(conversation)}{isGroup(conversation) && ' · Grupo'}</strong><time dateTime={conversation.lastMessageAt}>{new Date(conversation.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></span><span className="conversation-bottom"><span className="conversation-preview">{conversation.lastMessage ?? 'Sem mensagens de texto'}</span>{conversation.unreadCount > 0 && <span className="unread" aria-label={`${conversation.unreadCount} não lidas`}>{conversation.unreadCount}</span>}</span></span></button>) : <Empty><span className="empty-icon">◌</span><strong>Nenhuma conversa por aqui</strong><p>As novas mensagens aparecerão nesta lista.</p></Empty>}</aside><section className="inbox-history" aria-live="polite">{selected ? <><div className="inbox-history-head"><div className="chat-contact"><span className="conversation-avatar large">{initials(selected)}<i className={selected.status === 'open' ? 'online' : ''} /></span><div><h2>{contactName(selected)}</h2><span>{isGroup(selected) ? 'Grupo · WhatsApp' : 'WhatsApp'} · {selected.status === 'open' ? 'Em atendimento' : 'Conversa encerrada'}</span></div></div><div className="chat-actions"><button className="chat-icon" aria-label="Buscar na conversa">⌕</button><button className="chat-icon" aria-label="Mais opções">•••</button></div></div>{messagesError && <ErrorNotice error={messagesError} />}{messagesLoading ? <p className="inbox-loading">Carregando mensagens…</p> : <div className="message-list"><div className="chat-date">Hoje</div>{messagePage?.items.length ? messagePage.items.map(item => <article className={`message-bubble ${item.direction}`} key={item.id}>{isGroup(selected) && <strong className="message-author">{senderName(item.senderWhatsappId)}:</strong>}<p>{item.content ?? 'Mensagem sem texto'}</p><span className="message-meta">{item.direction === 'outbound' ? 'Enviada' : 'Recebida'} · <time dateTime={item.timestamp}>{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></span></article>) : <Empty><span className="empty-icon">✦</span><strong>Conversa pronta para começar</strong><p>Envie a primeira mensagem para este contato.</p></Empty>}</div>}<form className="message-composer" onSubmit={event => void submitMessage(event)}><button type="button" className="composer-action" aria-label="Anexar arquivo">＋</button><textarea aria-label="Mensagem" name="text" placeholder="Digite uma mensagem" maxLength={4096} required disabled={sending} /><button className="send-button" disabled={sending} aria-label={sending ? 'Enviando mensagem' : 'Enviar mensagem'}>{sending ? '…' : '↑'}</button></form></> : <div className="inbox-welcome"><div className="welcome-orb">✦</div><h2>Seu atendimento inteligente começa aqui</h2><p>Selecione uma conversa para visualizar o histórico e responder seus clientes.</p></div>}</section><aside className="customer-panel">{selected ? <><div className="customer-panel-head"><span>{isGroup(selected) ? 'INFORMAÇÕES DO GRUPO' : 'INFORMAÇÕES DO CLIENTE'}</span><button className="chat-icon" aria-label="Mais informações">•••</button></div><div className="customer-profile"><span className="customer-avatar">{initials(selected)}</span><h3>{contactName(selected)}</h3><p><i /> {selected.status === 'open' ? 'Conversa ativa' : 'Conversa encerrada'}</p></div><div className="customer-details"><div><span>{isGroup(selected) ? 'Grupo' : 'Telefone'}</span><strong>{contactName(selected)}</strong></div><div><span>Canal</span><strong>WhatsApp</strong></div><div><span>Status</span><b className={selected.status === 'open' ? 'customer-status open' : 'customer-status'}>{selected.status === 'open' ? 'Em atendimento' : 'Encerrada'}</b></div></div><div className="customer-section"><div className="customer-section-title"><span>ETIQUETAS</span><button type="button">＋</button></div><div className="tags"><span>WhatsApp</span><span className="tag-purple">{isGroup(selected) ? 'Grupo' : 'Novo contato'}</span></div></div><div className="customer-section crm-prepared"><div className="customer-section-title"><span>CRM</span><small>EM BREVE</small></div><p>Oportunidades, responsáveis e histórico comercial aparecerão aqui.</p></div></> : <div className="customer-empty"><span className="empty-icon">◎</span><strong>Perfil do cliente</strong><p>Os dados do contato serão exibidos quando uma conversa for selecionada.</p></div>}</aside></div></section>;
 }
 
-export function Devices({ api = sessionsApi, domainApi = domain, workspace = workspaceApi }: { api?: SessionsApi; domainApi?: DomainApi; workspace?: WorkspaceApi }) {
-  const { data = [], error, loading, refresh } = useResource(() => api.list());
-  const { data: teams = [] } = useResource(() => workspace.teams(), [workspace]);
-  /** Vínculo instância→departamento: `instanceTeam:<wahaName>` nos settings do
-   *  workspace. Conversa nova nessa instância já nasce no departamento. */
-  const [instanceTeams, setInstanceTeams] = useState<Record<string, string>>({});
-  useEffect(() => {
-    let live = true;
-    void domainApi.settings().then(result => {
-      if (!live) return;
-      const map: Record<string, string> = {};
-      for (const [key, value] of Object.entries(result.settings.operational ?? {})) if (key.startsWith('instanceTeam:') && typeof value === 'string') map[key.slice('instanceTeam:'.length)] = value;
-      setInstanceTeams(map);
-    }).catch(() => undefined);
-    return () => { live = false; };
-  }, [domainApi]);
-  const saveDepartment = async (wahaName: string, teamId: string) => {
-    const current = await domainApi.settings();
-    const operational = { ...(current.settings.operational ?? {}) };
-    const key = `instanceTeam:${wahaName}`;
-    if (teamId) operational[key] = teamId; else delete operational[key];
-    await domainApi.saveSettings({ operational });
-    setInstanceTeams(previous => { const next = { ...previous }; if (teamId) next[wahaName] = teamId; else delete next[wahaName]; return next; });
-  };
-  const linkedSessions = data.filter(session => session.managed !== false); const orphanSessions = data.filter(session => session.managed === false);
-  const [busy, setBusy] = useState<string>();
-  const [menu, setMenu] = useState<string>();
-  /** Rótulos amigáveis do status — o operador lê "Conectada", não "connected". */
-  const statusLabel: Record<string, string> = { connected: 'Conectada', connecting: 'Conectando', waiting_qr: 'Aguardando QR', stopped: 'Parada', disconnected: 'Desconectada', error: 'Erro' };
-  const [actionError, setActionError] = useState('');
-  const [qr, setQr] = useState<{ sessionId: string; name: string; value: string; expiresAt: string }>();
-  const [qrRequestedSessionId, setQrRequestedSessionId] = useState<string>();
-  useEffect(() => {
-    const session = data.find(item => item.status === 'waiting_qr');
-    if (!session) { setQr(undefined); setQrRequestedSessionId(undefined); return; }
-    if (qr?.sessionId === session.id || qrRequestedSessionId === session.id) return;
-    const controller = new AbortController();
-    void (async () => {
-      try {
-        const current = await api.status(session.id, controller.signal);
-        if (current.status !== 'waiting_qr') { if (!controller.signal.aborted) setQr(undefined); return; }
-        const next = await api.qr(session.id, controller.signal);
-        if (!controller.signal.aborted) { setQrRequestedSessionId(session.id); setQr({ sessionId: session.id, name: session.name, value: next.qr, expiresAt: next.expiresAt }); }
-      } catch (nextError) {
-        if (controller.signal.aborted) return;
-        if (nextError instanceof ApiError && nextError.code === 'REQUEST_FAILED' && (nextError.details.status === 404 || nextError.details.status === 409)) { setQr(undefined); setQrRequestedSessionId(session.id); void refresh(); return; }
-        setActionError(message(nextError));
-      }
-    })();
-    return () => controller.abort();
-  }, [api, data, qr?.sessionId, qrRequestedSessionId]);
-  useEffect(() => {
-    if (!data.some(session => session.status === 'waiting_qr' || session.status === 'connecting')) return;
-    const timer = window.setTimeout(() => void refresh(), 1_000);
-    return () => window.clearTimeout(timer);
-  }, [api, data]);
-  useEffect(() => {
-    if (!qr) return;
-    const timeout = window.setTimeout(() => setQr(undefined), Math.max(0, new Date(qr.expiresAt).getTime() - Date.now()));
-    return () => window.clearTimeout(timeout);
-  }, [qr]);
-  const execute = async (key: string, action: () => Promise<void>) => {
-    setBusy(key); setActionError('');
-    try { await action(); await refresh(); } catch (e) { setActionError(message(e)); } finally { setBusy(undefined); }
-  };
-  const connect = async (id: string, name: string) => execute(`connect-${id}`, async () => {
-    await api.connect(id);
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const current = await api.status(id);
-      if (current.status !== 'waiting_qr') { if (current.status === 'connecting' || current.status === 'connected') { setQr(undefined); return; } await new Promise(resolve => window.setTimeout(resolve, 500)); continue; }
-      try { const next = await api.qr(id); setQrRequestedSessionId(id); setQr({ sessionId: id, name, value: next.qr, expiresAt: next.expiresAt }); return; }
-      catch (e) { if (e instanceof ApiError && e.code === 'REQUEST_FAILED' && (e.details.status === 404 || e.details.status === 409)) return; if (!(e instanceof ApiError) || e.code !== 'REQUEST_FAILED') throw e; await new Promise(resolve => window.setTimeout(resolve, 500)); }
-    }
-    throw new ApiError('REQUEST_FAILED', 'O QR real ainda não foi disponibilizado pelo worker. Atualize a sessão em instantes.');
-  });
-  return <section className="page devices"><div className="toolbar"><div><h2>Dispositivos <span className="devices-count">({linkedSessions.length})</span></h2><p>Configure os seus telefones para o atendimento e para as automações do WhatsApp.</p></div><button className="secondary" disabled={loading || Boolean(busy)} onClick={() => void refresh()}>Atualizar</button></div><div className="devices-stats"><article><i>▦</i><div><strong>{linkedSessions.length}</strong><small>Total</small></div></article><article className="ok"><i>◉</i><div><strong>{linkedSessions.filter(s => s.status === 'connected').length}</strong><small>Conectadas</small></div></article><article className="warn"><i>◌</i><div><strong>{linkedSessions.filter(s => s.status !== 'connected').length}</strong><small>Disponíveis</small></div></article></div><form className="create" onSubmit={event => { event.preventDefault(); const form = event.currentTarget; const name = String(new FormData(form).get('name') ?? '').trim(); if (!name) return; const clientRequestId = crypto.randomUUID(); void execute('create', async () => { try { await api.create(name, clientRequestId); form.reset(); } catch (nextError) { if (nextError instanceof ApiError && nextError.code === 'TIMEOUT') { form.reset(); await refresh(); return; } throw nextError; } }); }}><label>Nome da sessão<input name="name" required maxLength={120} placeholder="Ex.: Atendimento" /></label><button disabled={Boolean(busy)}>{busy === 'create' ? 'Criando…' : 'Nova Sessão'}</button></form><ErrorNotice error={error || actionError} />{loading ? <p>Carregando sessões…</p> : linkedSessions.length ? <div className="cards">{linkedSessions.map(s => <article className="card device-card" key={s.id}><div className="card-head"><div><h3>{s.name}</h3><p className="identifier">{s.wahaName ?? s.id}</p></div><span className={`status ${s.status}`}>{statusLabel[s.status] ?? s.status}</span><button className="device-menu-button" aria-label={`Ações da sessão ${s.name}`} title="Ações" onClick={() => setMenu(menu === s.id ? undefined : s.id)}>⋯</button>{menu === s.id && <div className="device-menu" role="menu"><button disabled={Boolean(busy)} onClick={() => { setMenu(undefined); void connect(s.id, s.name); }}>⟡ Conectar / QR<small>{busy === `connect-${s.id}` ? 'Solicitando QR…' : 'Parear esta instância'}</small></button><button disabled={Boolean(busy)} onClick={() => { setMenu(undefined); void execute(`status-${s.id}`, async () => { await api.status(s.id); }); }}>↻ Atualizar status<small>Recarrega o estado no WAHA</small></button><button disabled={Boolean(busy)} onClick={() => { setMenu(undefined); void execute(`stop-${s.id}`, () => api.stop(s.id)); }}>⏸ Desconectar<small>Mantém sessão</small></button><button disabled={Boolean(busy)} onClick={() => { setMenu(undefined); void execute(`logout-${s.id}`, () => api.logout(s.id)); }}>⎋ Deslogar sessão<small>Encerra no WhatsApp</small></button><div className="device-menu-dept"><label>Departamento automático<select aria-label={`Departamento da sessão ${s.name}`} value={(s.wahaName && instanceTeams[s.wahaName]) ?? ''} disabled={!s.wahaName || busy === `dept-${s.id}`} onChange={event => void execute(`dept-${s.id}`, () => saveDepartment(s.wahaName!, event.target.value))}><option value="">Todos (triagem)</option>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label><small>Conversa nova herda departamento</small></div><button className="danger" disabled={Boolean(busy)} onClick={() => { setMenu(undefined); if (confirm(`Remover a sessão ${s.name}?`)) void execute(`remove-${s.id}`, () => api.remove(s.id)); }}>🗑 Deletar instância</button></div>}</div><dl><div><dt>Atualizada em</dt><dd>{new Date(s.updatedAt).toLocaleString()}</dd></div><div><dt>Departamento</dt><dd>{(s.wahaName && instanceTeams[s.wahaName] && teams.find(team => team.id === instanceTeams[s.wahaName!])?.name) || 'Todos (triagem)'}</dd></div></dl></article>)}</div> : <Empty>Nenhuma sessão vinculada.</Empty>}{orphanSessions.length > 0 && <section><h3>Sessões WAHA sem vínculo</h3><p>Estas sessões existem no WAHA, mas não são usadas pelo workspace.</p><div className="cards">{orphanSessions.map(s => <article className="card" key={s.id}><div className="card-head"><div><h3>{s.wahaName ?? s.name}</h3><p className="identifier">Sessão órfã — nenhuma ação automática será executada.</p></div><span className={`status ${s.status}`}>{s.status}</span></div></article>)}</div></section>}<CallPairingPanel />{qr && <Modal title={`QR de ${qr.name}`} close={() => setQr(undefined)}><p>Escaneie no WhatsApp somente quando quiser conectar esta sessão.</p><QRCodeSVG value={qr.value} size={240} level="M" includeMargin /><p className="expires">Expira em {new Date(qr.expiresAt).toLocaleTimeString()}.</p></Modal>}</section>;
-}
 
 /** O `?search=` deixa o cartão de contato da conversa abrir o CRM já filtrado no
  *  telefone. Sem ele, "abrir no CRM" jogaria o operador numa lista inteira para

@@ -101,3 +101,32 @@ describe('technical display name repair', () => {
     expect(database.prepare('SELECT displayName FROM contacts WHERE id=?').get(own!.id)).toEqual({ displayName: '5511999990000' });
   });
 });
+
+/* Um "telefone" igual aos dígitos do próprio @lid não é telefone — é o LID que
+ * o provedor devolveu no campo de número. Aceitá-lo criava um contato gêmeo
+ * com o LID como phoneNumber e um chat separado na inbox (cura-lids v3). */
+describe('contact identity LID phone guard', () => {
+  it('ignores a phone that is the lid digits and parks the identity as pending instead of creating a contact', async () => {
+    const database = sqlite(); const resolver = new SqliteContactIdentityResolver(database);
+    const result = await resolver.resolveDetailed({ workspaceId: 'workspace-a', identifier: '274319762546912@lid', phone: '274319762546912', displayName: 'Luan', source: 'test' });
+    expect(result.contactId).toBeUndefined();
+    expect(result.resolutionSource).toBe('pending');
+    expect(database.prepare('SELECT count(*) AS total FROM contacts').get()).toEqual({ total: 0 });
+    expect(database.prepare('SELECT identifier, type FROM pending_contact_identities').all()).toEqual([{ identifier: '274319762546912@lid', type: 'lid' }]);
+  });
+
+  it('still accepts a real phone that differs from the lid digits', async () => {
+    const database = sqlite(); const resolver = new SqliteContactIdentityResolver(database);
+    const result = await resolver.resolveDetailed({ workspaceId: 'workspace-a', identifier: '274319762546912@lid', phone: '558599518906', displayName: 'Luan', source: 'test' });
+    expect(result.contactId).toBeDefined();
+    expect(result.canonicalPhone).toBe('558599518906');
+  });
+
+  it('passes a null phone to the Supabase RPC when the only candidate is the lid digits', async () => {
+    let seen: unknown;
+    const client = { rpc(_name: string, args: Record<string, unknown>) { seen = args.p_phone_number; return Promise.resolve({ data: { contact_id: null, pending_identifier: '274319762546912@lid', resolution_source: 'pending', created_contact: false, attached_identifiers: [] }, error: null }); } };
+    const resolver = new SupabaseContactIdentityResolver(client as any);
+    await resolver.resolveDetailed({ workspaceId: 'workspace-a', identifier: '274319762546912@lid', phone: '274319762546912', source: 'test' });
+    expect(seen).toBeNull();
+  });
+});

@@ -90,18 +90,29 @@ export class CallService {
    *  `lid`: contato endereçado por LID — o Go resolve LID→PN pelo store da
    *  sessão e, sem mapa, disca o JID @lid direto. */
   async startCall(target: { phone: string } | { lid: string }): Promise<ActiveCall> {
+    const session = await this.resolveSession();
+    return this.startCallOnSession(session.id, target);
+  }
+
+  /** Ligação de saída em sessão específica do serviço Go. */
+  async startCallOnSession(sessionId: string, target: { phone: string } | { lid: string }): Promise<ActiveCall> {
     // Uma ligação por instância: com vários operadores no mesmo número, o
     // segundo a tentar recebe 409 em vez de derrubar a chamada do primeiro.
     if (this.calls.size > 0) throw new AppError(409, 'CONFLICT', 'Já há uma ligação em andamento nesta instância.');
-    const session = await this.resolveSession();
-    const response = await this.request<{ call?: { callId?: string } }>('POST', `/api/sessions/${session.id}/calls`, target);
+    const response = await this.request<{ call?: { callId?: string } }>('POST', `/api/sessions/${sessionId}/calls`, target);
     const callId = response.call?.callId;
     if (!callId) throw new AppError(502, 'PROVIDER_CONTRACT_ERROR', 'Call Service did not return a call id');
     const peer = 'phone' in target ? target.phone : `${target.lid}@lid`;
-    const call: ActiveCall = { callId, sessionId: session.id, direction: 'outbound', peer, status: 'ringing', startedAt: Date.now() };
+    const call: ActiveCall = { callId, sessionId, direction: 'outbound', peer, status: 'ringing', startedAt: Date.now() };
     this.calls.set(callId, call);
     this.publish(call);
     return call;
+  }
+
+  /** Encontra uma sessão do serviço Go cujo JID contém os dígitos do telefone. */
+  async findSessionByPhone(phoneDigits: string): Promise<GoSession | undefined> {
+    const list = await this.request<{ sessions?: GoSession[] }>('GET', '/api/sessions');
+    return (list.sessions ?? []).find(session => session.paired && session.state === 'open' && session.jid && digits(session.jid).includes(phoneDigits));
   }
 
   /** Troca SDP do softphone: o navegador oferece, o serviço Go responde.

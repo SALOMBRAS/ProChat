@@ -17,8 +17,12 @@ export class DepartmentAssignmentService {
 
   async onConversationCreated(workspaceId: string, wahaSession: string, conversationId: string): Promise<void> {
     const stored = await this.domain.settings(workspaceId) as { settings?: { operational?: Record<string, unknown> } } | undefined;
-    const teamId = stored?.settings?.operational?.[`instanceTeam:${wahaSession}`];
-    if (typeof teamId !== 'string' || !teamId) return;
+    const raw = stored?.settings?.operational?.[`instanceTeam:${wahaSession}`];
+    if (typeof raw !== 'string' || !raw) return;
+    // Suporta múltiplos departamentos separados por vírgula (o primeiro é o
+    // departamento de atribuição automática; os demais são apenas vínculo visual).
+    const teamId = raw.split(',')[0]!.trim();
+    if (!teamId) return;
     const conversation = await this.conversations.getConversation(workspaceId, conversationId);
     if (!conversation || conversation.assignedTeamId) return;
     const event = await this.conversations.setTeamAssignment(workspaceId, conversationId, teamId, systemActor);

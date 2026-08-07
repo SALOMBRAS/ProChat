@@ -79,13 +79,6 @@ export function AppNavigation({
       ))}
       <div className="nav-spacer" />
       {settings.map(navigationButton)}
-      <div className="sidebar-upgrade">
-        <span>✦</span>
-        <div>
-          <strong>ChatPro IA</strong>
-          <p>Automação que escala.</p>
-        </div>
-      </div>
     </aside>
   );
 }

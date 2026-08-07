@@ -14,7 +14,19 @@ export interface ContactIdentityResolver { resolve(input: ContactIdentityInput):
 
 export function normalizedPhone(value: string | null | undefined): string | undefined { const digits = (value ?? '').replace(/\D/g, ''); return digits.length >= 8 && digits.length <= 15 ? digits : undefined; }
 export function phoneFromIdentifier(identifier: string): string | undefined { const value = normalizeWhatsAppIdentifier(identifier) ?? identifier.trim().toLowerCase(); return /^\d+$/.test(value) || value.endsWith('@c.us') ? normalizedPhone(value.split('@', 1)[0]) : undefined; }
-function observedPhone(input: ContactIdentityInput): string | undefined { return normalizedPhone(input.phone) ?? [input.identifier, input.chatId, ...(input.aliases ?? [])].filter((value): value is string => Boolean(value)).map(phoneFromIdentifier).find((value): value is string => Boolean(value)); }
+/** Dígitos locais de cada identificador `@lid` do pedido. Um "telefone" igual
+ *  a esses dígitos não é telefone: é o próprio LID que um provedor devolveu no
+ *  campo de número (WAHA preenche `number` com o LID quando não conhece o
+ *  telefone). Aceitá-lo criava um contato gêmeo com o LID como `phoneNumber`
+ *  e um chat separado na inbox. */
+function lidDigitsOf(input: ContactIdentityInput): string[] {
+  return [input.identifier, input.chatId, ...(input.aliases ?? [])]
+    .filter((value): value is string => Boolean(value))
+    .map(value => value.trim().toLowerCase())
+    .filter(value => value.endsWith('@lid'))
+    .map(value => value.split('@', 1)[0].replace(/\D/g, ''));
+}
+function observedPhone(input: ContactIdentityInput): string | undefined { const phone = normalizedPhone(input.phone) ?? [input.identifier, input.chatId, ...(input.aliases ?? [])].filter((value): value is string => Boolean(value)).map(phoneFromIdentifier).find((value): value is string => Boolean(value)); return phone && lidDigitsOf(input).includes(phone) ? undefined : phone; }
 
 type Alias = { identifier: string; type: string };
 function identityAliases(input: ContactIdentityInput, phone: string | undefined): Alias[] {
