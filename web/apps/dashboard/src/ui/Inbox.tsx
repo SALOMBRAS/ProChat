@@ -1598,6 +1598,9 @@ export default function Inbox({ api = defaultApi, domain = defaultDomainApi }: {
     finally { setChangingManagement(false); }
   };
   const filteredConversations = conversationPage.items.filter((conversation) => {
+    // Funil: instância e departamento recortam a lista antes do filtro de status.
+    if (funnelSession && conversation.whatsappSessionId !== funnelSession) return false;
+    if (funnelTeam && conversation.assignedTeamId !== funnelTeam) return false;
     if (filter === "unread") return conversation.unreadCount > 0;
     if (filter === "mine") return conversation.assignedUserId === currentUserId;
     if (filter === "unassigned") return !conversation.assignedUserId;
