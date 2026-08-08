@@ -7,18 +7,15 @@ import { SqlitePersistenceDatabase } from '../../api/src/persistence/database.js
 import { GowaClientError, type GowaClientPort } from '../src/gowa-client.js';
 import { GowaProvider } from '../src/gowa-provider.js';
 import { InMemoryGowaSessionStore, SqliteGowaSessionStore, assertGowaSchema, newGowaSessionLink, type GowaSessionStore } from '../src/gowa-session-store.js';
+import { gowaClientStub } from './support/gowa-client.stub.js';
 
 const context = (workspaceId: string): RequestContext => ({ workspaceId, correlationId: `correlation-${workspaceId}`, userId: 'user-a' });
 
-function client(overrides: Partial<GowaClientPort> = {}): GowaClientPort {
-  return {
-    health: vi.fn().mockResolvedValue(undefined),
-    createDevice: vi.fn().mockImplementation(async id => ({ id, state: 'disconnected' })),
-    listDevices: vi.fn().mockResolvedValue([]),
-    getSessionStatus: vi.fn().mockResolvedValue({ isConnected: false, isLoggedIn: false }),
-    startLogin: vi.fn(), fetchQrImage: vi.fn(), logout: vi.fn(), sendText: vi.fn(), ...overrides,
-  };
-}
+const client = (overrides: Partial<GowaClientPort> = {}): GowaClientPort => gowaClientStub({
+  createDevice: vi.fn().mockImplementation(async (id: string) => ({ id, state: 'disconnected' })),
+  listDevices: vi.fn().mockResolvedValue([]),
+  ...overrides,
+});
 
 async function withSqlite(test: (store: SqliteGowaSessionStore) => Promise<void>): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), 'chatpro-gowa-'));

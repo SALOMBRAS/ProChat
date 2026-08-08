@@ -18,4 +18,13 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_provider_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_whatsapp_provider_sessions_provider_workspace ON public.whatsapp_provider_sessions(provider, workspace_id);
-GRANT SELECT, INSERT, UPDATE ON public.whatsapp_provider_sessions TO service_role;
+
+-- RLS sem política: só o service_role (BYPASSRLS) alcança a tabela. É o que as
+-- três migrations mais recentes do projeto passaram a fazer, e aqui o custo é
+-- zero — nenhum fluxo anon/authenticated toca vínculo de dispositivo WhatsApp.
+ALTER TABLE public.whatsapp_provider_sessions ENABLE ROW LEVEL SECURITY;
+
+-- DELETE incluído de propósito: sem ele o rollback da Fase 1
+-- (DELETE ... WHERE provider='waha') e a remoção de sessão falham. Foi
+-- exatamente a omissão que obrigou a migration kanban_state_delete_grant.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.whatsapp_provider_sessions TO service_role;

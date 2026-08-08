@@ -1,7 +1,10 @@
-import { createSessionRequestSchema, requestContextSchema, whatsAppSessionSchema, type RequestContext, type SessionStatus, type WhatsAppSession } from '@chatpro/contracts';
+import { createSessionRequestSchema, requestContextSchema, whatsAppSessionSchema, type RequestContext, type SendableContent, type SessionStatus, type WhatsAppSession } from '@chatpro/contracts';
 import { GowaClientError, type GowaClientPort, type GowaDevice } from './gowa-client.js';
 import { assertSafeIdentifier } from './identifiers.js';
-import { WorkerOperationError, type WhatsAppProvider, type WorkerCommand } from './ports.js';
+import { WorkerOperationError, type WorkerCommand } from './ports.js';
+import { CommandBackedWhatsAppProvider } from './provider-operations.js';
+import { gowaHistoryChat, gowaHistoryMessage, unmapped } from './gowa-history.adapter.js';
+import { gowaContact, gowaGroup } from './gowa-contacts.adapter.js';
 import { GowaSessionRegistry } from './gowa-session-registry.js';
 import { InMemoryGowaSessionStore, newGowaSessionLink, type GowaReconciliationState, type GowaSessionLink, type GowaSessionStore } from './gowa-session-store.js';
 
@@ -11,13 +14,16 @@ type StoredSession = WhatsAppSession & { deviceId: string; providerStatus: strin
  * GOWA session adapter. The durable mapping is deliberately provider-neutral:
  * GOWA device IDs stay in the worker and are never part of dashboard contracts.
  */
-export class GowaProvider implements WhatsAppProvider {
+export class GowaProvider extends CommandBackedWhatsAppProvider {
   readonly provider = 'gowa' as const;
-  readonly capabilities = ['health', 'sessions', 'status', 'sendMessage'] as const;
+  // Deliberately narrow. GOWA upstream exposes media, groups and history, but
+  // this worker has not implemented them: capability describes what is wired,
+  // not what the vendor could do.
+  readonly capabilities = ['health', 'sessions', 'status', 'sendMessage', 'sendMedia', 'sendContent', 'reactions', 'contacts', 'history', 'groups'] as const;
   private readonly sessions = new Map<string, StoredSession>();
   private restored = false;
 
-  constructor(private readonly client: GowaClientPort, private readonly registry = new GowaSessionRegistry(), private readonly store: GowaSessionStore = new InMemoryGowaSessionStore()) {}
+  constructor(private readonly client: GowaClientPort, private readonly registry = new GowaSessionRegistry(), private readonly store: GowaSessionStore = new InMemoryGowaSessionStore()) { super(); }
 
   health(): Promise<void> { return this.client.health(); }
 
@@ -44,12 +50,19 @@ export class GowaProvider implements WhatsAppProvider {
     const valid = requestContextSchema.parse(context);
     if (command.type === 'listSessions') return this.list(valid);
     if (command.type === 'createSession') return this.create(valid, command.sessionId, command.input);
-    if (command.type === 'sendMessage') return this.sendText(valid, command.wahaSession, command.chatId, command.text, command.mentions, command.linkPreview);
+    if (command.type === 'sendMessage') return this.sendTextCommand(valid, command.wahaSession, command.chatId, command.text, command.mentions, command.linkPreview);
     if (command.type === 'getSession') return this.refresh(valid, this.require(valid, command.sessionId));
     if (command.type === 'connectSession') { await this.requestQRCode(valid, this.require(valid, command.sessionId)); return; }
     if (command.type === 'getQr') return this.qr(valid, this.require(valid, command.sessionId));
     if (command.type === 'logoutSession') { await this.logout(valid, this.require(valid, command.sessionId)); return; }
-    throw new WorkerOperationError('NOT_IMPLEMENTED', 'This GOWA operation is not implemented in the session phase', valid.correlationId, { provider: this.provider, command: command.type });
+    if (command.type === 'removeSession') { await this.remove(valid, this.require(valid, command.sessionId)); return; }
+    if (command.type === 'sendAttachment') return this.sendMediaCommand(valid, command.wahaSession, command.chatId, command.attachment);
+    if (command.type === 'sendContent') return this.sendContentCommand(valid, command.wahaSession, command.chatId, command.content);
+    if (command.type === 'sendReaction') return this.sendReactionCommand(valid, command.wahaSession, command.chatId, command.messageId, command.reaction);
+    if (command.type === 'contactsPage') return this.contactsPageCommand(valid, command.wahaSession, command.offset, command.limit);
+    if (command.type === 'syncIdentity') return this.syncIdentityCommand(valid, command.wahaSession, command.chatId, command.refreshGroup);
+    if (command.type === 'historyPage') return this.historyPageCommand(valid, command.wahaSession, command.chatId, command.offset, command.limit);
+    throw new WorkerOperationError('NOT_IMPLEMENTED', 'This GOWA operation is not implemented', valid.correlationId, { provider: this.provider, command: command.type });
   }
 
   async shutdown(): Promise<void> {
@@ -93,7 +106,7 @@ export class GowaProvider implements WhatsAppProvider {
     return this.summary(stored);
   }
 
-  private async sendText(context: RequestContext, sessionId: string, chatId: string, text: string, mentions?: readonly string[], linkPreview?: boolean) {
+  private async sendTextCommand(context: RequestContext, sessionId: string, chatId: string, text: string, mentions?: readonly string[], linkPreview?: boolean) {
     const stored = this.require(context, sessionId);
     const current = await this.refresh(context, stored);
     if (current.status !== 'connected') throw new WorkerOperationError('CONFLICT', 'WhatsApp session is not connected', context.correlationId, { status: current.status });
@@ -102,6 +115,99 @@ export class GowaProvider implements WhatsAppProvider {
     const phone = this.directPhone(context, chatId);
     const sent = await this.call(context, () => this.client.sendText(stored.deviceId, phone, text));
     return { id: sent.id, pending: false, timestamp: new Date().toISOString() };
+  }
+
+  private async sendMediaCommand(context: RequestContext, sessionId: string, chatId: string, attachment: { type: 'image' | 'audio' | 'video' | 'document'; url: string; filename: string; mimeType: string; caption?: string; voiceNote?: boolean }) {
+    const stored = await this.connected(context, sessionId);
+    const kind = attachment.type === 'document' ? 'file' as const : attachment.type;
+    // The URL is handed to GOWA, never the bytes — same contract ChatPro
+    // already uses with WAHA, so the object stays private behind a signed URL.
+    const sent = await this.call(context, () => this.client.sendMedia(stored.deviceId, kind, this.directPhone(context, chatId), { url: attachment.url, ...(attachment.caption ? { caption: attachment.caption } : {}), ...(attachment.voiceNote === undefined ? {} : { voiceNote: attachment.voiceNote }) }));
+    return { id: sent.id, pending: false, timestamp: new Date().toISOString() };
+  }
+
+  private async sendContentCommand(context: RequestContext, sessionId: string, chatId: string, content: SendableContent) {
+    const stored = await this.connected(context, sessionId);
+    const phone = this.directPhone(context, chatId);
+    if (content.kind === 'location') {
+      // GOWA's /send/location has no title field. Dropping a title the operator
+      // typed would be silent data loss, so it is refused instead.
+      if (content.title) throw new WorkerOperationError('NOT_IMPLEMENTED', 'GOWA location messages do not carry a title', context.correlationId, { provider: this.provider });
+      const sent = await this.call(context, () => this.client.sendLocation(stored.deviceId, phone, { latitude: content.latitude, longitude: content.longitude }));
+      return { id: sent.id, pending: false, timestamp: new Date().toISOString() };
+    }
+    if (content.kind !== 'vcard') throw new WorkerOperationError('NOT_IMPLEMENTED', 'GOWA polls are not wired in this phase', context.correlationId, { provider: this.provider, kind: content.kind });
+    // GOWA sends one contact per call, so N cards would become N messages and
+    // ChatPro would persist a single outbound row for them. Refuse rather than
+    // return an id that describes only part of what was sent.
+    if (content.contacts.length !== 1) throw new WorkerOperationError('NOT_IMPLEMENTED', 'GOWA contact cards are limited to one contact per message', context.correlationId, { provider: this.provider, contacts: content.contacts.length });
+    const [card] = content.contacts;
+    // A raw vCard string has no name/phone pair to map onto GOWA's flat fields.
+    if (!('phoneNumber' in card)) throw new WorkerOperationError('NOT_IMPLEMENTED', 'GOWA requires a structured contact, not a raw vCard', context.correlationId, { provider: this.provider });
+    const sent = await this.call(context, () => this.client.sendContact(stored.deviceId, phone, { name: card.fullName, phoneNumber: card.phoneNumber }));
+    return { id: sent.id, pending: false, timestamp: new Date().toISOString() };
+  }
+
+  private async sendReactionCommand(context: RequestContext, sessionId: string, chatId: string, messageId: string, reaction: string): Promise<void> {
+    const stored = await this.connected(context, sessionId);
+    // An empty emoji removes the reaction, which is how ChatPro already models it.
+    await this.call(context, () => this.client.sendReaction(stored.deviceId, messageId, this.directPhone(context, chatId), reaction));
+  }
+
+  private async contactsPageCommand(context: RequestContext, sessionId: string, offset: number, limit: number) {
+    const stored = this.require(context, sessionId);
+    const page = await this.call(context, () => this.client.listContacts(stored.deviceId, { offset, limit }));
+    // O contact list do GOWA só traz jid e name; o resto vem do enriquecimento.
+    const items = page.items.map(gowaContact).filter((item): item is NonNullable<typeof item> => Boolean(item));
+    return { items: items as unknown as Record<string, unknown>[], unsupported: unmapped(page.items.length, items.length), hasMore: page.hasMore };
+  }
+
+  /** Raw GOWA history never leaves this method: `gowa-history.adapter.ts`
+   * translates every item, and `unsupported` counts what it could not map so a
+   * silent gap in the history is visible instead of merely absent. */
+  private async historyPageCommand(context: RequestContext, sessionId: string, chatId: string | undefined, offset: number, limit: number) {
+    const stored = this.require(context, sessionId);
+    if (!chatId) {
+      const page = await this.call(context, () => this.client.listChats(stored.deviceId, { offset, limit }));
+      const items = page.items.map(gowaHistoryChat).filter((item): item is Record<string, unknown> => Boolean(item));
+      return { kind: 'chats' as const, items, unsupported: unmapped(page.items.length, items.length), hasMore: page.hasMore };
+    }
+    const page = await this.call(context, () => this.client.listMessages(stored.deviceId, chatId, { offset, limit }));
+    const items = page.items.map(gowaHistoryMessage).filter((item): item is Record<string, unknown> => Boolean(item));
+    return { kind: 'messages' as const, items, unsupported: unmapped(page.items.length, items.length), hasMore: page.hasMore };
+  }
+
+  /**
+   * Identity sync is avatar-only for now. The group half is deliberately
+   * refused: /group/info exists, but `openapi.yaml` names the response without
+   * naming its fields, and mapping a shape we have not seen is the assumption
+   * CLAUDE.md rule 7 exists to prevent. `groups` is not declared as a
+   * capability for the same reason.
+   */
+  private async syncIdentityCommand(context: RequestContext, sessionId: string, chatId: string, refreshGroup: boolean) {
+    const stored = this.require(context, sessionId);
+    if (refreshGroup || chatId.toLowerCase().endsWith('@g.us')) {
+      const raw = await this.call(context, () => this.client.getGroupParticipants(stored.deviceId, chatId));
+      const group = gowaGroup({ group_id: chatId, participants: raw });
+      if (!group) throw new WorkerOperationError('PROVIDER_CONTRACT_ERROR', 'GOWA group response is invalid', context.correlationId, { provider: this.provider });
+      return { identity: null, group: { chatId: group.chatId, name: group.subject, pictureUrl: null, metadata: {}, participants: group.participants.map(p => ({ whatsappId: p.whatsappId, role: p.role })) } };
+    }
+    const phone = this.directPhone(context, chatId);
+    const profilePictureUrl = await this.call(context, () => this.client.getAvatar(stored.deviceId, phone));
+    return { identity: { whatsappId: chatId, canonicalWhatsappId: chatId, phone, name: null, pushName: null, shortName: null, profilePictureUrl }, group: null };
+  }
+
+  /** Every send goes through the same connection check the text path uses. */
+  private async connected(context: RequestContext, sessionId: string): Promise<StoredSession> {
+    const stored = this.require(context, sessionId);
+    const current = await this.refresh(context, stored);
+    if (current.status !== 'connected') throw new WorkerOperationError('CONFLICT', 'WhatsApp session is not connected', context.correlationId, { status: current.status });
+    return stored;
+  }
+
+  private async remove(context: RequestContext, stored: StoredSession): Promise<void> {
+    await this.call(context, () => this.client.removeDevice(stored.deviceId));
+    this.sessions.delete(this.key(stored.workspaceId, stored.id));
   }
 
   private async requestQRCode(context: RequestContext, stored: StoredSession): Promise<void> {
@@ -150,10 +256,27 @@ export class GowaProvider implements WhatsAppProvider {
     return { ...whatsAppSessionSchema.parse({ id: link.sessionId, workspaceId: link.workspaceId, name: link.sessionName, status: link.chatproStatus, createdAt: link.createdAt, updatedAt: link.updatedAt }), deviceId: link.providerDeviceId, providerStatus: link.providerStatus, reconciliationState: link.reconciliationState };
   }
 
+  /**
+   * Recipient for GOWA's `phone` field.
+   *
+   * Group sending is supported, and that was established from the GOWA source
+   * rather than from the OpenAPI, which only ever exemplifies user JIDs:
+   * `utils.ParseJID` accepts any JID containing `@`, and
+   * `utils.ValidateJidWithLogin` — the validator every `/send/*` handler calls —
+   * only reaches the account check for `@s.whatsapp.net`. `utils.IsOnWhatsapp`
+   * closes with "For non-user JIDs (groups, newsletters), skip validation" and
+   * returns true, so a `@g.us` recipient passes untouched.
+   * (pkg/utils/whatsapp.go, commit be8155c5.)
+   *
+   * A direct chat keeps sending bare digits, which is the shape already in use
+   * and reported working; groups and LIDs send the full JID, since digits alone
+   * would lose the server and address the wrong chat.
+   */
   private directPhone(context: RequestContext, chatId: string): string {
-    const match = /^(\d{8,15})@c\.us$/.exec(chatId);
-    if (!match) throw new WorkerOperationError('VALIDATION_ERROR', 'GOWA text sending currently supports direct @c.us chats only', context.correlationId);
-    return match[1];
+    const direct = /^(\d{8,15})@c\.us$/.exec(chatId);
+    if (direct) return direct[1];
+    if (/^\d{5,25}@(g\.us|lid)$/.test(chatId)) return chatId;
+    throw new WorkerOperationError('VALIDATION_ERROR', 'GOWA sending supports direct, group and LID chats only', context.correlationId);
   }
 
   private statusFromDevice(device: GowaDevice, hasQr: boolean): SessionStatus {

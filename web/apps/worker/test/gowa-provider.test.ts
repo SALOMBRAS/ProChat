@@ -2,23 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RequestContext } from '@chatpro/contracts';
 import { GowaClientError, GowaHttpClient, type GowaClientPort } from '../src/gowa-client.js';
 import { GowaProvider } from '../src/gowa-provider.js';
+import { gowaClientStub } from './support/gowa-client.stub.js';
 
 const context: RequestContext = { userId: 'user-a', workspaceId: 'workspace-a', correlationId: 'correlation-a' };
 const image = 'data:image/png;base64,cXItYnl0ZXM=';
 
-function client(overrides: Partial<GowaClientPort> = {}): GowaClientPort {
-  return {
-    health: vi.fn().mockResolvedValue(undefined),
-    createDevice: vi.fn().mockResolvedValue({ id: 'internal-device', state: 'disconnected' }),
-    listDevices: vi.fn().mockResolvedValue([{ id: 'internal-device', state: 'disconnected' }]),
-    getSessionStatus: vi.fn().mockResolvedValue({ isConnected: false, isLoggedIn: false }),
-    startLogin: vi.fn().mockResolvedValue({ qrLink: 'http://gowa.test/scan-qr.png', qrDurationSeconds: 60 }),
-    fetchQrImage: vi.fn().mockResolvedValue(image),
-    logout: vi.fn().mockResolvedValue(undefined),
-    sendText: vi.fn().mockResolvedValue({ id: 'gowa-message-a' }),
-    ...overrides,
-  };
-}
+const client = (overrides: Partial<GowaClientPort> = {}): GowaClientPort => gowaClientStub(overrides);
 
 describe('GOWA provider session lifecycle', () => {
   it('creates a session, requests an internal QR image and logs out without exposing GOWA identifiers', async () => {

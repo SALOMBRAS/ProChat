@@ -134,7 +134,20 @@ export function newGowaSessionLink(input: Omit<GowaSessionLink, 'id' | 'createdA
 function toRow(link: GowaSessionLink): DatabaseRow { return { ...link, capabilitiesJson: JSON.stringify(link.capabilities), providerMetadataJson: JSON.stringify(link.providerMetadata) }; }
 function fromRow(row: DatabaseRow): GowaSessionLink { return sanitize({ ...row, capabilities: parseArray(row.capabilitiesJson), providerMetadata: parseObject(row.providerMetadataJson) }); }
 function toSupabaseRow(link: GowaSessionLink): SupabaseRow { return { id: link.id, workspace_id: link.workspaceId, provider: link.provider, session_id: link.sessionId, session_name: link.sessionName, provider_device_id: link.providerDeviceId, provider_status: link.providerStatus, chatpro_status: link.chatproStatus, capabilities_json: link.capabilities, provider_metadata_json: link.providerMetadata, reconciliation_state: link.reconciliationState, created_at: link.createdAt, updated_at: link.updatedAt, last_reconciled_at: link.lastReconciledAt }; }
-function fromSupabaseRow(row: SupabaseRow): GowaSessionLink { return sanitize({ id: string(row.id), workspaceId: string(row.workspace_id), provider: 'gowa', sessionId: string(row.session_id), sessionName: string(row.session_name), providerDeviceId: string(row.provider_device_id), providerStatus: string(row.provider_status), chatproStatus: status(row.chatpro_status), capabilities: array(row.capabilities_json), providerMetadata: object(row.provider_metadata_json), reconciliationState: reconciliation(row.reconciliation_state), createdAt: string(row.created_at), updatedAt: string(row.updated_at), lastReconciledAt: row.last_reconciled_at === null || row.last_reconciled_at === undefined ? null : string(row.last_reconciled_at) }); }
+function fromSupabaseRow(row: SupabaseRow): GowaSessionLink { return sanitize({ id: string(row.id), workspaceId: string(row.workspace_id), provider: 'gowa', sessionId: string(row.session_id), sessionName: string(row.session_name), providerDeviceId: string(row.provider_device_id), providerStatus: string(row.provider_status), chatproStatus: status(row.chatpro_status), capabilities: array(row.capabilities_json), providerMetadata: object(row.provider_metadata_json), reconciliationState: reconciliation(row.reconciliation_state), createdAt: instant(row.created_at), updatedAt: instant(row.updated_at), lastReconciledAt: row.last_reconciled_at === null || row.last_reconciled_at === undefined ? null : instant(row.last_reconciled_at) }); }
+/**
+ * PostgREST renders `timestamptz` with an offset — `2026-07-20T13:30:04.508+00:00`
+ * — and the shared contract uses `z.string().datetime()`, which accepts only a
+ * `Z` suffix. Left raw, every restored session failed `whatsAppSessionSchema`
+ * and the worker died on its second boot, once a row existed. Normalising at
+ * the row boundary keeps the fix where the format is introduced, instead of
+ * loosening a contract that both providers and the API share.
+ */
+function instant(value: unknown): string {
+  const parsed = new Date(string(value));
+  if (Number.isNaN(parsed.getTime())) throw new Error('Invalid stored GOWA timestamp');
+  return parsed.toISOString();
+}
 function sanitize(link: GowaSessionLink): GowaSessionLink { return { ...link, capabilities: [...link.capabilities], providerMetadata: safeMetadata(link.providerMetadata) }; }
 function clone(link: GowaSessionLink): GowaSessionLink { return sanitize({ ...link }); }
 function key(workspaceId: string, sessionId: string): string { return `${workspaceId}\u0000${sessionId}`; }

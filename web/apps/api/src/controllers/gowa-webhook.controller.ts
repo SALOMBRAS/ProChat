@@ -22,12 +22,12 @@ export class GowaWebhookController {
       // The webhook's device_id is a JID and is intentionally not read below.
       const session = await this.store.findByProviderDeviceId(event.session_id);
       if (!session) throw new GowaWebhookValidationError(404, 'GOWA webhook session is unknown');
-      const inbound = gowaInboundInboxMessage(event, { workspaceId: session.workspaceId, sessionId: session.sessionId });
+      const inbound = gowaInboundInboxMessage(event, { workspaceId: session.workspaceId, sessionId: session.sessionId, providerSessionId: session.providerSessionId });
       if (inbound) {
         // Persist direct-contact identity before the shared Inbox store resolves
         // its contact. This preserves profile/push name precedence and never
         // asks the WAHA worker to resolve a GOWA session.
-        if (inbound.identity) await this.identities.persist({ workspaceId: session.workspaceId, wahaSession: session.sessionId, chatId: inbound.identity.whatsappId }, { identity: inbound.identity, group: null });
+        if (inbound.identity) await this.identities.persist({ workspaceId: session.workspaceId, wahaSession: session.sessionId, providerSessionId: session.providerSessionId, chatId: inbound.identity.whatsappId }, { identity: inbound.identity, group: null });
         const result = await this.inbox.ingest(inbound.event);
         if (result.duplicate) return res.status(200).json({ accepted: true, duplicate: true });
         if (result.messageInserted) {
@@ -42,7 +42,7 @@ export class GowaWebhookController {
       // sender already has our 202. This phase still ingests text only, so the
       // drop stays — but it stops being invisible. Counting `reason` over time
       // is what says whether GOWA media is worth implementing next.
-      const discarded = gowaInboundDiscard(event, { workspaceId: session.workspaceId, sessionId: session.sessionId });
+      const discarded = gowaInboundDiscard(event, { workspaceId: session.workspaceId, sessionId: session.sessionId, providerSessionId: session.providerSessionId });
       if (discarded) log('info', 'GOWA inbound message discarded before the Inbox', { workspaceId: session.workspaceId, sessionId: session.sessionId, ...discarded });
       const normalized = normalizeGowaWebhook(event);
       for (const item of normalized) {
@@ -53,6 +53,13 @@ export class GowaWebhookController {
           if (previousStatus !== item.chatproStatus) this.realtime.publish(session.workspaceId, 'session.status.changed', { sessionId: session.sessionId, status: item.chatproStatus, previousStatus, changedAt: item.occurredAt });
           continue;
         }
+        // Persist before publishing. Realtime alone made the status vanish on
+        // reload; and the write is scoped by providerSessionId so a receipt
+        // never lands on a same-id message from the other provider.
+        await this.store.recordAck({ workspaceId: session.workspaceId, providerSessionId: session.providerSessionId, sessionId: session.sessionId, messageId: item.messageId, status: item.status });
+        // Publicado sempre, inclusive quando nada foi gravado: o recibo pode
+        // chegar antes da mensagem, e a Inbox aberta deve refletir o estado.
+        // Atualização de status é idempotente, então repetir não faz mal.
         this.realtime.publish(session.workspaceId, 'message.status.updated', { sessionId: session.sessionId, messageId: item.messageId, status: item.status, changedAt: item.occurredAt });
       }
       return res.status(202).json({ accepted: true, duplicate: false });
