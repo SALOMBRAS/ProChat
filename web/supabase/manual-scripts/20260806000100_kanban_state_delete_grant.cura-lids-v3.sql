@@ -1,3 +1,17 @@
+-- ###########################################################################
+-- #  MANUAL · DESTRUCTIVE · NEVER RUN VIA DB PUSH                           #
+-- #                                                                          #
+-- #  Isto NÃO é uma migration. É script de cura de uso único, e contém DML   #
+-- #  destrutivo: DELETE em conversation_kanban_state e em conversations.     #
+-- #                                                                          #
+-- #  Ficava em supabase/migrations/, onde o Supabase CLI trata todo .sql     #
+-- #  como migration — um db push o executaria. Medido em 2026-08-08: as 29   #
+-- #  conversas @lid seguem no remoto (quarentenadas), então o push as        #
+-- #  APAGARIA. Movido para cá em 2026-08-08 por isso.                        #
+-- #                                                                          #
+-- #  Execute só à mão, no SQL Editor, um passo por vez, conferindo contagem. #
+-- ###########################################################################
+
 -- 2026-08-06 — Cura LID v3, etapa final (rodar UMA vez no SQL Editor do Supabase).
 --
 -- O que já foi feito pela aplicação/scripts:

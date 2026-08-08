@@ -15,8 +15,10 @@ import { createDomainRepositoryForProvider } from './persistence/provider.js';
 import { createSupabasePersistenceClient } from './persistence/supabase.js';
 import { resetSupabaseCallTally, supabaseCallStatsEnabled, supabaseCallTally } from './persistence/supabase-call-stats.js';
 import { WahaWebhookController } from './controllers/waha-webhook.controller.js';
+import { GowaWebhookController } from './controllers/gowa-webhook.controller.js';
 import { InboxController } from './controllers/inbox.controller.js';
 import { SqliteWahaWebhookStore, SupabaseWahaWebhookStore } from './services/waha-webhook.service.js';
+import { SqliteGowaWebhookSessionStore, SupabaseGowaWebhookSessionStore } from './services/gowa-webhook.service.js';
 import { InboxContactService } from './services/inbox-contact.service.js';
 import { InternalInboxService } from './services/internal-inbox.service.js';
 import { RealtimeHub } from './realtime.js';
@@ -116,6 +118,8 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const kanbanAutomation = new KanbanAutomationCoordinator(kanban);
     webhookStore = database ? new SqliteWahaWebhookStore(database.sqlite, kanbanAutomation, config.ownWhatsappNumbers, slaMessages) : new SupabaseWahaWebhookStore(supabase!, kanbanAutomation, config.ownWhatsappNumbers, slaMessages);
     app.locals.wahaWebhookStore = webhookStore;
+    const gowaWebhookStore = database ? new SqliteGowaWebhookSessionStore(database.sqlite) : new SupabaseGowaWebhookSessionStore(supabase!);
+    app.locals.gowaWebhookStore = gowaWebhookStore;
     sessions.sessionPhoneHistory = async (workspaceId) => { const pairs = await webhookStore.ownSessionPhones(workspaceId); const byPhone = new Map<string, string[]>(); for (const pair of pairs) byPhone.set(pair.phone, [...(byPhone.get(pair.phone) ?? []), pair.wahaSession]); return byPhone; };
     const mediaPersistence = new WhatsAppMediaPersistenceService(webhookStore, permanentMedia, { baseUrl: config.wahaBaseUrl, apiKey: config.wahaApiKey });
     if (config.nodeEnv !== 'test') { const timer = setInterval(() => { void sla.tick().catch(error => log('error', 'SLA tick failed', { error: error instanceof Error ? error.stack ?? error.message : String(error) })); }, 60_000); timer.unref(); }
@@ -136,6 +140,7 @@ export async function createApp(config: ApiConfig = loadConfig()) {
     const departmentAssignment = new DepartmentAssignmentService(domainService, webhookStore, realtimeHub);
     const conversationVisibility = new ConversationVisibilityService(directory);
     app.post('/api/v1/webhooks/waha', new WahaWebhookController(webhookStore, realtimeHub, { hmacKey: config.wahaWebhookHmacKey, workspaceId: config.wahaWebhookWorkspaceId }, identitySync, async (workspaceId, externalMessageId) => { await attachments.confirm(workspaceId, externalMessageId); }, mediaPersistence, departmentAssignment).receive); if (mediaPersistence.enabled) setImmediate(() => { void Promise.all([mediaPersistence.importPending(), mediaPersistence.repairStoredMime()]).catch(() => undefined); });
+    app.post('/api/v1/webhooks/gowa', new GowaWebhookController(gowaWebhookStore, realtimeHub, { secret: config.gowaWebhookSecret }, webhookStore, identityStore).receive);
     const historySync = new WhatsAppHistorySyncService(workerClient, webhookStore, syncStore, realtimeHub, { maxChatsPerRun: config.whatsappHistorySyncBatchChats, maxMessagesPerRun: config.whatsappHistorySyncBatchMessages, emergencyMaxMessages: config.whatsappHistorySyncEmergencyMaxMessages });
     const contactSync = new WhatsAppContactSyncService(workerClient, database ? new SqliteContactIdentityResolver(database.sqlite) : new SupabaseContactIdentityResolver(supabase!), new MemoryContactSyncStore(), identitySync, realtimeHub, { nameRepair: database ? new SqliteContactNameRepair(database.sqlite) : new SupabaseContactNameRepair(supabase!) });
     app.locals.routingJobs = database ? new SqliteRoutingJobStore(database.sqlite) : undefined;

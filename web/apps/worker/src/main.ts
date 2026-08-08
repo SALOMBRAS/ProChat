@@ -1,4 +1,6 @@
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { SqliteDatabase } from '../../api/src/persistence/database.js';
 import { loadWorkerConfig, type WorkerConfig } from './config.js';
 import { DemoWhatsAppWorkerAdapter } from './demo-whatsapp-worker.adapter.js';
 import { StructuredLogEventPublisherAdapter } from './event-publishers.js';
@@ -18,6 +20,15 @@ export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfi
     const adapter = new WahaProvider(client, config.qrTtlMs, new FileWahaSessionRegistry(config.dataDir));
     return { adapter, manager: undefined, restored: [], config, shutdown: () => adapter.shutdown() };
   }
+  if (config.whatsAppProvider === 'gowa') {
+    const [{ GowaHttpClient }, { GowaProvider }, { createGowaSessionStore }] = await Promise.all([import('./gowa-client.js'), import('./gowa-provider.js'), import('./gowa-session-store.js')]);
+    const client = new GowaHttpClient({ baseUrl: config.gowaBaseUrl, apiKey: config.gowaApiKey, basicAuthUsername: config.gowaBasicAuthUsername, basicAuthPassword: config.gowaBasicAuthPassword, timeoutMs: config.gowaTimeoutMs });
+    await client.health();
+    const store = await createGowaSessionStore(config);
+    const adapter = new GowaProvider(client, undefined, store);
+    const restored = await adapter.restore();
+    return { adapter, manager: undefined, restored, config, shutdown: async () => { await adapter.shutdown(); await store.close(); } };
+  }
   const [{ BaileysSocketFactory }, { BaileysWhatsAppWorkerAdapter }, { FileSystemCredentialStoreAdapter }, { WhatsAppSessionManager }] = await Promise.all([
     import('./baileys-socket.factory.js'), import('./baileys-whatsapp-worker.adapter.js'), import('./file-system-credential-store.adapter.js'), import('./whatsapp-session-manager.js'),
   ]);
@@ -27,6 +38,24 @@ export async function createWorkerRuntime(config: WorkerConfig = loadWorkerConfi
   const adapter = new BaileysWhatsAppWorkerAdapter(manager);
   const restored = await manager.restorePersistedSessions();
   return { adapter, manager, restored, config, shutdown: () => manager.shutdown() };
+}
+
+/**
+ * Whether ROUTING_DATABASE_PATH and CHATPRO_DATABASE_PATH name the same file.
+ * Compared after `resolve` because one is usually relative and the other
+ * absolute, and case-insensitively on Windows only — `C:\A\db.sqlite` and
+ * `c:\a\db.sqlite` are one file there and two files on Linux.
+ */
+export function sharesApiDatabase(routingPath: string | undefined, apiPath: string | undefined): boolean {
+  if (!routingPath || !apiPath) return false;
+  const normalize = (value: string) => (process.platform === 'win32' ? resolve(value).toLowerCase() : resolve(value));
+  return normalize(routingPath) === normalize(apiPath);
+}
+
+/** Read-only, like assertGowaSchema: names what is missing, creates nothing. */
+export function assertRoutingSchema(database: SqliteDatabase): void {
+  const missing = ['routing_queues', 'routing_jobs'].filter(table => !database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table));
+  if (missing.length) throw new Error(`Tables ${missing.join(', ')} are missing. ROUTING_DATABASE_PATH points at the API database, and the API owns that schema: start the API once against it before starting the worker.`);
 }
 
 export async function runWorker(): Promise<void> {
@@ -42,7 +71,13 @@ export async function runWorker(): Promise<void> {
     let routingDatabase: any;
     if (runtime.config.routingDatabasePath) {
       const [{ SqlitePersistenceDatabase }, { SqliteRoutingStore }, { SqliteRoutingJobStore, RoutingJobProcessor }] = await Promise.all([import('../../api/src/persistence/database.js'), import('../../api/src/services/routing.service.js'), import('../../api/src/services/routing-jobs.service.js')]);
-      routingDatabase = new SqlitePersistenceDatabase(runtime.config.routingDatabasePath); routingDatabase.migrate();
+      routingDatabase = new SqlitePersistenceDatabase(runtime.config.routingDatabasePath);
+      // Same rule as the GOWA session store: whoever owns the file owns its
+      // schema. Pointed at its own file the worker is the only writer, so it
+      // still migrates; pointed at the API's file it must not become a second
+      // one, or the startup race comes back through this door instead.
+      if (sharesApiDatabase(runtime.config.routingDatabasePath, runtime.config.databasePath)) assertRoutingSchema(routingDatabase.sqlite);
+      else routingDatabase.migrate();
       const jobs = new SqliteRoutingJobStore(routingDatabase.sqlite); const processor = new RoutingJobProcessor(jobs, new SqliteRoutingStore(routingDatabase.sqlite));
       const pollMs = runtime.config.routingPollMs ?? 1_000;
       stopRouting = startRoutingJobConsumer({ claim: (workerId, limit, lockTimeoutMs) => jobs.claim(workerId,limit,lockTimeoutMs), process: job => processor.process(job as never) }, { workerId: runtime.config.name, pollMs, batchSize: runtime.config.routingBatchSize ?? 10, lockTimeoutMs: pollMs * 10 });

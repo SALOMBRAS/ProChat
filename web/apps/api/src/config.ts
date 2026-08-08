@@ -25,6 +25,8 @@ export interface ApiConfig {
   supabaseServiceRoleKey?: string;
   wahaWebhookHmacKey?: string;
   wahaWebhookWorkspaceId?: string;
+  /** HMAC secret used by GOWA's X-Hub-Signature-256 webhook header. */
+  gowaWebhookSecret?: string;
   wahaBaseUrl?: string;
   wahaApiKey?: string;
   mediaProxyTokenSecret?: string;
@@ -83,5 +85,5 @@ export function loadConfig(env = process.env): ApiConfig {
   const adminPassword = env.CHATPRO_ADMIN_PASSWORD || undefined;
   if (adminEmail && !adminPassword) throw new Error('CHATPRO_ADMIN_PASSWORD is required when CHATPRO_ADMIN_EMAIL is set');
   const authSessionTtlHours = positiveInteger('AUTH_SESSION_TTL_HOURS', 168, 24 * 90);
-  return { port, nodeEnv, workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, wahaWebhookHmacKey: env.WAHA_WEBHOOK_HMAC_KEY?.trim() || undefined, wahaWebhookWorkspaceId, wahaBaseUrl: env.WAHA_BASE_URL?.trim().replace(/\/+$/, '') || undefined, wahaApiKey: env.WAHA_API_KEY?.trim() || undefined, mediaProxyTokenSecret: env.MEDIA_PROXY_TOKEN_SECRET?.trim() || undefined, developmentUserId, apiHosts, corsAllowedOrigins, ownWhatsappNumbers, adminEmail, adminPassword, authSessionTtlHours, whatsappHistorySyncBatchChats: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_CHATS', 25, 100), whatsappHistorySyncBatchMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_MESSAGES', 100, 5_000), whatsappHistorySyncEmergencyMaxMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_EMERGENCY_MAX_MESSAGES', 100_000, 1_000_000), callServiceUrl: (env.CALL_SERVICE_URL?.trim() || 'http://127.0.0.1:8080').replace(/\/+$/, '') };
+  return { port, nodeEnv, workerTransportUrl: env.WORKER_TRANSPORT_URL ?? 'http://127.0.0.1:3101/internal/transport', workerTransportTimeoutMs, databasePath: env.CHATPRO_DATABASE_PATH, databaseProvider, supabaseUrl: env.SUPABASE_URL, supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY, wahaWebhookHmacKey: env.WAHA_WEBHOOK_HMAC_KEY?.trim() || undefined, wahaWebhookWorkspaceId, gowaWebhookSecret: env.GOWA_WEBHOOK_SECRET?.trim() || undefined, wahaBaseUrl: env.WAHA_BASE_URL?.trim().replace(/\/+$/, '') || undefined, wahaApiKey: env.WAHA_API_KEY?.trim() || undefined, mediaProxyTokenSecret: env.MEDIA_PROXY_TOKEN_SECRET?.trim() || undefined, developmentUserId, apiHosts, corsAllowedOrigins, ownWhatsappNumbers, adminEmail, adminPassword, authSessionTtlHours, whatsappHistorySyncBatchChats: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_CHATS', 25, 100), whatsappHistorySyncBatchMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_BATCH_MESSAGES', 100, 5_000), whatsappHistorySyncEmergencyMaxMessages: positiveInteger('WHATSAPP_HISTORY_SYNC_EMERGENCY_MAX_MESSAGES', 100_000, 1_000_000), callServiceUrl: (env.CALL_SERVICE_URL?.trim() || 'http://127.0.0.1:8080').replace(/\/+$/, '') };
 }
