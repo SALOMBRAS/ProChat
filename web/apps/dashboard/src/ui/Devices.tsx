@@ -190,7 +190,7 @@ export function Devices({ api, domainApi, workspace }: { api?: SessionsApi; doma
             <button className="close" onClick={() => setQr(undefined)} aria-label="Fechar">×</button>
             <h2>QR: {qr.name}</h2>
             <p>Escaneie com o WhatsApp do celular.</p>
-            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qr.value)}`} alt="QR Code" />
+            <img src={qr.value.startsWith('data:image/') ? qr.value : `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qr.value)}`} alt="QR Code" />
           </section>
         </div>
       )}

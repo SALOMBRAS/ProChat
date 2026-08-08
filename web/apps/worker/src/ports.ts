@@ -1,4 +1,7 @@
 import type { ApiError, CreateSessionRequest, EventEnvelope, RequestContext, SendableContent, WhatsAppSession } from '@chatpro/contracts';
+/** Provider identifiers are independent from persistence and transport naming. */
+export type WhatsAppProviderName = 'baileys' | 'gowa' | 'waha';
+export type WhatsAppProviderCapability = 'health' | 'sessions' | 'status' | 'sendMessage' | 'sendMedia' | 'contacts' | 'groups' | 'reactions' | 'history';
 export type IdentitySyncResult = { identity: { whatsappId: string; canonicalWhatsappId: string; phone: string | null; name: string | null; pushName: string | null; shortName: string | null; profilePictureUrl: string | null } | null; group: { chatId: string; name: string | null; pictureUrl: string | null; metadata: Record<string, unknown>; participants: Array<{ whatsappId: string; role: string | null }> } | null };
 export type HistoryPage = { kind: 'chats' | 'messages'; items: Record<string, unknown>[]; unsupported: string[]; hasMore: boolean };
 export type ContactsPage = { items: Record<string, unknown>[]; unsupported: string[]; hasMore: boolean };
@@ -6,6 +9,16 @@ export type LidsPage = { items: Record<string, unknown>[]; unsupported: string[]
 export type WorkerCommand = { type: 'listSessions' } | { type: 'createSession'; sessionId: string; input: CreateSessionRequest } | { type: 'connectSession' | 'disconnectSession' | 'logoutSession' | 'removeSession'; sessionId: string } | { type: 'getSession' | 'getQr'; sessionId: string } | { type: 'sendMessage'; wahaSession: string; chatId: string; text: string; mentions?: readonly string[]; linkPreview?: boolean } | { type: 'sendAttachment'; wahaSession: string; chatId: string; attachment: { type: 'image' | 'audio' | 'video' | 'document'; url: string; filename: string; mimeType: string; caption?: string; voiceNote?: boolean } } | { type: 'sendContent'; wahaSession: string; chatId: string; content: SendableContent } | { type: 'sendReaction'; wahaSession: string; chatId: string; messageId: string; reaction: string } | { type: 'syncIdentity'; wahaSession: string; chatId: string; senderWhatsappId?: string; refreshIdentity: boolean; refreshGroup: boolean } | { type: 'historyPage'; wahaSession: string; chatId?: string; offset: number; limit: number } | { type: 'contactsPage'; wahaSession: string; offset: number; limit: number } | { type: 'lidsPage'; wahaSession: string; offset: number; limit: number } | { type: 'mergeSessionAliases'; sessionId: string; aliases: string[] };
 export type SentMessage = { id?: string; timestamp: string; pending?: boolean };
 export interface WhatsAppWorkerPort { execute(context: RequestContext, command: WorkerCommand): Promise<WhatsAppSession[] | WhatsAppSession | { sessionId: string; workspaceId: string; qr: string; expiresAt: string } | SentMessage | IdentitySyncResult | HistoryPage | ContactsPage | void>; }
+/**
+ * Stable boundary for HTTP-backed WhatsApp providers. Capabilities describe
+ * what has actually been implemented so an unfinished provider is never
+ * mistaken for a feature-complete one.
+ */
+export interface WhatsAppProvider extends WhatsAppWorkerPort {
+  readonly provider: WhatsAppProviderName;
+  readonly capabilities: readonly WhatsAppProviderCapability[];
+  shutdown(): Promise<void> | void;
+}
 export interface SessionRepositoryPort { /* persistence adapter to be implemented */ }
 export interface EventPublisherPort { publish(event: EventEnvelope): Promise<void>; }
 export interface CredentialStorePort { authDirectory(workspaceId: string, sessionId: string): string; prepareAuthDirectory(workspaceId: string, sessionId: string): Promise<string>; hasAuthDirectory(workspaceId: string, sessionId: string): Promise<boolean>; removeAuthDirectory(workspaceId: string, sessionId: string): Promise<void>; discoverSessions(): Promise<Array<{ workspaceId: string; sessionId: string }>>; }
